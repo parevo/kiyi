@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
-import type { DriverInfo } from "../lib/types";
+import { useEffect, useMemo, useState } from "react";
+import { ipc } from "../lib/ipc";
+import type { DriverInfo, LocalDatabase } from "../lib/types";
 import { driverFor, useCatalog } from "../state/catalog";
 import { useActiveConnection, useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
-import { DatabaseIcon, PlusIcon, SearchIcon, TableIcon, ViewIcon } from "./icons";
+import { useUi } from "../state/ui";
+import { DatabaseIcon, LinkIcon, PlusIcon, RefreshIcon, SearchIcon, SparklesIcon, Spinner, TableIcon, ViewIcon } from "./icons";
 import { Button } from "./ui";
 import s from "./Home.module.css";
 
@@ -128,37 +130,88 @@ export function ConnectionsHome({ onNew }: { onNew(): void }) {
   );
 }
 
-/** First run: paste an address, or pick a database. */
-export function Welcome({ onConnect }: { onConnect(init: { url?: string; driver?: DriverInfo }): void }) {
+export type ConnectInit = { url?: string; driver?: DriverInfo; host?: string; port?: number };
+
+/** First run: databases found on this Mac, a URL box, or set one up by hand. */
+export function Welcome({ onConnect }: { onConnect(init: ConnectInit): void }) {
   const drivers = useCatalog((st) => st.drivers);
+  const openSettings = useUi((st) => st.openSettings);
   const [url, setUrl] = useState("");
+  const [found, setFound] = useState<LocalDatabase[] | null>(null);
+
+  const scan = () => {
+    setFound(null);
+    ipc.discoverLocal().then(setFound, () => setFound([]));
+  };
+  useEffect(scan, []);
+
   return (
     <div className={s.welcome}>
-      <img src="/icon.svg" alt="" className={s.mark} />
-      <h1 className={s.headline}>Welcome to Kiyi</h1>
-      <p className={s.lede}>Connect to a database, then browse and edit its data like a spreadsheet. No SQL needed.</p>
-      <form
-        className={s.paste}
-        onSubmit={(e) => {
-          e.preventDefault();
-          onConnect({ url });
-        }}
-      >
-        <DatabaseIcon />
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste a connection URL" spellCheck={false} autoFocus aria-label="Connection URL" />
-        <Button type="submit" variant="primary" isDisabled={!url.trim()}>
-          Connect
-        </Button>
-      </form>
-      <p className={s.or}>or choose your database</p>
-      <div className={s.drivers}>
-        {drivers.map((d) => (
-          <button key={d.id} className={s.driver} disabled={!d.kind} onClick={() => onConnect({ driver: d })}>
-            <DatabaseIcon size={22} />
-            {d.name}
-            {!d.kind && <span className={s.soon}>Coming soon</span>}
-          </button>
-        ))}
+      <div className={s.welcomeInner}>
+        <img src="/icon.svg" alt="" className={s.mark} />
+        <h1 className={s.headline}>Welcome to Kiyi</h1>
+        <p className={s.lede}>Connect a database to browse, search and edit its data like a spreadsheet. No SQL needed.</p>
+
+        <div className={s.panel}>
+          <div className={s.panelHead}>
+            <span className={s.panelTitle}>Found on this Mac</span>
+            <button className={s.rescan} onClick={scan} disabled={found === null}>
+              {found === null ? <Spinner size={12} /> : <RefreshIcon size={13} />}
+              {found === null ? "Looking…" : "Look again"}
+            </button>
+          </div>
+          {found === null && <p className={s.panelEmpty}>Looking for databases running on this Mac…</p>}
+          {found?.length === 0 && <p className={s.panelEmpty}>No local databases found. Paste a connection URL below, or set one up by hand.</p>}
+          {found?.map((db) => {
+            const driver = drivers.find((d) => d.id === db.driver);
+            return (
+              <div key={db.port} className={s.found}>
+                <DatabaseIcon size={18} />
+                <span className={s.foundMain}>
+                  <span className={s.foundName}>
+                    {driver?.name ?? db.driver}
+                    {db.version && <span className={s.foundVersion}>{db.version}</span>}
+                  </span>
+                  <span className={s.foundAddr}>
+                    {db.host}:{db.port}
+                  </span>
+                </span>
+                <Button variant="primary" onPress={() => onConnect({ driver, host: db.host, port: db.port })}>
+                  Connect
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+
+        <form
+          className={s.paste}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (url.trim()) onConnect({ url });
+          }}
+        >
+          <LinkIcon size={16} />
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="…or paste a connection URL, e.g. postgres://user:pass@host/db" spellCheck={false} aria-label="Connection URL" />
+          <Button type="submit" variant="primary" isDisabled={!url.trim()}>
+            Connect
+          </Button>
+        </form>
+
+        <p className={s.or}>Set up a connection by hand</p>
+        <div className={s.drivers}>
+          {drivers.map((d) => (
+            <button key={d.id} className={s.driver} disabled={!d.kind} onClick={() => onConnect({ driver: d })}>
+              <DatabaseIcon size={20} />
+              {d.name}
+              {!d.kind && <span className={s.soon}>Coming soon</span>}
+            </button>
+          ))}
+        </div>
+
+        <button className={s.aiHint} onClick={() => openSettings("ai")}>
+          <SparklesIcon size={14} /> Want to ask for rows in plain words? Set up AI (optional)
+        </button>
       </div>
     </div>
   );

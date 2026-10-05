@@ -71,6 +71,7 @@ struct Running {
 
 pub struct Workspace {
     store: Mutex<ConnectionStore>,
+    ai: Mutex<crate::ai::AiStore>,
     live: RwLock<HashMap<String, Arc<dyn DbDriver>>>,
     running: Arc<Mutex<HashMap<String, Running>>>,
 }
@@ -79,6 +80,7 @@ impl Workspace {
     pub fn new(config_dir: &Path) -> Result<Self> {
         Ok(Self {
             store: Mutex::new(ConnectionStore::load(config_dir.join("connections.json"))?),
+            ai: Mutex::new(crate::ai::AiStore::load(config_dir.join("ai.json"))?),
             live: RwLock::new(HashMap::new()),
             running: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -256,10 +258,26 @@ impl Workspace {
         }
     }
 
+    pub fn ai(&self) -> std::sync::MutexGuard<'_, crate::ai::AiStore> {
+        self.ai.lock().unwrap()
+    }
+
+    /// Models offered by `provider`, using `key` from the form or the stored one.
+    pub async fn ai_models(&self, provider: &crate::ai::AiProvider, key: Option<&str>) -> Result<Vec<String>> {
+        let key = self.ai().key(provider, key)?;
+        crate::ai::list_models(provider, key.as_deref()).await
+    }
+
     pub async fn ai_filters(&self, id: &str, schema: Option<&str>, table: &str, prompt: &str, today: &str) -> Result<crate::ai::AiFilterResult> {
+        let (provider, key) = {
+            let ai = self.ai();
+            let p = ai.active().ok_or_else(|| Error::Invalid("Choose an AI provider in Settings to use AI.".into()))?;
+            let key = ai.key(&p, None)?;
+            (p, key)
+        };
         let driver = self.driver(id)?;
         let details = driver.table_details(schema, table).await?;
-        crate::ai::filters_from_prompt(driver.dialect(), &details, prompt, today).await
+        crate::ai::filters_from_prompt(&provider, key.as_deref(), driver.dialect(), &details, prompt, today).await
     }
 
     pub async fn browse(&self, id: &str, req: &BrowseRequest) -> Result<Page> {

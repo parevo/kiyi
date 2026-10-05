@@ -237,8 +237,50 @@ export interface DriverInfo {
 
 export interface AiStatus {
   configured: boolean;
-  source: "keychain" | "environment" | null;
+  provider: string | null;
+  model: string | null;
+}
+
+export type ProviderKind = "anthropic" | "openAi";
+
+export interface AiProvider {
+  id: string;
+  name: string;
+  kind: ProviderKind;
+  baseUrl: string;
   model: string;
+  preset: string | null;
+}
+
+export interface ProviderView extends AiProvider {
+  keySource: "keychain" | "environment" | null;
+  needsKey: boolean;
+}
+
+export interface AiSettings {
+  providers: ProviderView[];
+  active: string | null;
+}
+
+export interface ProviderPreset {
+  id: string;
+  name: string;
+  kind: ProviderKind;
+  baseUrl: string;
+  defaultModel: string;
+  needsKey: boolean;
+  local: boolean;
+  keyUrl: string | null;
+  envVar: string | null;
+  description: string;
+}
+
+export interface LocalDatabase {
+  kind: DbKind;
+  driver: string;
+  host: string;
+  port: number;
+  version: string | null;
 }
 
 export interface AiFilterResult {

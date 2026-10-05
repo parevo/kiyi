@@ -40,7 +40,7 @@ node dev/flows.mjs /tmp/flows              # gerçek veritabanında uçtan uca a
 
 ## AI
 
-Tablolarda "Ask AI", isteği Claude ile filtreye çevirir. Ayarlar'dan bir Anthropic API anahtarı girilir (Keychain'de saklanır) ya da `ANTHROPIC_API_KEY` kullanılır. Yalnızca tablo yapısı gönderilir, satırlar asla gönderilmez; AI'ın yazdığı koşul çalışmadan önce tek bir ifade olarak doğrulanır.
+Tablolarda "Ask AI", isteği seçilen AI sağlayıcısıyla filtreye çevirir. Ayarlar → AI'dan istenen kadar sağlayıcı eklenir: Anthropic (Messages API) ya da OpenAI uyumlu herhangi bir sunucu (OpenAI, Gemini, OpenRouter, Groq, Mistral, yerelde Ollama / LM Studio, özel adres). Anahtarlar Keychain'de saklanır; yoksa sağlayıcının ortam değişkeni (ör. `ANTHROPIC_API_KEY`) kullanılır. Yalnızca tablo yapısı gönderilir, satırlar asla gönderilmez; AI'ın yazdığı koşul çalışmadan önce tek bir ifade olarak doğrulanır.
 
 ## Yapı
 

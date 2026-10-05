@@ -37,10 +37,12 @@ await page.goto("http://localhost:1420");
 await page.evaluate(() => localStorage.clear());
 await page.reload();
 await page.waitForTimeout(800);
+await page.getByText("Found on this Mac").waitFor();
+await page.waitForTimeout(1500); // local discovery
 await shot("welcome");
 
 await step("connect", async () => {
-  await page.getByPlaceholder("Paste a connection URL").fill("postgres://kiyi:kiyi@localhost:55432/shop");
+  await page.getByLabel("Connection URL").fill("postgres://kiyi:kiyi@localhost:55432/shop");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(600);
   await shot("connection-dialog");
@@ -121,6 +123,29 @@ await step("settings", async () => {
   await page.waitForTimeout(500);
 });
 await shot("settings");
+
+await step("ai providers", async () => {
+  await page.getByRole("button", { name: "AI", exact: true }).click();
+  await page.waitForTimeout(400);
+});
+await shot("ai-providers");
+
+await step("add anthropic", async () => {
+  await page.getByRole("button", { name: /^Anthropic/ }).click();
+  await page.getByPlaceholder(/Paste your key/).fill("sk-ant-not-a-real-key");
+  await page.getByRole("button", { name: "Test connection" }).click();
+  await page.getByText(/rejected the API key|Couldn't reach/).waitFor({ timeout: 20000 });
+  await shot("ai-test-error");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByText("Key saved").waitFor();
+});
+await shot("ai-list");
+
+await step("cleanup ai", async () => {
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: /^Remove Anthropic/ }).click();
+  await page.waitForTimeout(500);
+});
 
 const real = [...new Set(errors)].filter((e) => !/access control checks/.test(e));
 console.log(real.length ? `console errors:\n${real.join("\n")}` : "no console errors");

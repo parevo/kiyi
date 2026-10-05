@@ -123,13 +123,43 @@ pub async fn execute_script(ws: Ws<'_>, id: String, statements: Vec<String>, kin
 }
 
 #[tauri::command]
-pub fn ai_status() -> CmdResult<kiyi_core::ai::AiStatus> {
-    Ok(kiyi_core::ai::status()?)
+pub fn ai_status(ws: Ws<'_>) -> kiyi_core::ai::AiStatus {
+    ws.ai().status()
 }
 
 #[tauri::command]
-pub fn set_ai_key(key: Option<String>) -> CmdResult<()> {
-    Ok(kiyi_core::ai::set_key(key.as_deref())?)
+pub fn ai_presets() -> Vec<kiyi_core::ai::ProviderPreset> {
+    kiyi_core::ai::presets()
+}
+
+#[tauri::command]
+pub fn ai_settings(ws: Ws<'_>) -> kiyi_core::ai::AiSettings {
+    ws.ai().settings()
+}
+
+#[tauri::command]
+pub fn save_ai_provider(ws: Ws<'_>, provider: kiyi_core::ai::AiProvider, key: Option<String>) -> CmdResult<kiyi_core::ai::AiProvider> {
+    Ok(ws.ai().upsert(provider, key.as_deref())?)
+}
+
+#[tauri::command]
+pub fn delete_ai_provider(ws: Ws<'_>, id: String) -> CmdResult<()> {
+    Ok(ws.ai().remove(&id)?)
+}
+
+#[tauri::command]
+pub fn set_active_ai(ws: Ws<'_>, id: String) -> CmdResult<()> {
+    Ok(ws.ai().set_active(&id)?)
+}
+
+#[tauri::command]
+pub async fn ai_models(ws: Ws<'_>, provider: kiyi_core::ai::AiProvider, key: Option<String>) -> CmdResult<Vec<String>> {
+    Ok(ws.ai_models(&provider, key.as_deref()).await?)
+}
+
+#[tauri::command]
+pub async fn discover_local() -> Vec<kiyi_core::discover::LocalDatabase> {
+    kiyi_core::discover::local_databases().await
 }
 
 #[tauri::command]

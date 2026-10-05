@@ -80,8 +80,20 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
             let statements: Vec<String> = arg(a, "statements")?;
             ws.execute_script(&id()?, &statements, arg(a, "kind")?).await.map(ok).unwrap_or_else(fail)
         }
-        "ai_status" => kiyi_core::ai::status().map(ok).unwrap_or_else(fail),
-        "set_ai_key" => kiyi_core::ai::set_key(arg::<Option<String>>(a, "key")?.as_deref()).map(ok).unwrap_or_else(fail),
+        "ai_status" => ok(ws.ai().status()),
+        "ai_presets" => ok(kiyi_core::ai::presets()),
+        "ai_settings" => ok(ws.ai().settings()),
+        "save_ai_provider" => {
+            let key: Option<String> = arg(a, "key")?;
+            ws.ai().upsert(arg(a, "provider")?, key.as_deref()).map(ok).unwrap_or_else(fail)
+        }
+        "delete_ai_provider" => ws.ai().remove(&id()?).map(ok).unwrap_or_else(fail),
+        "set_active_ai" => ws.ai().set_active(&id()?).map(ok).unwrap_or_else(fail),
+        "ai_models" => {
+            let key: Option<String> = arg(a, "key")?;
+            ws.ai_models(&arg(a, "provider")?, key.as_deref()).await.map(ok).unwrap_or_else(fail)
+        }
+        "discover_local" => ok(kiyi_core::discover::local_databases().await),
         "ai_filters" => {
             let schema: Option<String> = arg(a, "schema")?;
             ws.ai_filters(&id()?, schema.as_deref(), &arg::<String>(a, "table")?, &arg::<String>(a, "prompt")?, &arg::<String>(a, "today")?)

@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { ConnectionDialog } from "./components/ConnectionDialog";
-import { ConnectionsHome, Overview, Welcome } from "./components/Home";
+import { type ConnectInit, ConnectionsHome, Overview, Welcome } from "./components/Home";
 import { QueryPane } from "./components/QueryPane";
 import { Sidebar } from "./components/Sidebar";
 import { TabBar } from "./components/TabBar";
 import { TableView } from "./components/TableView";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { Toasts } from "./components/Toasts";
 import { UpdateNotice } from "./components/UpdateNotice";
-import type { ConnectionConfig, DriverInfo } from "./lib/types";
+import type { ConnectionConfig } from "./lib/types";
 import { useCatalog } from "./state/catalog";
 import { useActiveConnection, useConnections } from "./state/connections";
 import { applyTheme, useSettings } from "./state/settings";
+import { useUi } from "./state/ui";
 import { useTabs } from "./state/tabs";
 import s from "./App.module.css";
 
@@ -23,7 +25,7 @@ export function App() {
   const activeTabId = useTabs((st) => st.activeId);
   const { open, close, focus } = useTabs.getState();
 
-  const [dialog, setDialog] = useState<{ editing: ConnectionConfig | null; init?: { url?: string; driver?: DriverInfo } } | null>(null);
+  const [dialog, setDialog] = useState<{ editing: ConnectionConfig | null; init?: ConnectInit } | null>(null);
   const theme = useSettings((st) => st.theme);
   const live = useConnections((st) => (activeConn ? st.live[activeConn.id] : undefined));
 
@@ -63,6 +65,7 @@ export function App() {
       if (k === "t") newTab();
       else if (k === "n") setDialog({ editing: null });
       else if (k === "w" && st.activeId) close(st.activeId);
+      else if (k === ",") useUi.getState().openSettings();
       else if (k === "i") {
         const settings = useSettings.getState();
         settings.set({ inspectorOpen: !settings.inspectorOpen });
@@ -118,6 +121,7 @@ export function App() {
       </main>
 
       <ConnectionDialog isOpen={dialog !== null} editing={dialog?.editing ?? null} init={dialog?.init} onClose={() => setDialog(null)} />
+      <SettingsDialog />
       <UpdateNotice />
       <Toasts />
     </div>

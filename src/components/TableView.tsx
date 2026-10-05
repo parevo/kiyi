@@ -7,7 +7,8 @@ import { type Tab, tableKey, useTabs } from "../state/tabs";
 import { toast } from "../state/toasts";
 import { CopyIcon, PanelIcon, PlusIcon, RefreshIcon, Spinner, TrashIcon } from "./icons";
 import { InsertRowSheet } from "./InsertRowSheet";
-import { ActiveFilters, AiKeyDialog, FilterButton, SearchBar, SortButton } from "./QueryControls";
+import { ActiveFilters, FilterButton, SearchBar, SortButton } from "./QueryControls";
+import { useUi } from "../state/ui";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import { CreateTable, StructureView } from "./StructureEditor";
 import { emptyQuery, TableData, type TableDataHandle, type TableDataStatus, type TableQuery } from "./TableData";
@@ -40,7 +41,6 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   const [review, setReview] = useState<ReviewRequest | null>(null);
   const [insert, setInsert] = useState<{ prefill?: Record<string, Cell> } | null>(null);
   const [asking, setAsking] = useState(false);
-  const [aiSetup, setAiSetup] = useState<string | null>(null);
   const data = useRef<TableDataHandle>(null);
 
   const loadDetails = useCallback(async () => {
@@ -86,7 +86,10 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   const ask = async (prompt: string) => {
     if (!details) return;
     const ai = await ipc.aiStatus().catch(() => null);
-    if (!ai?.configured) return setAiSetup(prompt);
+    if (!ai?.configured) {
+      toast.info(ai?.provider ? `Add an API key for ${ai.provider} to use Ask AI.` : "Choose an AI provider to use Ask AI.");
+      return useUi.getState().openSettings("ai");
+    }
     setAsking(true);
     try {
       const r = await ipc.aiFilters(connection.id, schema, details.design.name, prompt, today());
@@ -239,15 +242,6 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
         />
       )}
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} onOpenInEditor={onOpenSql} />
-      <AiKeyDialog
-        isOpen={aiSetup !== null}
-        onClose={() => setAiSetup(null)}
-        onSaved={() => {
-          const prompt = aiSetup;
-          setAiSetup(null);
-          if (prompt) setTimeout(() => ask(prompt), 0);
-        }}
-      />
     </div>
   );
 }

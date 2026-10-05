@@ -432,3 +432,16 @@ async fn enum_values_and_row_estimates() {
 async fn sqlx_analyze(driver: &Arc<dyn DbDriver>) {
     driver.execute_script(&["ANALYZE".to_string()], false, false).await.unwrap();
 }
+
+#[tokio::test]
+async fn discovers_local_databases_by_protocol() {
+    if !live() {
+        return;
+    }
+    let found = kiyi_core::discover::local_databases().await;
+    let pg = found.iter().find(|f| f.port == 55432).expect("postgres on 55432");
+    assert_eq!(pg.driver, "postgres");
+    let my = found.iter().find(|f| f.port == 53306).expect("mysql on 53306");
+    assert_eq!(my.driver, "mysql");
+    assert!(my.version.as_deref().unwrap_or("").starts_with('8'), "{:?}", my.version);
+}

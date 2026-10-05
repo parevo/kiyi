@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
-import { Dialog, DialogTrigger, Heading, Modal, ModalOverlay, Popover, Button as AriaButton } from "react-aria-components";
-import { errorMessage, ipc } from "../lib/ipc";
-import type { AiStatus, ColumnDesign, Filter, FilterOp } from "../lib/types";
+import { Dialog, DialogTrigger, Popover, Button as AriaButton } from "react-aria-components";
+import type { ColumnDesign, Filter, FilterOp } from "../lib/types";
 import { useSettings } from "../state/settings";
-import { toast } from "../state/toasts";
 import { CloseIcon, FilterIcon, PlusIcon, SearchIcon, SortIcon, SparklesIcon, Spinner, TrashIcon } from "./icons";
 import type { TableQuery } from "./TableData";
 import { Button, IconButton } from "./ui";
-import d from "./dialog.module.css";
 import f from "./Form.module.css";
 import s from "./QueryControls.module.css";
 
@@ -293,82 +290,5 @@ export function ActiveFilters({ query, onQuery }: { query: TableQuery; onQuery(q
         Clear all
       </button>
     </div>
-  );
-}
-
-// ---- AI key
-
-export function AiKeyDialog({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose(): void; onSaved?(): void }) {
-  const [key, setKey] = useState("");
-  const [status, setStatus] = useState<AiStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (isOpen) {
-      setKey("");
-      ipc.aiStatus().then(setStatus, () => setStatus(null));
-    }
-  }, [isOpen]);
-
-  const save = async (value: string | null) => {
-    setBusy(true);
-    try {
-      await ipc.setAiKey(value);
-      toast.success(value ? "API key saved" : "API key removed");
-      onSaved?.();
-      onClose();
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <ModalOverlay isOpen={isOpen} onOpenChange={(o) => !o && onClose()} isDismissable className={d.overlay}>
-      <Modal className={`${d.modal} ${d.small}`}>
-        <Dialog className={d.dialog}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (key.trim()) save(key.trim());
-            }}
-          >
-            <div className={d.header}>
-              <div>
-                <Heading slot="title" className={d.title}>
-                  Set up AI
-                </Heading>
-                <p className={d.subtitle}>Kiyi uses Claude to turn plain-language requests into filters.</p>
-              </div>
-            </div>
-            <div className={d.body}>
-              <label className={f.field}>
-                <span className={f.label}>Anthropic API key</span>
-                <input className={`${f.control} ${f.mono}`} type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={status?.configured ? "•••••••• (saved)" : "sk-ant-…"} autoFocus />
-                <span className={f.help}>
-                  Stored in your system keychain. Only table structure (column names and types) is sent, never your rows. Create a key at console.anthropic.com.
-                </span>
-              </label>
-              {status?.source === "environment" && <p className={f.help}>Currently using ANTHROPIC_API_KEY from the environment.</p>}
-            </div>
-            <div className={d.footer}>
-              {status?.source === "keychain" ? (
-                <Button variant="ghost" onPress={() => save(null)} isDisabled={busy}>
-                  Remove key
-                </Button>
-              ) : (
-                <span />
-              )}
-              <div className={d.footerRight}>
-                <Button onPress={onClose}>Cancel</Button>
-                <Button type="submit" variant="primary" isDisabled={busy || !key.trim()}>
-                  Save key
-                </Button>
-              </div>
-            </div>
-          </form>
-        </Dialog>
-      </Modal>
-    </ModalOverlay>
   );
 }

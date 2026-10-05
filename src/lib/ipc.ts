@@ -1,7 +1,11 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   AiFilterResult,
+  AiProvider,
+  AiSettings,
   AiStatus,
+  LocalDatabase,
+  ProviderPreset,
   BrowseRequest,
   DriverInfo,
   ChangeSet,
@@ -51,7 +55,13 @@ export const ipc = {
     invoke<number[]>("execute_script", { id, statements, kind }),
 
   aiStatus: () => invoke<AiStatus>("ai_status"),
-  setAiKey: (key: string | null) => invoke<void>("set_ai_key", { key }),
+  aiPresets: () => invoke<ProviderPreset[]>("ai_presets"),
+  aiSettings: () => invoke<AiSettings>("ai_settings"),
+  saveAiProvider: (provider: AiProvider, key: string | null) => invoke<AiProvider>("save_ai_provider", { provider, key }),
+  deleteAiProvider: (id: string) => invoke<void>("delete_ai_provider", { id }),
+  setActiveAi: (id: string) => invoke<void>("set_active_ai", { id }),
+  aiModels: (provider: AiProvider, key: string | null) => invoke<string[]>("ai_models", { provider, key }),
+  discoverLocal: () => invoke<LocalDatabase[]>("discover_local"),
   aiFilters: (id: string, schema: string | null, table: string, prompt: string, today: string) =>
     invoke<AiFilterResult>("ai_filters", { id, schema, table, prompt, today }),
 

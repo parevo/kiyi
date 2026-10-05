@@ -48,7 +48,7 @@ export function ConnectionDialog({
   /** Existing connection to edit; `null` creates a new one. */
   editing: ConnectionConfig | null;
   /** Prefill for a new connection: a pasted address or a chosen database. */
-  init?: { url?: string; driver?: DriverInfo };
+  init?: { url?: string; driver?: DriverInfo; host?: string; port?: number };
   isOpen: boolean;
   onClose(): void;
 }) {
@@ -69,7 +69,8 @@ export function ConnectionDialog({
   useEffect(() => {
     if (!isOpen) return;
     const d = init?.driver;
-    setConfig(editing ?? (d && d.kind ? { ...blank, kind: d.kind, driver: d.id, port: d.defaultPort } : blank));
+    const base = d && d.kind ? { ...blank, kind: d.kind, driver: d.id, port: d.defaultPort } : blank;
+    setConfig(editing ?? { ...base, host: init?.host ?? base.host, port: init?.port ?? base.port, name: init?.host ? `${d?.name ?? "Database"} on ${init.host}:${init.port}` : base.name });
     setPassword(editing ? null : "");
     setUrl("");
     setUrlError(null);

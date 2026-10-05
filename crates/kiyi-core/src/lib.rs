@@ -5,6 +5,7 @@ pub mod ai;
 pub mod catalog;
 pub mod config;
 pub mod design;
+pub mod discover;
 pub mod dialect;
 pub mod dml;
 pub mod drivers;

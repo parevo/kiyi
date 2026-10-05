@@ -1,17 +1,16 @@
-import { getVersion } from "@tauri-apps/api/app";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Dialog, DialogTrigger, Heading, Modal, ModalOverlay, Popover, Button as AriaButton } from "react-aria-components";
 import { errorMessage, ipc } from "../lib/ipc";
-import type { AiStatus, ConnectionConfig, TableAction, TableInfo } from "../lib/types";
+import type { ConnectionConfig, TableAction, TableInfo } from "../lib/types";
 import { driverFor, useCatalog } from "../state/catalog";
 import { useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { tableKey, useTabs } from "../state/tabs";
+import { useUi } from "../state/ui";
 import { ContextMenu, type MenuState } from "./ContextMenu";
 import { ChevronIcon, CodeIcon, HomeIcon, LockIcon, MoreIcon, PlusIcon, RefreshIcon, SearchIcon, SettingsIcon, Spinner, TableIcon, ViewIcon } from "./icons";
-import { AiKeyDialog } from "./QueryControls";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
-import { Button, Field, IconButton, Segmented, Switch } from "./ui";
+import { Button, Field, IconButton } from "./ui";
 import d from "./dialog.module.css";
 import s from "./Sidebar.module.css";
 
@@ -29,11 +28,12 @@ export function Sidebar({
   const refreshSchema = useConnections((st) => st.refreshSchema);
   const activeTabId = useTabs((st) => st.activeId);
   const developerMode = useSettings((st) => st.developerMode);
+  const hasConnections = useConnections((st) => st.connections.length > 0);
 
   return (
     <aside className={s.sidebar}>
       <div className={s.top} data-tauri-drag-region />
-      <ConnectionSwitcher onNew={onNewConnection} onEdit={onEdit} />
+      {hasConnections && <ConnectionSwitcher onNew={onNewConnection} onEdit={onEdit} />}
 
       {live?.status === "error" && <div className={`${s.connError} selectable`}>{live.error}</div>}
       {live?.status === "connecting" && (
@@ -57,7 +57,7 @@ export function Sidebar({
           />
         </>
       )}
-      {!activeId && <div className={s.flex} />}
+      {!activeId && <SidebarEmpty onNew={onNewConnection} />}
 
       <div className={s.footer}>
         {activeId && live?.status === "connected" && (
@@ -70,6 +70,32 @@ export function Sidebar({
       </div>
       {developerMode && live?.serverVersion && <div className={s.version}>{live.serverVersion}</div>}
     </aside>
+  );
+}
+
+/** No connection open: say what this area is for, and offer the next step. */
+function SidebarEmpty({ onNew }: { onNew(): void }) {
+  const connections = useConnections((st) => st.connections);
+  const activate = useConnections((st) => st.activate);
+  return (
+    <div className={s.emptySide}>
+      {connections.length > 0 ? (
+        <>
+          <div className={s.section}>Connections</div>
+          {connections.map((c) => (
+            <button key={c.id} className={s.tableRow} onClick={() => activate(c.id)}>
+              <span className={s.dot} style={{ "--env": `var(--env-${c.env})` } as React.CSSProperties} />
+              <span className={s.tableName}>{c.name}</span>
+            </button>
+          ))}
+        </>
+      ) : (
+        <p className={s.emptyHint}>Your databases and their tables will appear here once you connect.</p>
+      )}
+      <Button variant="ghost" onPress={onNew}>
+        <PlusIcon size={14} /> New connection
+      </Button>
+    </div>
   );
 }
 
@@ -184,59 +210,11 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
 }
 
 function SettingsButton() {
-  const settings = useSettings();
-  const [version, setVersion] = useState("");
-  const [ai, setAi] = useState<AiStatus | null>(null);
-  const [aiDialog, setAiDialog] = useState(false);
-  const refreshAi = () => ipc.aiStatus().then(setAi, () => setAi(null));
-  useEffect(() => {
-    getVersion().then(setVersion, () => {});
-    refreshAi();
-  }, []);
+  const open = useUi((st) => st.openSettings);
   return (
-    <>
-    <AiKeyDialog isOpen={aiDialog} onClose={() => setAiDialog(false)} onSaved={refreshAi} />
-    <DialogTrigger>
-      <AriaButton className={s.footerButton} aria-label="Settings">
-        <SettingsIcon size={15} />
-      </AriaButton>
-      <Popover className={s.popover} placement="top start" offset={6}>
-        <Dialog className={s.settings} aria-label="Settings">
-          <Segmented
-            label="Appearance"
-            value={settings.theme}
-            onChange={(theme) => settings.set({ theme })}
-            options={[
-              { value: "system", label: "System" },
-              { value: "light", label: "Light" },
-              { value: "dark", label: "Dark" },
-            ]}
-          />
-          <Switch isSelected={settings.developerMode} onChange={(developerMode) => settings.set({ developerMode })}>
-            Developer mode
-          </Switch>
-          <p className={s.settingsHint}>Shows the SQL behind every action, raw column types and the SQL editor.</p>
-          <Segmented
-            label="Updates"
-            value={settings.updateChannel}
-            onChange={(updateChannel) => settings.set({ updateChannel })}
-            options={[
-              { value: "stable", label: "Stable" },
-              { value: "beta", label: "Beta" },
-            ]}
-          />
-          <div className={s.settingsRow}>
-            <span>
-              AI
-              <span className={s.settingsHint}>{ai?.configured ? ` · ready (${ai.source === "environment" ? "from environment" : "key in Keychain"})` : " · not set up"}</span>
-            </span>
-            <Button onPress={() => setAiDialog(true)}>{ai?.configured ? "Change key" : "Set up"}</Button>
-          </div>
-          {version && <p className={s.settingsHint}>Kiyi {version}</p>}
-        </Dialog>
-      </Popover>
-    </DialogTrigger>
-    </>
+    <AriaButton className={s.footerButton} aria-label="Settings" onPress={() => open()}>
+      <SettingsIcon size={15} />
+    </AriaButton>
   );
 }
 

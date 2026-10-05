@@ -38,7 +38,7 @@ for (const c of await call("list_connections")) await call("delete_connection", 
 await page.goto("http://localhost:1420");
 await page.evaluate(() => localStorage.clear());
 await page.reload();
-await page.getByPlaceholder("Paste a connection URL").fill("postgres://kiyi:kiyi@localhost:55432/shop");
+await page.getByLabel("Connection URL").fill("postgres://kiyi:kiyi@localhost:55432/shop");
 await page.keyboard.press("Enter");
 await btn("Save & connect").click();
 // Leftovers from an interrupted earlier run.
@@ -124,12 +124,12 @@ await check("create a table, then delete it", async () => {
   void row;
 });
 
-await check("ask AI without a key opens setup", async () => {
+await check("ask AI without a provider opens Settings › AI", async () => {
   await page.locator("aside").first().getByText("orders", { exact: true }).click();
   await page.getByRole("button", { name: "Data", exact: true }).click();
   await page.getByLabel("Search rows or ask AI").fill("paid orders over 100");
   await btn("Ask AI").click();
-  await page.getByText("Set up AI").waitFor();
+  await page.getByText("Choose a provider to get started").waitFor();
   await shot("ai-setup");
   await page.keyboard.press("Escape");
 });
