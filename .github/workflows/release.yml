@@ -126,7 +126,8 @@ jobs:
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseDraft: true
           prerelease: ${{ needs.prepare.outputs.channel == 'beta' }}
-          includeUpdaterJson: true
+          # latest.json is written once in `publish`; parallel jobs racing to update it fail.
+          includeUpdaterJson: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - name: Notarize the disk image
         # Tauri notarizes the app inside; the .dmg around it needs its own ticket so
@@ -161,6 +162,39 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+      - name: Write the update feed
+        run: |
+          gh release download "$TAG" --pattern '*.sig' --dir sigs
+          python3 - <<'PY'
+          import datetime, json, os, pathlib
+          tag = os.environ["TAG"]
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
+          platforms = {}
+          for sig in sorted(pathlib.Path("sigs").glob("*.sig")):
+              asset = sig.name[: -len(".sig")]
+              entry = {"signature": sig.read_text().strip(), "url": base + asset}
+              if asset.endswith("_aarch64.app.tar.gz"):
+                  keys = ["darwin-aarch64", "darwin-aarch64-app"]
+              elif asset.endswith("_x64.app.tar.gz"):
+                  keys = ["darwin-x86_64", "darwin-x86_64-app"]
+              elif asset.endswith("_x64-setup.exe"):
+                  keys = ["windows-x86_64", "windows-x86_64-nsis"]
+              else:
+                  continue
+              for k in keys:
+                  platforms[k] = entry
+          missing = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64"} - platforms.keys()
+          if missing:
+              raise SystemExit(f"missing update packages for {sorted(missing)}")
+          feed = {
+              "version": tag.removeprefix("v"),
+              "notes": "",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }
+          pathlib.Path("latest.json").write_text(json.dumps(feed, indent=2))
+          PY
+          gh release upload "$TAG" latest.json --clobber
       - name: Publish release
         run: |
           if [[ "${{ needs.prepare.outputs.channel }}" == stable ]]; then
