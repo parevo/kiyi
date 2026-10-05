@@ -1,0 +1,116 @@
+/*
+ * Kıyı design tokens. Everything visual — app chrome, CodeMirror and the data grid —
+ * reads from these variables, so the theme lives in exactly one place.
+ */
+:root {
+  --font-ui: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 20px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+
+  --titlebar-h: 42px;
+  --statusbar-h: 26px;
+  --sidebar-w: 260px;
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 90ms;
+  --dur: 140ms;
+
+  /* Environment colors. --conn follows the active connection. */
+  --env-local: #4fae84;
+  --env-staging: #d69a3c;
+  --env-production: #e0534f;
+  --conn: var(--text-faint);
+
+  --accent: #4fb3a9; /* sea */
+  --sand: #d8b878;
+  --ai: #a98bf0;
+}
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101215;
+  --bg-raised: #16191d;
+  --bg-sunken: #0b0d0f;
+  --bg-hover: #1c2025;
+  --bg-active: #232830;
+  --bg-selected: rgba(79, 179, 169, 0.16);
+  --line: #22262c;
+  --line-strong: #2e333a;
+  --text: #e4e1da;
+  --text-muted: #9a9ca1;
+  --text-faint: #62666d;
+  --text-on-accent: #0b0d0f;
+  --null: #565a61;
+  --danger: #ef6b67;
+  --success: #5cbf8f;
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--line-strong);
+
+  --syn-keyword: #c79bf2;
+  --syn-string: #a8cc8c;
+  --syn-number: #e6b673;
+  --syn-comment: #5f6a74;
+  --syn-operator: #9a9ca1;
+  --syn-type: #6fc3df;
+  --syn-identifier: #e4e1da;
+
+  /* Pending grid edits; literal colors because the canvas grid can't resolve var(). */
+  --edit-bg: #3a3220;
+  --insert-bg: #1d3328;
+  --delete-bg: #3a2222;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f6f4ef;
+    --bg-raised: #fbfaf7;
+    --bg-sunken: #efece5;
+    --bg-hover: #ebe8e0;
+    --bg-active: #e3dfd5;
+    --bg-selected: rgba(47, 143, 134, 0.14);
+    --line: #e2ded4;
+    --line-strong: #d3cec2;
+    --text: #1b1d20;
+    --text-muted: #5e6166;
+    --text-faint: #9a9ba0;
+    --text-on-accent: #ffffff;
+    --null: #a9aaae;
+    --danger: #c9423e;
+    --success: #2e8a5f;
+    --accent: #2f8f86;
+    --ai: #7c5ad6;
+    --shadow-pop: 0 10px 30px rgba(40, 32, 20, 0.14), 0 0 0 1px var(--line-strong);
+
+    --syn-keyword: #8a3fc4;
+    --syn-string: #3f7a2b;
+    --syn-number: #a5600f;
+    --syn-comment: #9a9a92;
+    --syn-operator: #5e6166;
+    --syn-type: #1f7a9a;
+    --syn-identifier: #1b1d20;
+
+    --edit-bg: #f6e7c4;
+    --insert-bg: #d9eedf;
+    --delete-bg: #f5d6d3;
+  }
+}
+
+:root[data-env="local"] { --conn: var(--env-local); }
+:root[data-env="staging"] { --conn: var(--env-staging); }
+:root[data-env="production"] { --conn: var(--env-production); }

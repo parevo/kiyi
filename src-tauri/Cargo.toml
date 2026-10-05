@@ -1,0 +1,20 @@
+[package]
+name = "kiyi"
+description = "Kıyı — AI destekli veritabanı istemcisi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kiyi-core = { version = "0.1.0", path = "../crates/kiyi-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tauri = { version = "2.12.1", features = [] }
+tauri-plugin-process = "2.4.0"
+tauri-plugin-updater = "2.13.1"
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "sync"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+
+[build-dependencies]
+tauri-build = { version = "2.7.1", features = [] }

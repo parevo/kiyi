@@ -1,0 +1,88 @@
+.app {
+  display: flex;
+  height: 100%;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  /* Writable production connections get a faint red frame as a constant reminder. */
+  box-shadow: inset 0 0 0 1px var(--frame, transparent);
+}
+:global(:root[data-env="production"]) .main[data-writable] { --frame: color-mix(in srgb, var(--env-production) 45%, transparent); }
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.pane[hidden] { display: none; }
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.editor {
+  min-height: 80px;
+  overflow: hidden;
+}
+
+.splitter {
+  position: relative;
+  height: 1px;
+  background: var(--line);
+  cursor: row-resize;
+  flex-shrink: 0;
+}
+.splitter::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+}
+.splitter:hover,
+.splitter[data-dragging] { background: var(--accent); }
+
+.results {
+  flex: 1;
+  min-height: 80px;
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-muted);
+}
+.mark { width: 56px; height: 56px; margin-bottom: var(--space-2); }
+.headline {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.lede { margin: 0; max-width: 380px; }
+.shortcuts {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 16px;
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+.shortcuts kbd {
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+  text-align: right;
+}
