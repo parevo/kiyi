@@ -110,7 +110,7 @@ fn reader(path: &Path) -> Result<csv::Reader<File>> {
     // Sniff the delimiter from the first line: comma, semicolon (European Excel) or tab.
     let first = std::fs::read_to_string(path).map_err(|e| Error::Invalid(format!("Couldn't read the file: {e}")))?;
     let line = first.lines().next().unwrap_or("");
-    let delimiter = [b',', b';', b'\t'].into_iter().max_by_key(|d| line.bytes().filter(|b| b == d).count()).unwrap_or(b',');
+    let delimiter = b",;\t".iter().copied().max_by_key(|d| line.bytes().filter(|b| b == d).count()).unwrap_or(b',');
     csv::ReaderBuilder::new().delimiter(delimiter).has_headers(false).flexible(true).from_path(path).map_err(|e| Error::Invalid(e.to_string()))
 }
 

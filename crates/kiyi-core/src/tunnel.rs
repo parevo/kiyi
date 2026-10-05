@@ -177,24 +177,15 @@ async fn open_ssh(host: &str, port: u16, user: &str, auth: &SshAuth, secret: Opt
                 .map_err(|e| ssh_error(e, host, port))?
         }
         SshAuth::Agent => {
-            let mut agent = russh::keys::agent::client::AgentClient::connect_env()
+            #[cfg(unix)]
+            let agent = russh::keys::agent::client::AgentClient::connect_env()
                 .await
                 .map_err(|_| Error::Invalid("No SSH agent is running (SSH_AUTH_SOCK isn't set). Use a key file instead.".into()))?;
-            let identities = agent.request_identities().await.map_err(|e| Error::Invalid(format!("SSH agent: {e}")))?;
-            let mut outcome = None;
-            for identity in identities {
-                let russh::keys::agent::AgentIdentity::PublicKey { key, .. } = identity else { continue };
-                let hash = session.best_supported_rsa_hash().await.map_err(|e| ssh_error(e, host, port))?.flatten();
-                match session.authenticate_publickey_with(user, key, hash, &mut agent).await {
-                    Ok(r) if r.success() => {
-                        outcome = Some(r);
-                        break;
-                    }
-                    Ok(r) => outcome = Some(r),
-                    Err(e) => return Err(Error::Invalid(format!("SSH agent: {e}"))),
-                }
-            }
-            outcome.ok_or_else(|| Error::Invalid("The SSH agent has no keys loaded.".into()))?
+            #[cfg(windows)]
+            let agent = russh::keys::agent::client::AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent")
+                .await
+                .map_err(|_| Error::Invalid("The Windows OpenSSH agent isn't running. Start the \"OpenSSH Authentication Agent\" service, or use a key file.".into()))?;
+            agent_auth(&mut session, user, agent, host, port).await?
         }
     };
     if !result.success() {
@@ -229,6 +220,31 @@ async fn open_ssh(host: &str, port: u16, user: &str, auth: &SshAuth, secret: Opt
         }
     });
     Ok(Tunnel { local_port, steps, _guard: Guard::Task(task) })
+}
+
+/// Tries each key the agent holds until the server accepts one.
+async fn agent_auth<S>(
+    session: &mut client::Handle<Checker>,
+    user: &str,
+    mut agent: russh::keys::agent::client::AgentClient<S>,
+    host: &str,
+    port: u16,
+) -> Result<russh::client::AuthResult>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let identities = agent.request_identities().await.map_err(|e| Error::Invalid(format!("SSH agent: {e}")))?;
+    let mut outcome = None;
+    for identity in identities {
+        let russh::keys::agent::AgentIdentity::PublicKey { key, .. } = identity else { continue };
+        let hash = session.best_supported_rsa_hash().await.map_err(|e| ssh_error(e, host, port))?.flatten();
+        match session.authenticate_publickey_with(user, key, hash, &mut agent).await {
+            Ok(r) if r.success() => return Ok(r),
+            Ok(r) => outcome = Some(r),
+            Err(e) => return Err(Error::Invalid(format!("SSH agent: {e}"))),
+        }
+    }
+    outcome.ok_or_else(|| Error::Invalid("The SSH agent has no keys loaded.".into()))
 }
 
 // ---- AWS SSM
