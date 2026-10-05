@@ -153,9 +153,12 @@ pub fn browse_sql(d: Dialect, req: &BrowseRequest) -> String {
     let mut sql = format!("SELECT * FROM {}{}", d.table(req.schema.as_deref(), &req.table), where_clause(d, req));
     let mut order: Vec<String> =
         req.sort.iter().map(|s| format!("{}{}", d.ident(&s.column), if s.descending { " DESC" } else { "" })).collect();
+    // The tiebreak follows the direction of the last sort, so `ORDER BY created_at DESC, id DESC`
+    // can be read backwards off an index on `created_at` (MySQL can't do that with mixed directions).
+    let tie_desc = req.sort.last().is_some_and(|s| s.descending);
     for key in &req.tiebreak {
         if !req.sort.iter().any(|s| &s.column == key) {
-            order.push(d.ident(key));
+            order.push(format!("{}{}", d.ident(key), if tie_desc { " DESC" } else { "" }));
         }
     }
     if !order.is_empty() {
@@ -303,7 +306,7 @@ mod tests {
         r.offset = 400;
         assert_eq!(
             browse_sql(PG, &r),
-            r#"SELECT * FROM "public"."orders" WHERE "status" = 'paid' AND "note"::text ILIKE '%50\%\_off%' AND "id" IN ('1', '2', '3') AND (total > 10) ORDER BY "total" DESC, "id" LIMIT 200 OFFSET 400"#
+            r#"SELECT * FROM "public"."orders" WHERE "status" = 'paid' AND "note"::text ILIKE '%50\%\_off%' AND "id" IN ('1', '2', '3') AND (total > 10) ORDER BY "total" DESC, "id" DESC LIMIT 200 OFFSET 400"#
         );
         assert_eq!(
             count_sql(MY, &r),

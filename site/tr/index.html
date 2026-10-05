@@ -36,6 +36,7 @@
         <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
         <symbol id="i-laptop" viewBox="0 0 24 24"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16" /></symbol>
         <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></symbol>
+        <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></symbol>
         <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
         <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7" /></symbol>
         <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></symbol>
@@ -49,6 +50,7 @@
       <nav class="links" aria-label="Ana menü">
         <a href="#ai">AI</a>
         <a href="#features">Özellikler</a>
+        <a href="#speed">Hız</a>
         <a href="#connect">Bağlantı</a>
         <a href="#privacy">Gizlilik</a>
         <a href="#faq">SSS</a>
@@ -118,6 +120,34 @@
             <source srcset="../assets/shots/ai-light.webp" media="(prefers-color-scheme: light)" />
             <img src="../assets/shots/ai-dark.webp" width="2880" height="1800" loading="lazy" alt="AI'a sor, bir isteği kaldırılabilir etiketler olarak gösterilen üç filtre ve bir sıralamaya çevirdi" />
           </picture>
+        </div>
+      </section>
+
+      <section id="speed" class="speed">
+        <div class="section-head reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-zap" /></svg> Hız</span>
+          <h2>Hızını fark etmeyeceğin kadar hızlı.</h2>
+          <p class="muted">Uygulamaya gömülü bir tarayıcı yerine bir Rust çekirdeği ve sistemin kendi web görünümü. 2021 model bir MacBook Pro'da, bir milyon satırlık tabloyla ölçüldü.</p>
+        </div>
+        <div class="stats reveal">
+          <div class="stat"><b>0,31<small> sn</small></b><span>tıklamadan pencereye</span></div>
+          <div class="stat"><b>79<small> MB</small></b><span>boştayken bellek</span></div>
+          <div class="stat"><b>8,6<small> MB</small></b><span>indirme boyutu</span></div>
+          <div class="stat"><b>~1<small> ms</small></b><span>1 milyon satırlık tabloyu açmak, sıralamak, filtrelemek</span></div>
+        </div>
+        <div class="race reveal" role="img" aria-label="Bir milyon satırı okumak: PostgreSQL'de Kiyi 0,77 saniye, psql 0,92 saniye; MySQL'de Kiyi 0,68 saniye, mysql 0,98 saniye">
+          <p class="race-title">1.000.000 satırı baştan sona okumak</p>
+          <div class="race-group">
+            <span class="race-db">PostgreSQL</span>
+            <div class="bar kiyi" style="--p: 0.77"><span>Kiyi</span><b>0,77 sn</b></div>
+            <div class="bar" style="--p: 0.92"><span>psql</span><b>0,92 sn</b></div>
+          </div>
+          <div class="race-group">
+            <span class="race-db">MySQL</span>
+            <div class="bar kiyi" style="--p: 0.68"><span>Kiyi</span><b>0,68 sn</b></div>
+            <div class="bar" style="--p: 0.98"><span>mysql</span><b>0,98 sn</b></div>
+          </div>
+          <p class="race-note">Kiyi veriyi ağ üzerinden okuyup her değeri tablo için hazırlıyor; resmi komut satırı istemcileri ise veritabanı container'ının içinde çalıştı. <a href="https://github.com/parevo/kiyi/blob/main/docs/benchmarks.md">Tüm sonuçlar ve nasıl tekrarlanacağı</a></p>
         </div>
       </section>
 

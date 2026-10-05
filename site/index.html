@@ -35,6 +35,7 @@
         <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
         <symbol id="i-laptop" viewBox="0 0 24 24"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16" /></symbol>
         <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></symbol>
+        <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></symbol>
         <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
         <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7" /></symbol>
         <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></symbol>
@@ -48,6 +49,7 @@
       <nav class="links" aria-label="Main">
         <a href="#ai">AI</a>
         <a href="#features">Features</a>
+        <a href="#speed">Speed</a>
         <a href="#connect">Connect</a>
         <a href="#privacy">Privacy</a>
         <a href="#faq">FAQ</a>
@@ -117,6 +119,34 @@
             <source srcset="assets/shots/ai-light.webp" media="(prefers-color-scheme: light)" />
             <img src="assets/shots/ai-dark.webp" width="2880" height="1800" loading="lazy" alt="Ask AI turned a request into three filters and a sort, shown as removable chips" />
           </picture>
+        </div>
+      </section>
+
+      <section id="speed" class="speed">
+        <div class="section-head reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-zap" /></svg> Speed</span>
+          <h2>Fast enough to forget about.</h2>
+          <p class="muted">A Rust core and the system's own web view instead of a bundled browser. Measured on a 2021 MacBook Pro with a million-row table.</p>
+        </div>
+        <div class="stats reveal">
+          <div class="stat"><b>0.31<small> s</small></b><span>from click to window</span></div>
+          <div class="stat"><b>79<small> MB</small></b><span>memory at rest</span></div>
+          <div class="stat"><b>8.6<small> MB</small></b><span>download</span></div>
+          <div class="stat"><b>~1<small> ms</small></b><span>to open, sort or filter a 1M-row table</span></div>
+        </div>
+        <div class="race reveal" role="img" aria-label="Reading one million rows: Kiyi 0.77 seconds, psql 0.92 seconds on PostgreSQL; Kiyi 0.68 seconds, mysql 0.98 seconds on MySQL">
+          <p class="race-title">Reading 1,000,000 rows, start to finish</p>
+          <div class="race-group">
+            <span class="race-db">PostgreSQL</span>
+            <div class="bar kiyi" style="--p: 0.77"><span>Kiyi</span><b>0.77 s</b></div>
+            <div class="bar" style="--p: 0.92"><span>psql</span><b>0.92 s</b></div>
+          </div>
+          <div class="race-group">
+            <span class="race-db">MySQL</span>
+            <div class="bar kiyi" style="--p: 0.68"><span>Kiyi</span><b>0.68 s</b></div>
+            <div class="bar" style="--p: 0.98"><span>mysql</span><b>0.98 s</b></div>
+          </div>
+          <p class="race-note">Kiyi reads over the network and prepares every value for the grid; the official command-line clients ran inside the database container. <a href="https://github.com/parevo/kiyi/blob/main/docs/benchmarks.md">Every number and how to reproduce it</a></p>
         </div>
       </section>
 
