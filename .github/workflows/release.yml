@@ -128,6 +128,19 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.channel == 'beta' }}
           includeUpdaterJson: true
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Notarize the disk image
+        # Tauri notarizes the app inside; the .dmg around it needs its own ticket so
+        # Gatekeeper doesn't flag the download itself.
+        if: runner.os == 'macOS' && env.APPLE_API_KEY_PATH != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg=$(find target -maxdepth 5 -path "*/bundle/dmg/*.dmg" | head -1)
+          xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+          xcrun stapler staple "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
+          gh release upload "${{ needs.prepare.outputs.tag }}" "$dmg" --clobber
       - name: Check the signature
         if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != ''
         shell: bash
