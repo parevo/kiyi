@@ -56,7 +56,7 @@ Measured on an M1 Pro MacBook Pro. Full results and how to reproduce them: [docs
 
 Download the latest version for **macOS** (Apple Silicon or Intel) or **Windows** (64-bit) from the [website](https://parevo.github.io/kiyi/#download) or the [releases page](https://github.com/parevo/kiyi/releases/latest). Kiyi updates itself in the background and asks before restarting.
 
-> Early releases aren't code-signed yet. On macOS, right-click Kiyi and choose **Open** the first time. On Windows, choose **More info → Run anyway**.
+> The macOS app is signed with a Developer ID and notarized by Apple. The Windows installer isn't code-signed yet: if SmartScreen asks, choose **More info → Run anyway**.
 
 ## Supported databases
 
@@ -143,7 +143,7 @@ git tag v0.2.0 && git push origin v0.2.0
 
 The app checks for updates at launch and every four hours, downloads in the background, and installs when the user chooses to restart.
 
-Required repository secrets: `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Apple signing and notarization are optional and turn on when `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID` are set.
+Required repository secrets: `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` for update signatures. macOS builds are signed and notarized when `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY` are set, together with an App Store Connect API key (`APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_PRIVATE_KEY`) or an Apple ID (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`). Without them the app is ad-hoc signed.
 
 ## License
 
