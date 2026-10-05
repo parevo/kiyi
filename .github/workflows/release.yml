@@ -82,21 +82,40 @@ jobs:
       - name: Apple signing (when configured)
         if: runner.os == 'macOS'
         shell: bash
-        # Without these secrets the app is ad-hoc signed; set them to get a notarized build.
+        # Without these secrets the app is ad-hoc signed. With them it's signed with a
+        # Developer ID and notarized, using an App Store Connect API key (preferred) or
+        # an Apple ID with an app-specific password.
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [[ -n "$APPLE_CERTIFICATE" ]]; then
-            for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-              echo "$v<<EOF" >> "$GITHUB_ENV"; echo "${!v}" >> "$GITHUB_ENV"; echo "EOF" >> "$GITHUB_ENV"
-            done
-          else
+          put() { echo "$1<<EOF" >> "$GITHUB_ENV"; echo "$2" >> "$GITHUB_ENV"; echo "EOF" >> "$GITHUB_ENV"; }
+          if [[ -z "$APPLE_CERTIFICATE" ]]; then
             echo "::warning::Apple signing secrets are not set; building an ad-hoc signed app."
+            exit 0
+          fi
+          put APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
+          put APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
+          put APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
+          if [[ -n "$APPLE_API_PRIVATE_KEY" ]]; then
+            key="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
+            printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$key"
+            put APPLE_API_ISSUER "$APPLE_API_ISSUER"
+            put APPLE_API_KEY "$APPLE_API_KEY"
+            put APPLE_API_KEY_PATH "$key"
+          elif [[ -n "$APPLE_ID" ]]; then
+            put APPLE_ID "$APPLE_ID"
+            put APPLE_PASSWORD "$APPLE_PASSWORD"
+            put APPLE_TEAM_ID "$APPLE_TEAM_ID"
+          else
+            echo "::warning::No notarization credentials; the app is signed but not notarized."
           fi
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -109,6 +128,17 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.channel == 'beta' }}
           includeUpdaterJson: true
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Check the signature
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != ''
+        shell: bash
+        run: |
+          app=$(find target -maxdepth 5 -path "*/bundle/macos/*.app" | head -1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E "Authority=Developer ID Application|TeamIdentifier"
+          if [[ -n "$APPLE_API_KEY_PATH$APPLE_ID" ]]; then
+            spctl --assess --type execute --verbose=4 "$app"
+            xcrun stapler validate "$app"
+          fi
 
   publish:
     needs: [prepare, build]
