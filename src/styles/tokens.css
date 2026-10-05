@@ -111,6 +111,41 @@
   }
 }
 
+/* Explicit choice from settings, regardless of the system appearance. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f4ef;
+  --bg-raised: #fbfaf7;
+  --bg-sunken: #efece5;
+  --bg-hover: #ebe8e0;
+  --bg-active: #e3dfd5;
+  --bg-selected: rgba(47, 143, 134, 0.14);
+  --line: #e2ded4;
+  --line-strong: #d3cec2;
+  --text: #1b1d20;
+  --text-muted: #5e6166;
+  --text-faint: #9a9ba0;
+  --text-on-accent: #ffffff;
+  --null: #a9aaae;
+  --danger: #c9423e;
+  --success: #2e8a5f;
+  --accent: #2f8f86;
+  --ai: #7c5ad6;
+  --shadow-pop: 0 10px 30px rgba(40, 32, 20, 0.14), 0 0 0 1px var(--line-strong);
+
+  --syn-keyword: #8a3fc4;
+  --syn-string: #3f7a2b;
+  --syn-number: #a5600f;
+  --syn-comment: #9a9a92;
+  --syn-operator: #5e6166;
+  --syn-type: #1f7a9a;
+  --syn-identifier: #1b1d20;
+
+  --edit-bg: #f6e7c4;
+  --insert-bg: #d9eedf;
+  --delete-bg: #f5d6d3;
+}
+
 :root[data-env="local"] { --conn: var(--env-local); }
 :root[data-env="staging"] { --conn: var(--env-staging); }
 :root[data-env="production"] { --conn: var(--env-production); }

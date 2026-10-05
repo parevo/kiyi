@@ -47,9 +47,15 @@ export function useGridTheme() {
     const media = matchMedia("(prefers-color-scheme: dark)");
     const refresh = () => setTheme(read());
     media.addEventListener("change", refresh);
+    // The theme setting flips `data-theme` on <html>.
+    const observer = new MutationObserver(refresh);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     // Canvas text measured before the webfont loads would be off; repaint once it's ready.
     document.fonts.ready.then(refresh);
-    return () => media.removeEventListener("change", refresh);
+    return () => {
+      media.removeEventListener("change", refresh);
+      observer.disconnect();
+    };
   }, []);
   return theme;
 }

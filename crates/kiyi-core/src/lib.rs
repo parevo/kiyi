@@ -1,6 +1,7 @@
 //! Kıyı core: database drivers, connection storage and secrets.
 //! Deliberately free of any Tauri dependency so the UI layer can be swapped.
 
+pub mod catalog;
 pub mod config;
 pub mod design;
 pub mod dialect;

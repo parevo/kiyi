@@ -3,7 +3,8 @@ import { errorMessage, ipc } from "../lib/ipc";
 import type { TableDetails } from "../lib/types";
 import { useConnections } from "../state/connections";
 import { type Tab, tableKey, useTabs } from "../state/tabs";
-import { PlusIcon, RefreshIcon, SearchIcon, Spinner } from "./icons";
+import { useSettings } from "../state/settings";
+import { PanelIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner } from "./icons";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import { StructureEditor, type StructureHandle } from "./StructureEditor";
 import { TableData, type TableDataHandle, type TableDataStatus } from "./TableData";
@@ -19,6 +20,9 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   const snapshot = useConnections((st) => (tab.connectionId ? st.live[tab.connectionId]?.schema : undefined));
   const refreshSchema = useConnections((st) => st.refreshSchema);
   const patchTab = useTabs((st) => st.patch);
+  const developerMode = useSettings((st) => st.developerMode);
+  const inspectorOpen = useSettings((st) => st.inspectorOpen);
+  const setSettings = useSettings((st) => st.set);
 
   const creating = tab.kind === "create";
   const view = creating ? "structure" : (tab.view ?? "data");
@@ -31,6 +35,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   const [structChanges, setStructChanges] = useState(0);
   const [visitedStructure, setVisitedStructure] = useState(view === "structure");
   const data = useRef<TableDataHandle>(null);
+  const onStructStatus = useCallback((st: { changes: number }) => setStructChanges(st.changes), []);
   const structure = useRef<StructureHandle>(null);
 
   const loadDetails = useCallback(async () => {
@@ -138,10 +143,18 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
               Geri al
             </Button>
             <Button variant="primary" onPress={() => structure.current?.save()}>
-              Önizle ve uygula <span className={s.kbd}>⌘S</span>
+              Uygula <span className={s.kbd}>⌘S</span>
             </Button>
           </>
         )}
+        <span className={s.sep} />
+        <IconButton
+          label={inspectorOpen ? "Detay panelini gizle" : "Detay panelini göster"}
+          shortcut="⌘I"
+          onPress={() => setSettings({ inspectorOpen: !inspectorOpen })}
+        >
+          <PanelIcon size={15} />
+        </IconButton>
       </div>
 
       <div className={s.body}>
@@ -163,6 +176,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
               active={active && view === "data"}
               onStatus={setDataStatus}
               onReview={setReview}
+              onEditStructure={() => setView("structure")}
             />
           </div>
         )}
@@ -175,7 +189,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
               details={details}
               snapshot={snapshot}
               active={active && view === "structure"}
-              onStatus={(st) => setStructChanges(st.changes)}
+              onStatus={onStructStatus}
               onReview={setReview}
               onApplied={onApplied}
             />
@@ -195,7 +209,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
           {dataStatus.elapsedMs !== null && <span className={s.faint}>{Math.round(dataStatus.elapsedMs)} ms</span>}
           {connection.readOnly && <span className={s.faint}>salt okunur</span>}
           <span className={s.spacer} />
-          {dataStatus.sql && (
+          {developerMode && dataStatus.sql && (
             <button className={s.link} onClick={() => onOpenSql(dataStatus.sql!)} title="Bu sorguyu editörde aç">
               SQL
             </button>

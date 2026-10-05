@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { ConnectionDialog } from "./components/ConnectionDialog";
+import { Overview, Welcome } from "./components/Home";
 import { QueryPane } from "./components/QueryPane";
 import { Sidebar } from "./components/Sidebar";
 import { TabBar } from "./components/TabBar";
 import { TableView } from "./components/TableView";
-import { Button } from "./components/ui";
+import { Toasts } from "./components/Toasts";
 import { UpdateNotice } from "./components/UpdateNotice";
-import type { ConnectionConfig } from "./lib/types";
+import type { ConnectionConfig, DriverInfo } from "./lib/types";
+import { useCatalog } from "./state/catalog";
 import { useActiveConnection, useConnections } from "./state/connections";
+import { applyTheme, useSettings } from "./state/settings";
 import { useTabs } from "./state/tabs";
 import s from "./App.module.css";
 
@@ -20,11 +23,16 @@ export function App() {
   const activeTabId = useTabs((st) => st.activeId);
   const { open, close, focus } = useTabs.getState();
 
-  const [dialog, setDialog] = useState<{ editing: ConnectionConfig | null } | null>(null);
+  const [dialog, setDialog] = useState<{ editing: ConnectionConfig | null; init?: { url?: string; driver?: DriverInfo } } | null>(null);
+  const theme = useSettings((st) => st.theme);
+  const live = useConnections((st) => (activeConn ? st.live[activeConn.id] : undefined));
 
   useEffect(() => {
     loadConnections();
+    useCatalog.getState().load();
   }, [loadConnections]);
+
+  useEffect(() => applyTheme(theme), [theme]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -55,6 +63,10 @@ export function App() {
       if (k === "t") newTab();
       else if (k === "n") setDialog({ editing: null });
       else if (k === "w" && st.activeId) close(st.activeId);
+      else if (k === "i") {
+        const settings = useSettings.getState();
+        settings.set({ inspectorOpen: !settings.inspectorOpen });
+      }
       else if (k === "r" || k === "p" || k === "=" || k === "-" || k === "0") {
         // Browser reload / print / zoom don't belong in a desktop app.
       } else if (/^[1-9]$/.test(k)) {
@@ -93,37 +105,19 @@ export function App() {
 
         {!activeTab &&
           (loaded && connections.length === 0 ? (
-            <div className={s.empty}>
-              <img src="/icon.svg" alt="" className={s.mark} />
-              <h1 className={s.headline}>Kıyı'ya hoş geldin</h1>
-              <p className={s.lede}>PostgreSQL ya da MySQL bağlantı adresini yapıştır, gerisini Kıyı halletsin.</p>
-              <Button variant="primary" onPress={() => setDialog({ editing: null })}>
-                İlk bağlantını ekle
-              </Button>
-            </div>
+            <Welcome onConnect={(init) => setDialog({ editing: null, init })} />
+          ) : activeConn && live?.status === "connected" ? (
+            <Overview />
           ) : (
             <div className={s.empty}>
-              <p className={s.lede}>
-                {activeConn ? "Soldan bir tablo seç ya da yeni bir sorgu aç." : "Başlamak için soldan bir bağlantı seç."}
-              </p>
-              <div className={s.shortcuts}>
-                <kbd>⌘T</kbd> <span>Yeni sorgu</span>
-                <kbd>⌘N</kbd> <span>Yeni bağlantı</span>
-                <kbd>⌘↵</kbd> <span>İfadeyi çalıştır</span>
-                <kbd>⌘S</kbd> <span>Değişiklikleri kaydet</span>
-                <kbd>⌘F</kbd> <span>Tabloyu filtrele</span>
-              </div>
-              {activeConn && (
-                <Button onPress={newTab} variant="primary">
-                  Yeni sorgu
-                </Button>
-              )}
+              <p className={s.lede}>{activeConn ? "Bağlanılıyor…" : "Başlamak için soldan bir bağlantı seç."}</p>
             </div>
           ))}
       </main>
 
-      <ConnectionDialog isOpen={dialog !== null} editing={dialog?.editing ?? null} onClose={() => setDialog(null)} />
+      <ConnectionDialog isOpen={dialog !== null} editing={dialog?.editing ?? null} init={dialog?.init} onClose={() => setDialog(null)} />
       <UpdateNotice />
+      <Toasts />
     </div>
   );
 }

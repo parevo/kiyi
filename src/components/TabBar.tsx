@@ -1,11 +1,12 @@
 import { Button as AriaButton } from "react-aria-components";
 import { useActiveConnection, useConnections } from "../state/connections";
+import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
 import { CloseIcon, LockIcon, PlusIcon, Spinner } from "./icons";
 import { IconButton } from "./ui";
 import s from "./TabBar.module.css";
 
-const ENV_LABEL = { local: "Local", staging: "Staging", production: "Production" } as const;
+const ENV_LABEL = { local: "Yerel", staging: "Test", production: "Canlı" } as const;
 
 export function TabBar({ onNewTab }: { onNewTab(): void }) {
   const tabs = useTabs((st) => st.tabs);
@@ -14,6 +15,7 @@ export function TabBar({ onNewTab }: { onNewTab(): void }) {
   const close = useTabs((st) => st.close);
   const connections = useConnections((st) => st.connections);
   const active = useActiveConnection();
+  const developerMode = useSettings((st) => st.developerMode);
 
   return (
     <div className={s.bar} data-tauri-drag-region>
@@ -49,9 +51,11 @@ export function TabBar({ onNewTab }: { onNewTab(): void }) {
           );
         })}
       </div>
-      <IconButton label="Yeni sorgu" shortcut="⌘T" onPress={onNewTab}>
-        <PlusIcon />
-      </IconButton>
+      {developerMode && (
+        <IconButton label="Yeni sorgu" shortcut="⌘T" onPress={onNewTab}>
+          <PlusIcon />
+        </IconButton>
+      )}
       <div className={s.drag} data-tauri-drag-region />
       {active && (
         <div className={s.right} data-tauri-drag-region>

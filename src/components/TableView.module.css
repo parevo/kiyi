@@ -40,7 +40,8 @@
 
 .body { position: relative; flex: 1; min-height: 0; }
 .dataPane { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.gridHost { position: relative; flex: 1; min-height: 0; }
+.split { display: flex; flex: 1; min-height: 0; }
+.gridHost { position: relative; flex: 1; min-width: 0; min-height: 0; }
 .banner {
   padding: 6px var(--space-3);
   background: color-mix(in srgb, var(--env-staging) 12%, transparent);

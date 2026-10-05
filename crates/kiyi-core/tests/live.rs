@@ -1,5 +1,5 @@
 //! Driver tests against real servers. Start them with
-//! `docker compose -f dev/docker-compose.yml up -d` and run with `KIYI_LIVE=1 cargo test`.
+//! `docker compose -f dev/docker-compose.yml up -d --wait` and run with `KIYI_LIVE=1 cargo test`.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,10 +20,12 @@ fn config(kind: DbKind) -> ConnectionConfig {
         host: "127.0.0.1".into(),
         port: if kind == DbKind::Postgres { 55432 } else { 53306 },
         user: "kiyi".into(),
-        database: Some("shop".into()),
+        // A copy of the dev seed reserved for tests; `shop` is for poking at in the app.
+        database: Some("kiyi_test".into()),
         ssl_mode: SslMode::Disable,
         env: EnvTag::Local,
         read_only: false,
+        driver: None,
     }
 }
 
@@ -207,8 +209,8 @@ async fn mysql_values_keep_their_canonical_text() {
     assert_eq!(table(&events).0.len(), 2);
 
     let schema = my.schema().await.unwrap();
-    assert_eq!(schema.default_schema.as_deref(), Some("shop"));
-    let shop = schema.schemas.iter().find(|s| s.name == "shop").unwrap();
+    assert_eq!(schema.default_schema.as_deref(), Some("kiyi_test"));
+    let shop = schema.schemas.iter().find(|s| s.name == "kiyi_test").unwrap();
     let names: Vec<&str> = shop.tables.iter().map(|t| t.name.as_str()).filter(|n| !n.starts_with("kiyi_")).collect();
     assert_eq!(names, ["active_customers", "customers", "orders"]);
 }
@@ -270,7 +272,7 @@ async fn mysql_reading_a_table_and_saving_it_unchanged_is_a_no_op() {
     let my = open(DbKind::Mysql).await;
     for table in ["customers", "orders"] {
         let details = my.table_details(None, table).await.unwrap();
-        let sql = design::plan_alter(my.dialect(), Some("shop"), &details.design, &details.design).unwrap();
+        let sql = design::plan_alter(my.dialect(), Some("kiyi_test"), &details.design, &details.design).unwrap();
         assert!(sql.is_empty(), "{table}: {sql:?}");
     }
     let orders = my.table_details(None, "orders").await.unwrap();
@@ -365,7 +367,7 @@ async fn mysql_structure_and_data_edit_cycle() {
     if !live() {
         return;
     }
-    structure_cycle(open(DbKind::Mysql).await, Some("shop"), "int", "varchar(200)").await;
+    structure_cycle(open(DbKind::Mysql).await, Some("kiyi_test"), "int", "varchar(200)").await;
 }
 
 #[tokio::test]

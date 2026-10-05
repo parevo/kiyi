@@ -99,9 +99,19 @@ export function Segmented<T extends string>({
   );
 }
 
-export function Switch({ isSelected, onChange, children }: { isSelected: boolean; onChange(v: boolean): void; children: ReactNode }) {
+export function Switch({
+  isSelected,
+  onChange,
+  isDisabled,
+  children,
+}: {
+  isSelected: boolean;
+  onChange(v: boolean): void;
+  isDisabled?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <AriaSwitch isSelected={isSelected} onChange={onChange} className={s.switch}>
+    <AriaSwitch isSelected={isSelected} onChange={onChange} isDisabled={isDisabled} className={s.switch}>
       <span className={s.track} />
       {children}
     </AriaSwitch>

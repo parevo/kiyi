@@ -15,6 +15,11 @@ type Ws<'a> = State<'a, Arc<Workspace>>;
 type CmdResult<T> = Result<T, ErrorInfo>;
 
 #[tauri::command]
+pub fn list_drivers() -> Vec<kiyi_core::catalog::DriverInfo> {
+    kiyi_core::catalog::drivers()
+}
+
+#[tauri::command]
 pub fn list_connections(ws: Ws<'_>) -> Vec<ConnectionConfig> {
     ws.list()
 }

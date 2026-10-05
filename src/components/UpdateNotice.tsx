@@ -2,6 +2,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { UpdateInfo } from "../lib/types";
+import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
 import { Spinner } from "./icons";
 import { Button } from "./ui";
@@ -10,13 +11,6 @@ import s from "./UpdateNotice.module.css";
 const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 const FIRST_CHECK_DELAY_MS = 5_000;
 
-export function updateChannel(): "stable" | "beta" {
-  try {
-    return localStorage.getItem("kiyi.updateChannel") === "beta" ? "beta" : "stable";
-  } catch {
-    return "stable";
-  }
-}
 
 /**
  * Checks quietly in the background, downloads without asking, and only installs when the
@@ -35,7 +29,7 @@ export function UpdateNotice() {
       if (busy.current) return;
       busy.current = true;
       try {
-        const found = await ipc.checkUpdate(updateChannel());
+        const found = await ipc.checkUpdate(useSettings.getState().updateChannel);
         if (found) {
           setUpdate(found);
           await ipc.downloadUpdate(() => {});

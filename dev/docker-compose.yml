@@ -8,10 +8,12 @@ services:
       POSTGRES_PASSWORD: kiyi
       POSTGRES_DB: shop
     ports: ["55432:5432"]
-    volumes: ["./seed/postgres.sql:/docker-entrypoint-initdb.d/seed.sql:ro"]
+    volumes:
+      - ./seed/postgres.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
+      - ./seed/postgres-test.sh:/docker-entrypoint-initdb.d/02-test.sh:ro
     healthcheck:
       # Healthy only once the seed has run, not just when the server accepts connections.
-      test: ["CMD", "psql", "-U", "kiyi", "-d", "shop", "-c", "SELECT 1 FROM orders LIMIT 1"]
+      test: ["CMD", "psql", "-U", "kiyi", "-d", "kiyi_test", "-c", "SELECT 1 FROM orders LIMIT 1"]
       interval: 2s
       retries: 60
   mysql:
@@ -22,8 +24,10 @@ services:
       MYSQL_USER: kiyi
       MYSQL_PASSWORD: kiyi
     ports: ["53306:3306"]
-    volumes: ["./seed/mysql.sql:/docker-entrypoint-initdb.d/seed.sql:ro"]
+    volumes:
+      - ./seed/mysql.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
+      - ./seed/mysql-test.sh:/docker-entrypoint-initdb.d/02-test.sh:ro
     healthcheck:
-      test: ["CMD", "mysql", "-h127.0.0.1", "-ukiyi", "-pkiyi", "-e", "SELECT 1 FROM shop.customers LIMIT 1"]
+      test: ["CMD", "mysql", "-h127.0.0.1", "-ukiyi", "-pkiyi", "-e", "SELECT 1 FROM kiyi_test.orders LIMIT 1"]
       interval: 2s
       retries: 90

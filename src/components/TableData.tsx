@@ -16,9 +16,13 @@ import {
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { BrowseRequest, Cell, ChangeSet, ColumnMeta, ConnectionConfig, ErrorInfo, Filter, RowChange, TableDetails, ValueKind } from "../lib/types";
+import { driverFor, useCatalog } from "../state/catalog";
+import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
+import { toast } from "../state/toasts";
 import { ContextMenu, type MenuEntry, type MenuState } from "./ContextMenu";
 import { FilterBar, type FilterState } from "./FilterBar";
+import { RecordPanel } from "./RecordPanel";
 import { useGridTheme } from "./gridTheme";
 import type { ReviewRequest } from "./ReviewDialog";
 import s from "./TableView.module.css";
@@ -88,6 +92,7 @@ interface Props {
   active: boolean;
   onStatus(status: TableDataStatus): void;
   onReview(req: ReviewRequest): void;
+  onEditStructure(): void;
 }
 
 function preview(value: string) {
@@ -96,13 +101,15 @@ function preview(value: string) {
 }
 
 export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
-  { tabId, connection, details, active, onStatus, onReview },
+  { tabId, connection, details, active, onStatus, onReview, onEditStructure },
   ref,
 ) {
   const theme = useGridTheme();
   const grid = useRef<DataEditorRef>(null);
   const tab = useTabs((st) => st.tabs.find((t) => t.id === tabId));
   const openTable = useTabs((st) => st.openTable);
+  const inspectorOpen = useSettings((st) => st.inspectorOpen);
+  const driver = driverFor(connection, useCatalog((st) => st.drivers));
 
   const design = details.design;
   const schema = details.schema;
@@ -334,24 +341,45 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
       binaryColumns: columns.filter((c) => c.kind === "binary").map((c) => c.name),
       changes,
     };
+    const counts = { update: 0, insert: 0, delete: 0 };
+    for (const c of changes) counts[c.type]++;
+    const summary = [
+      counts.update && { text: `${counts.update} satır güncellenecek` },
+      counts.insert && { text: `${counts.insert} yeni satır eklenecek` },
+      counts.delete && { text: `${counts.delete} satır silinecek`, danger: true },
+    ].filter(Boolean) as { text: string; danger?: boolean }[];
+
     try {
       const statements = await ipc.planRowChanges(connection.id, set);
+      const run = async () => {
+        await ipc.executeScript(connection.id, statements, "data");
+        edits.current = emptyEdits();
+        history.current = [];
+        setVersion((v) => v + 1);
+        reload();
+      };
+      // Plain edits save straight away; deleting, or anything on production, asks first.
+      const ask = counts.delete > 0 || connection.env === "production" || useSettings.getState().developerMode;
+      if (!ask) {
+        try {
+          await run();
+          toast.success(changes.length === 1 ? "Değişiklik kaydedildi" : `${changes.length} değişiklik kaydedildi`);
+        } catch (err) {
+          toast.error(`Kaydedilemedi: ${errorMessage(err)}`);
+        }
+        return;
+      }
       onReview({
         title: "Değişiklikleri kaydet",
-        subtitle: `${design.name} tablosunda ${changes.length} değişiklik, tek transaction içinde`,
+        subtitle: `${design.name} · hepsi birlikte uygulanır ya da hiçbiri uygulanmaz`,
+        summary,
         statements,
-        action: "Kaydet",
+        action: counts.delete > 0 ? "Kaydet ve sil" : "Kaydet",
         confirmWord: design.name,
-        run: async () => {
-          await ipc.executeScript(connection.id, statements, "data");
-          edits.current = emptyEdits();
-          history.current = [];
-          setVersion((v) => v + 1);
-          reload();
-        },
+        run,
       });
     } catch (err) {
-      alert(errorMessage(err));
+      toast.error(errorMessage(err));
     }
   };
 
@@ -365,21 +393,27 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     toggleFilters: () => setShowFilters((v) => !v),
   }));
 
-  // Status for the toolbar / footer, which live in the parent.
+  // Status for the toolbar / footer, which live in the parent. Only report real changes,
+  // otherwise the parent re-renders us, we report again, and the two loop forever.
   const selectedCount = selectedRows().length;
+  const status: TableDataStatus = {
+    loaded: baseRows,
+    total: total?.n ?? null,
+    totalIsEstimate: total?.estimate ?? false,
+    pending,
+    selectedRows: selectedCount,
+    loading,
+    filters: filterState.filters.length + (filterState.rawWhere ? 1 : 0),
+    showFilters,
+    elapsedMs: elapsed,
+    sql: lastSql,
+  };
+  const lastStatus = useRef("");
   useEffect(() => {
-    onStatus({
-      loaded: baseRows,
-      total: total?.n ?? null,
-      totalIsEstimate: total?.estimate ?? false,
-      pending,
-      selectedRows: selectedCount,
-      loading,
-      filters: filterState.filters.length + (filterState.rawWhere ? 1 : 0),
-      showFilters,
-      elapsedMs: elapsed,
-      sql: lastSql,
-    });
+    const key = JSON.stringify(status);
+    if (key === lastStatus.current) return;
+    lastStatus.current = key;
+    onStatus(status);
   });
 
   // ---- keyboard (only for the visible tab)
@@ -643,6 +677,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
       {!editable && !details.isView && !connection.readOnly && (
         <div className={s.banner}>Bu tablonun primary key'i yok, satırlar güvenle tanımlanamadığı için düzenleme kapalı.</div>
       )}
+      <div className={s.split}>
       <div className={s.gridHost}>
         {error ? (
           <div className={s.error} role="alert">
@@ -686,6 +721,28 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
         ) : (
           loading && <div className={s.center}>Yükleniyor…</div>
         )}
+      </div>
+      {inspectorOpen && columns.length > 0 && (
+        <RecordPanel
+          details={details}
+          driver={driver}
+          columns={columns}
+          row={selection.current ? selection.current.cell[1] : null}
+          rowCount={totalRows}
+          total={total?.n ?? null}
+          value={valueAt}
+          edited={(col, row) => row >= baseRows || !!edits.current.updates.get(row)?.has(col)}
+          writable={(col, row) => columnWritable(col) && !(row < baseRows && edits.current.deletes.has(row))}
+          onChange={setValue}
+          onFollow={(fk, value) => openTable(connection.id, fk.refSchema ?? schema, fk.refTable, "data", [{ column: fk.refColumns[0], op: "eq", value }])}
+          onMove={(row) => {
+            const col = selection.current?.cell[0] ?? 0;
+            setSelection({ ...selection, current: { cell: [col, row], range: { x: col, y: row, width: 1, height: 1 }, rangeStack: [] } });
+            grid.current?.scrollTo(col, row);
+          }}
+          onEditStructure={onEditStructure}
+        />
+      )}
       </div>
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
     </div>

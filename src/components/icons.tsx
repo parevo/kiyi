@@ -64,3 +64,15 @@ export const Spinner = ({ size = 14 }: { size?: number }) => (
     <path d="M14 8a6 6 0 0 0-6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
 );
+export const PanelIcon = (p: P) => (
+  <svg {...base(p)}><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M10 3v10" /></svg>
+);
+export const SettingsIcon = (p: P) => (
+  <svg {...base(p)}><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.7M8 12.5v1.7M14.2 8h-1.7M3.5 8H1.8M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2M12.4 12.4l-1.2-1.2M4.8 4.8L3.6 3.6" /></svg>
+);
+export const CodeIcon = (p: P) => (
+  <svg {...base(p)}><path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5" /></svg>
+);
+export const HomeIcon = (p: P) => (
+  <svg {...base(p)}><path d="M2.5 7.5L8 3l5.5 4.5V13h-3.5V9.5h-4V13H2.5z" /></svg>
+);

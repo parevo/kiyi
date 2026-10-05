@@ -1,16 +1,18 @@
-import { useMemo, useState } from "react";
-import { Button as AriaButton, Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
+import { getVersion } from "@tauri-apps/api/app";
+import { useEffect, useMemo, useState } from "react";
+import { Dialog, DialogTrigger, Heading, Modal, ModalOverlay, Popover, Button as AriaButton } from "react-aria-components";
 import { errorMessage, ipc } from "../lib/ipc";
-import type { ConnectionConfig, SchemaInfo, TableAction, TableInfo } from "../lib/types";
+import type { ConnectionConfig, TableAction, TableInfo } from "../lib/types";
+import { driverFor, useCatalog } from "../state/catalog";
 import { useConnections } from "../state/connections";
+import { useSettings } from "../state/settings";
 import { tableKey, useTabs } from "../state/tabs";
 import { ContextMenu, type MenuState } from "./ContextMenu";
-import { ChevronIcon, LockIcon, MoreIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, TableIcon, ViewIcon } from "./icons";
+import { ChevronIcon, CodeIcon, HomeIcon, LockIcon, MoreIcon, PlusIcon, RefreshIcon, SearchIcon, SettingsIcon, Spinner, TableIcon, ViewIcon } from "./icons";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
-import { ActionMenu, Button, Field, IconButton } from "./ui";
+import { Button, Field, IconButton, Segmented, Switch } from "./ui";
 import d from "./dialog.module.css";
 import s from "./Sidebar.module.css";
-import ui from "./ui.module.css";
 
 export function Sidebar({
   onNewConnection,
@@ -21,161 +23,265 @@ export function Sidebar({
   onEdit(c: ConnectionConfig): void;
   onOpenSql(sql: string): void;
 }) {
+  const activeId = useConnections((st) => st.activeId);
+  const live = useConnections((st) => (activeId ? st.live[activeId] : undefined));
+  const refreshSchema = useConnections((st) => st.refreshSchema);
+  const activeTabId = useTabs((st) => st.activeId);
+  const developerMode = useSettings((st) => st.developerMode);
+
+  return (
+    <aside className={s.sidebar}>
+      <div className={s.top} data-tauri-drag-region />
+      <ConnectionSwitcher onNew={onNewConnection} onEdit={onEdit} />
+
+      {live?.status === "error" && <div className={`${s.connError} selectable`}>{live.error}</div>}
+      {live?.status === "connecting" && (
+        <div className={s.connecting}>
+          <Spinner size={12} /> Bağlanılıyor…
+        </div>
+      )}
+
+      {activeId && live?.status === "connected" && (
+        <>
+          <nav className={s.nav}>
+            <button className={s.navItem} data-active={activeTabId === null || undefined} onClick={() => useTabs.setState({ activeId: null })}>
+              <HomeIcon size={15} /> Genel bakış
+            </button>
+          </nav>
+          <TableList
+            connectionId={activeId}
+            loading={!!live.schemaLoading}
+            onRefresh={() => refreshSchema(activeId)}
+            onOpenSql={onOpenSql}
+          />
+        </>
+      )}
+      {!activeId && <div className={s.flex} />}
+
+      <div className={s.footer}>
+        {activeId && live?.status === "connected" && (
+          <button className={s.footerButton} onClick={() => onOpenSql("")}>
+            <CodeIcon size={15} /> SQL editörü
+          </button>
+        )}
+        <span className={s.flex} />
+        <SettingsButton />
+      </div>
+      {developerMode && live?.serverVersion && <div className={s.version}>{live.serverVersion}</div>}
+    </aside>
+  );
+}
+
+function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: ConnectionConfig): void }) {
   const connections = useConnections((st) => st.connections);
   const activeId = useConnections((st) => st.activeId);
   const live = useConnections((st) => st.live);
   const activate = useConnections((st) => st.activate);
   const disconnect = useConnections((st) => st.disconnect);
   const remove = useConnections((st) => st.remove);
-  const refreshSchema = useConnections((st) => st.refreshSchema);
-
-  const active = activeId ? live[activeId] : undefined;
+  const drivers = useCatalog((st) => st.drivers);
+  const [open, setOpen] = useState(false);
+  const active = connections.find((c) => c.id === activeId);
 
   return (
-    <aside className={s.sidebar}>
-      <div className={s.top} data-tauri-drag-region>
-        <IconButton label="Yeni bağlantı" shortcut="⌘N" onPress={onNewConnection}>
-          <PlusIcon />
-        </IconButton>
-      </div>
-
-      <div className={s.section}>Bağlantılar</div>
-      <div className={s.connections}>
-        {connections.map((c) => {
-          const state = live[c.id];
-          return (
-            <div
-              key={c.id}
-              role="button"
-              tabIndex={0}
-              className={s.conn}
-              data-active={c.id === activeId || undefined}
-              data-status={state?.status ?? "idle"}
-              style={{ "--env": `var(--env-${c.env})` } as React.CSSProperties}
-              onClick={() => activate(c.id)}
-              onKeyDown={(e) => e.key === "Enter" && activate(c.id)}
-              title={`${c.user}@${c.host}:${c.port}`}
-            >
-              <span className={s.dot} />
-              <span className={s.connName}>{c.name}</span>
-              <span className={s.connMeta} onClick={(e) => e.stopPropagation()}>
-                {state?.status === "connecting" && <Spinner size={12} />}
-                {c.readOnly && <LockIcon size={12} aria-label="Salt okunur" />}
-                <span className={s.connMenu}>
-                  <ActionMenu
-                    trigger={
-                      <AriaButton aria-label="Bağlantı seçenekleri" className={`${ui.button} ${ui.ghost} ${ui.icon}`}>
-                        <MoreIcon />
-                      </AriaButton>
-                    }
-                    actions={[
-                      { id: "edit", label: "Düzenle…", onAction: () => onEdit(c) },
-                      ...(state?.status === "connected"
-                        ? [{ id: "disconnect", label: "Bağlantıyı kes", onAction: () => disconnect(c.id) }]
-                        : []),
-                      {
-                        id: "delete",
-                        label: "Sil",
-                        danger: true,
-                        onAction: () => {
-                          if (confirm(`"${c.name}" silinsin mi? Kayıtlı şifresi de keychain'den kaldırılır.`)) remove(c.id);
-                        },
-                      },
-                    ]}
-                  />
-                </span>
+    <DialogTrigger isOpen={open} onOpenChange={setOpen}>
+      <AriaButton className={s.switcher} aria-label="Bağlantı seç">
+        {active ? (
+          <>
+            <span className={s.dot} data-on={live[active.id]?.status === "connected" || undefined} style={{ "--env": `var(--env-${active.env})` } as React.CSSProperties} />
+            <span className={s.switcherText}>
+              <span className={s.switcherName}>{active.name}</span>
+              <span className={s.switcherMeta}>
+                {driverFor(active, drivers)?.name}
+                {active.readOnly && " · salt okunur"}
               </span>
-            </div>
-          );
-        })}
-        {connections.length === 0 && <div className={s.empty}>Henüz bağlantı yok.</div>}
-      </div>
-
-      {active?.status === "error" && <div className={`${s.connError} selectable`}>{active.error}</div>}
-
-      {activeId && active?.status === "connected" && (
-        <>
-          <div className={s.divider} />
-          <SchemaTree
-            connectionId={activeId}
-            schemas={active.schema?.schemas ?? []}
-            defaultSchema={active.schema?.defaultSchema ?? null}
-            loading={!!active.schemaLoading}
-            onRefresh={() => refreshSchema(activeId)}
-            onOpenSql={onOpenSql}
-          />
-          <div className={s.footer} title={active.serverVersion}>
-            {active.serverVersion}
+            </span>
+          </>
+        ) : (
+          <span className={s.switcherText}>
+            <span className={s.switcherName}>{connections.length ? "Bağlantı seç" : "Bağlantı yok"}</span>
+          </span>
+        )}
+        <ChevronIcon size={12} className={s.switcherChevron} />
+      </AriaButton>
+      <Popover className={s.popover} placement="bottom start" offset={4}>
+        <Dialog className={s.popDialog} aria-label="Bağlantılar">
+          <div className={s.popList}>
+            {connections.map((c) => {
+              const status = live[c.id]?.status;
+              return (
+                <div key={c.id} className={s.popItem} data-active={c.id === activeId || undefined}>
+                  <button
+                    className={s.popMain}
+                    onClick={() => {
+                      setOpen(false);
+                      activate(c.id);
+                    }}
+                  >
+                    <span className={s.dot} data-on={status === "connected" || undefined} style={{ "--env": `var(--env-${c.env})` } as React.CSSProperties} />
+                    <span className={s.switcherText}>
+                      <span className={s.switcherName}>{c.name}</span>
+                      <span className={s.switcherMeta}>
+                        {driverFor(c, drivers)?.name} · {c.host}
+                      </span>
+                    </span>
+                    {c.readOnly && <LockIcon size={12} />}
+                    {status === "connecting" && <Spinner size={12} />}
+                  </button>
+                  <span className={s.popActions}>
+                    <IconButton
+                      label="Düzenle"
+                      onPress={() => {
+                        setOpen(false);
+                        onEdit(c);
+                      }}
+                    >
+                      <MoreIcon size={14} />
+                    </IconButton>
+                  </span>
+                </div>
+              );
+            })}
           </div>
-        </>
-      )}
-    </aside>
+          <div className={s.popFooter}>
+            <button
+              className={s.popAction}
+              onClick={() => {
+                setOpen(false);
+                onNew();
+              }}
+            >
+              <PlusIcon size={14} /> Yeni bağlantı
+            </button>
+            {active && live[active.id]?.status === "connected" && (
+              <button
+                className={s.popAction}
+                onClick={() => {
+                  setOpen(false);
+                  disconnect(active.id);
+                }}
+              >
+                Bağlantıyı kes
+              </button>
+            )}
+            {active && (
+              <button
+                className={`${s.popAction} ${s.danger}`}
+                onClick={() => {
+                  setOpen(false);
+                  if (confirm(`"${active.name}" bağlantısı silinsin mi? Kayıtlı şifresi de silinir; veritabanına dokunulmaz.`)) remove(active.id);
+                }}
+              >
+                Bu bağlantıyı sil
+              </button>
+            )}
+          </div>
+        </Dialog>
+      </Popover>
+    </DialogTrigger>
   );
 }
 
-function SchemaTree({
+function SettingsButton() {
+  const settings = useSettings();
+  const [version, setVersion] = useState("");
+  useEffect(() => {
+    getVersion().then(setVersion, () => {});
+  }, []);
+  return (
+    <DialogTrigger>
+      <AriaButton className={s.footerButton} aria-label="Ayarlar">
+        <SettingsIcon size={15} />
+      </AriaButton>
+      <Popover className={s.popover} placement="top start" offset={6}>
+        <Dialog className={s.settings} aria-label="Ayarlar">
+          <Segmented
+            label="Görünüm"
+            value={settings.theme}
+            onChange={(theme) => settings.set({ theme })}
+            options={[
+              { value: "system", label: "Sistem" },
+              { value: "light", label: "Açık" },
+              { value: "dark", label: "Koyu" },
+            ]}
+          />
+          <Switch isSelected={settings.developerMode} onChange={(developerMode) => settings.set({ developerMode })}>
+            Geliştirici modu
+          </Switch>
+          <p className={s.settingsHint}>SQL'i, ham veri tiplerini ve teknik ayrıntıları gösterir.</p>
+          <Segmented
+            label="Güncellemeler"
+            value={settings.updateChannel}
+            onChange={(updateChannel) => settings.set({ updateChannel })}
+            options={[
+              { value: "stable", label: "Kararlı" },
+              { value: "beta", label: "Beta" },
+            ]}
+          />
+          {version && <p className={s.settingsHint}>Kıyı {version}</p>}
+        </Dialog>
+      </Popover>
+    </DialogTrigger>
+  );
+}
+
+function TableList({
   connectionId,
-  schemas,
-  defaultSchema,
   loading,
   onRefresh,
   onOpenSql,
 }: {
   connectionId: string;
-  schemas: SchemaInfo[];
-  defaultSchema: string | null;
   loading: boolean;
   onRefresh(): void;
   onOpenSql(sql: string): void;
 }) {
+  const snapshot = useConnections((st) => st.live[connectionId]?.schema);
+  const connection = useConnections((st) => st.connections.find((c) => c.id === connectionId))!;
+  const developerMode = useSettings((st) => st.developerMode);
+  const activeTabId = useTabs((st) => st.activeId);
+  const activeKey = useTabs((st) => st.tabs.find((t) => t.id === activeTabId)?.table);
+  const { openTable, openCreate, close, patch } = useTabs.getState();
+
+  const schemas = snapshot?.schemas ?? [];
+  const [schemaName, setSchemaName] = useState<string | null>(null);
+  const current = schemas.find((x) => x.name === schemaName) ?? schemas.find((x) => x.name === snapshot?.defaultSchema) ?? schemas[0];
   const [filter, setFilter] = useState("");
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [review, setReview] = useState<ReviewRequest | null>(null);
-  const [renaming, setRenaming] = useState<{ schema: string; table: TableInfo } | null>(null);
-  const tabs = useTabs((st) => st.tabs);
-  const activeTabId = useTabs((st) => st.activeId);
-  const { openTable, openCreate, close, patch } = useTabs.getState();
-  const connection = useConnections((st) => st.connections.find((c) => c.id === connectionId))!;
+  const [renaming, setRenaming] = useState<TableInfo | null>(null);
 
   const needle = filter.trim().toLowerCase();
-  const visible = useMemo(
-    () =>
-      schemas
-        .map((sc) => ({ ...sc, tables: needle ? sc.tables.filter((t) => t.name.toLowerCase().includes(needle)) : sc.tables }))
-        .filter((sc) => !needle || sc.tables.length > 0),
-    [schemas, needle],
-  );
+  const { tables, views } = useMemo(() => {
+    const list = (current?.tables ?? []).filter((t) => !needle || t.name.toLowerCase().includes(needle));
+    return { tables: list.filter((t) => t.kind === "table"), views: list.filter((t) => t.kind === "view") };
+  }, [current, needle]);
 
-  const isOpen = (name: string) => (needle ? true : (expanded[name] ?? (name === defaultSchema || schemas.length === 1)));
-  const activeKey = tabs.find((t) => t.id === activeTabId)?.table;
-
+  const schema = current?.name ?? null;
   const q = (id: string) => (connection.kind === "mysql" ? `\`${id.replace(/`/g, "``")}\`` : `"${id.replace(/"/g, '""')}"`);
-  const qualified = (schema: string, table: string) => (schema === defaultSchema ? q(table) : `${q(schema)}.${q(table)}`);
 
-  const runAction = async (schema: string, table: TableInfo, action: TableAction) => {
+  const runAction = async (table: TableInfo, action: TableAction) => {
     try {
       const statements = await ipc.planTableAction(connectionId, schema, table.name, table.kind === "view", action);
-      const verb = action.type === "drop" ? "sil" : action.type === "truncate" ? "boşalt" : "yeniden adlandır";
+      const view = table.kind === "view";
       setReview({
-        title: `${table.name} tablosunu ${verb}`,
-        subtitle:
+        title: action.type === "drop" ? (view ? "Görünümü sil" : "Tabloyu sil") : action.type === "truncate" ? "Tabloyu boşalt" : "Yeniden adlandır",
+        subtitle: table.name,
+        summary:
           action.type === "drop"
-            ? "Tablo ve içindeki tüm veri kalıcı olarak silinir."
+            ? [{ text: view ? `${table.name} görünümü silinecek` : `${table.name} tablosu ve içindeki tüm kayıtlar kalıcı olarak silinecek`, danger: true }]
             : action.type === "truncate"
-              ? "Tablodaki tüm satırlar silinir, yapı kalır."
-              : undefined,
+              ? [{ text: `${table.name} tablosundaki tüm kayıtlar silinecek; alanlar kalacak`, danger: true }]
+              : [{ text: `${table.name} → ${action.to}` }],
         statements,
-        action: action.type === "drop" ? "Kalıcı olarak sil" : action.type === "truncate" ? "Tüm satırları sil" : "Yeniden adlandır",
+        action: action.type === "drop" ? "Kalıcı olarak sil" : action.type === "truncate" ? "Tüm kayıtları sil" : "Yeniden adlandır",
         confirmWord: table.name,
         run: async () => {
           await ipc.executeScript(connectionId, statements, "schema");
           const key = tableKey(connectionId, schema, table.name);
-          const open = useTabs.getState().tabs.filter((t) => t.table === key || (t.tableName === table.name && t.schema === schema && t.connectionId === connectionId));
+          const open = useTabs.getState().tabs.filter((t) => t.table === key || (t.connectionId === connectionId && t.schema === schema && t.tableName === table.name));
           if (action.type === "drop") open.forEach((t) => close(t.id, true));
-          if (action.type === "rename") {
-            open.forEach((t) => patch(t.id, { table: tableKey(connectionId, schema, action.to), tableName: action.to, title: action.to }));
-          }
+          if (action.type === "rename") open.forEach((t) => patch(t.id, { table: tableKey(connectionId, schema, action.to), tableName: action.to, title: action.to }));
           onRefresh();
         },
       });
@@ -184,95 +290,101 @@ function SchemaTree({
     }
   };
 
-  const tableMenu = (x: number, y: number, schema: string, t: TableInfo) => {
+  const tableMenu = (x: number, y: number, t: TableInfo) => {
     const writable = !connection.readOnly;
     setMenu({
       x,
       y,
       items: [
-        { label: "Veriyi aç", onSelect: () => openTable(connectionId, schema, t.name, "data") },
-        { label: "Yapıyı aç", onSelect: () => openTable(connectionId, schema, t.name, "structure") },
-        { label: "SELECT sorgusu aç", onSelect: () => onOpenSql(`SELECT * FROM ${qualified(schema, t.name)} LIMIT 100;`) },
+        { label: "Kayıtları aç", onSelect: () => openTable(connectionId, schema, t.name, "data") },
+        { label: "Yapıyı düzenle", onSelect: () => openTable(connectionId, schema, t.name, "structure") },
+        ...(developerMode ? [{ label: "SQL ile sorgula", onSelect: () => onOpenSql(`SELECT * FROM ${schema && schema !== snapshot?.defaultSchema ? `${q(schema)}.` : ""}${q(t.name)} LIMIT 100;`) }] : []),
         "separator",
-        { label: "Yeniden adlandır…", onSelect: () => setRenaming({ schema, table: t }), disabled: !writable },
-        { label: "Boşalt (TRUNCATE)…", onSelect: () => runAction(schema, t, { type: "truncate" }), disabled: !writable || t.kind === "view", danger: true },
-        { label: t.kind === "view" ? "View'ı sil…" : "Tabloyu sil…", onSelect: () => runAction(schema, t, { type: "drop" }), disabled: !writable, danger: true },
-        "separator",
-        { label: "Adı kopyala", onSelect: () => navigator.clipboard.writeText(t.name) },
+        { label: "Yeniden adlandır…", onSelect: () => setRenaming(t), disabled: !writable },
+        { label: "Tüm kayıtları sil…", onSelect: () => runAction(t, { type: "truncate" }), disabled: !writable || t.kind === "view", danger: true },
+        { label: t.kind === "view" ? "Görünümü sil…" : "Tabloyu sil…", onSelect: () => runAction(t, { type: "drop" }), disabled: !writable, danger: true },
       ],
     });
   };
 
+  const row = (t: TableInfo) => (
+    <div
+      key={t.name}
+      className={s.tableRow}
+      role="button"
+      tabIndex={0}
+      data-active={activeKey === tableKey(connectionId, schema, t.name) || undefined}
+      onClick={() => openTable(connectionId, schema, t.name)}
+      onKeyDown={(e) => e.key === "Enter" && openTable(connectionId, schema, t.name)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        tableMenu(e.clientX, e.clientY, t);
+      }}
+    >
+      {t.kind === "view" ? <ViewIcon size={14} /> : <TableIcon size={14} />}
+      <span className={s.tableName}>
+        <Highlight text={t.name} needle={needle} />
+      </span>
+      <button
+        className={s.rowMenu}
+        aria-label={`${t.name} seçenekleri`}
+        onClick={(e) => {
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          tableMenu(r.left, r.bottom + 2, t);
+        }}
+      >
+        <MoreIcon size={14} />
+      </button>
+    </div>
+  );
+
   return (
     <>
-      <div className={s.section}>
-        Şema
-        <span className={s.sectionActions}>
-          {!connection.readOnly && (
-            <IconButton label="Yeni tablo" onPress={() => openCreate(connectionId, defaultSchema ?? schemas[0]?.name ?? null)}>
-              <PlusIcon size={14} />
-            </IconButton>
-          )}
-          <IconButton label="Şemayı yenile" onPress={onRefresh} isDisabled={loading}>
-            {loading ? <Spinner size={12} /> : <RefreshIcon size={14} />}
-          </IconButton>
-        </span>
-      </div>
       <label className={s.filter}>
         <SearchIcon size={14} />
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Tablo ara" spellCheck={false} />
       </label>
+      {schemas.length > 1 && (
+        <select className={s.schemaSelect} value={current?.name} onChange={(e) => setSchemaName(e.target.value)} aria-label="Şema">
+          {schemas.map((x) => (
+            <option key={x.name} value={x.name}>
+              {x.name} ({x.tables.length})
+            </option>
+          ))}
+        </select>
+      )}
+
       <div className={s.tree}>
-        {visible.map((sc) => (
-          <div key={sc.name}>
-            {schemas.length > 1 && (
-              <AriaButton
-                className={s.schemaRow}
-                aria-expanded={isOpen(sc.name)}
-                onPress={() => setExpanded((e) => ({ ...e, [sc.name]: !isOpen(sc.name) }))}
-              >
-                <ChevronIcon size={12} className={s.chevron} />
-                {sc.name}
-                <span className={s.count}>{sc.tables.length}</span>
-              </AriaButton>
+        <div className={s.section}>
+          Tablolar
+          <span className={s.sectionActions}>
+            {!connection.readOnly && (
+              <IconButton label="Yeni tablo" onPress={() => openCreate(connectionId, schema)}>
+                <PlusIcon size={14} />
+              </IconButton>
             )}
-            {isOpen(sc.name) &&
-              sc.tables.map((t) => (
-                <div
-                  key={t.name}
-                  className={s.tableRow}
-                  role="button"
-                  tabIndex={0}
-                  style={schemas.length > 1 ? undefined : { paddingLeft: 8 }}
-                  data-active={activeKey === tableKey(connectionId, sc.name, t.name) || undefined}
-                  onClick={() => openTable(connectionId, sc.name, t.name)}
-                  onKeyDown={(e) => e.key === "Enter" && openTable(connectionId, sc.name, t.name)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    tableMenu(e.clientX, e.clientY, sc.name, t);
-                  }}
-                >
-                  {t.kind === "view" ? <ViewIcon size={14} /> : <TableIcon size={14} />}
-                  <span className={s.tableName}>
-                    <Highlight text={t.name} needle={needle} />
-                  </span>
-                  <button
-                    className={s.rowMenu}
-                    aria-label={`${t.name} seçenekleri`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const r = e.currentTarget.getBoundingClientRect();
-                      tableMenu(r.left, r.bottom + 2, sc.name, t);
-                    }}
-                  >
-                    <MoreIcon size={14} />
-                  </button>
-                </div>
-              ))}
+            <IconButton label="Listeyi yenile" onPress={onRefresh} isDisabled={loading}>
+              {loading ? <Spinner size={12} /> : <RefreshIcon size={13} />}
+            </IconButton>
+          </span>
+        </div>
+        {tables.map(row)}
+        {!loading && tables.length === 0 && (
+          <div className={s.empty}>
+            {needle ? `"${filter}" ile eşleşen tablo yok.` : "Henüz tablo yok."}
+            {!needle && !connection.readOnly && (
+              <Button variant="ghost" onPress={() => openCreate(connectionId, schema)}>
+                <PlusIcon size={14} /> İlk tabloyu oluştur
+              </Button>
+            )}
           </div>
-        ))}
-        {!loading && visible.length === 0 && (
-          <div className={s.empty}>{needle ? `"${filter}" ile eşleşen tablo yok.` : "Bu veritabanında tablo yok."}</div>
+        )}
+        {views.length > 0 && (
+          <>
+            <div className={s.section}>Görünümler</div>
+            {views.map(row)}
+          </>
         )}
       </div>
 
@@ -280,12 +392,12 @@ function SchemaTree({
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} onOpenInEditor={onOpenSql} />
       {renaming && (
         <RenameDialog
-          current={renaming.table.name}
+          current={renaming.name}
           onClose={() => setRenaming(null)}
           onSubmit={(to) => {
-            const r = renaming;
+            const t = renaming;
             setRenaming(null);
-            runAction(r.schema, r.table, { type: "rename", to });
+            runAction(t, { type: "rename", to });
           }}
         />
       )}

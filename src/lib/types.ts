@@ -15,6 +15,7 @@ export interface ConnectionConfig {
   sslMode: SslMode;
   env: EnvTag;
   readOnly: boolean;
+  driver?: string | null;
 }
 
 export interface ParsedUrl {
@@ -204,3 +205,26 @@ export interface ChangeSet {
 }
 
 export type ScriptKind = "data" | "schema";
+
+// ---- catalog
+
+export type TypeCategory =
+  | "text" | "number" | "decimal" | "boolean" | "date" | "dateTime" | "time"
+  | "identifier" | "json" | "binary" | "list" | "other";
+
+export interface TypeOption {
+  label: string;
+  category: TypeCategory;
+  sql: string;
+  hint: string;
+}
+
+export interface DriverInfo {
+  id: string;
+  name: string;
+  kind: DbKind | null;
+  defaultPort: number;
+  urlExample: string;
+  types: TypeOption[];
+  recognise: [string, TypeCategory][];
+}

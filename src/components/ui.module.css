@@ -121,6 +121,7 @@
 }
 .switch[data-selected] .track { background: var(--accent); }
 .switch[data-selected] .track::after { transform: translateX(12px); background: var(--text-on-accent); }
+.switch[data-disabled] { opacity: 0.45; }
 .switch[data-focus-visible] .track { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .kbd {

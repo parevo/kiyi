@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Dialog, Heading, Input, Modal, ModalOverlay, TextField } from "react-aria-components";
 import { errorMessage, ipc } from "../lib/ipc";
-import type { ConnectionConfig, DbKind, EnvTag, SslMode, TestReport } from "../lib/types";
+import type { ConnectionConfig, DriverInfo, EnvTag, SslMode, TestReport } from "../lib/types";
+import { driverFor, useCatalog } from "../state/catalog";
 import { useConnections } from "../state/connections";
 import { AlertIcon, CheckIcon, CloseIcon, Spinner } from "./icons";
 import { Button, Field, IconButton, Segmented, Switch } from "./ui";
@@ -19,13 +20,14 @@ const blank: ConnectionConfig = {
   sslMode: "disable",
   env: "local",
   readOnly: false,
+  driver: "postgres",
 };
 
 const ENV_OPTIONS: { value: EnvTag; label: React.ReactNode }[] = (
   [
-    ["local", "Local"],
-    ["staging", "Staging"],
-    ["production", "Production"],
+    ["local", "Yerel"],
+    ["staging", "Test"],
+    ["production", "Canlı"],
   ] as const
 ).map(([value, label]) => ({
   value,
@@ -39,14 +41,18 @@ const ENV_OPTIONS: { value: EnvTag; label: React.ReactNode }[] = (
 
 export function ConnectionDialog({
   editing,
+  init,
   isOpen,
   onClose,
 }: {
   /** Existing connection to edit; `null` creates a new one. */
   editing: ConnectionConfig | null;
+  /** Prefill for a new connection: a pasted address or a chosen database. */
+  init?: { url?: string; driver?: DriverInfo };
   isOpen: boolean;
   onClose(): void;
 }) {
+  const drivers = useCatalog((st) => st.drivers).filter((d) => d.kind);
   const save = useConnections((st) => st.save);
   const activate = useConnections((st) => st.activate);
 
@@ -62,14 +68,17 @@ export function ConnectionDialog({
 
   useEffect(() => {
     if (!isOpen) return;
-    setConfig(editing ?? blank);
+    const d = init?.driver;
+    setConfig(editing ?? (d && d.kind ? { ...blank, kind: d.kind, driver: d.id, port: d.defaultPort } : blank));
     setPassword(editing ? null : "");
     setUrl("");
     setUrlError(null);
     setNameTouched(!!editing);
     setReport(null);
     setError(null);
-  }, [isOpen, editing]);
+    if (!editing && init?.url) onUrl(init.url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, editing, init]);
 
   const set = <K extends keyof ConnectionConfig>(key: K, value: ConnectionConfig[K]) => {
     setReport(null);
@@ -143,7 +152,7 @@ export function ConnectionDialog({
                   <TextField aria-label="Bağlantı adresi" value={url} onChange={onUrl} autoFocus>
                     <Input
                       className={`${ui.input} ${ui.mono}`}
-                      placeholder="postgres://kullanıcı:şifre@host:5432/veritabanı"
+                      placeholder={driverFor(config, drivers)?.urlExample ?? "bağlantı adresi"}
                       spellCheck={false}
                     />
                   </TextField>
@@ -154,22 +163,31 @@ export function ConnectionDialog({
               )}
 
               <div className={s.row}>
-                <Segmented<DbKind>
-                  label="Tür"
-                  value={config.kind}
-                  onChange={(kind) => {
-                    setConfig((c) => ({
-                      ...c,
-                      kind,
-                      port: c.port === 5432 || c.port === 3306 ? (kind === "postgres" ? 5432 : 3306) : c.port,
-                    }));
-                    setReport(null);
-                  }}
-                  options={[
-                    { value: "postgres", label: "PostgreSQL" },
-                    { value: "mysql", label: "MySQL" },
-                  ]}
-                />
+                <label className={ui.field}>
+                  <span className={ui.label}>Veritabanı türü</span>
+                  <select
+                    className={ui.input}
+                    value={driverFor(config, drivers)?.id ?? ""}
+                    onChange={(e) => {
+                      const d = drivers.find((x) => x.id === e.target.value);
+                      if (!d?.kind) return;
+                      const kind = d.kind;
+                      setConfig((c) => ({
+                        ...c,
+                        kind,
+                        driver: d.id,
+                        port: drivers.some((x) => x.defaultPort === c.port) ? d.defaultPort : c.port,
+                      }));
+                      setReport(null);
+                    }}
+                  >
+                    {drivers.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <Field
                   label="Ad"
                   value={config.name}
@@ -182,7 +200,7 @@ export function ConnectionDialog({
               </div>
 
               <div className={s.hostRow}>
-                <Field label="Host" mono value={config.host} onChange={(v) => set("host", v)} />
+                <Field label="Sunucu" mono value={config.host} onChange={(v) => set("host", v)} />
                 <Field
                   label="Port"
                   mono
@@ -214,7 +232,7 @@ export function ConnectionDialog({
                   onChange={(v) => set("database", v.trim() ? v : null)}
                 />
                 <Segmented<SslMode>
-                  label="SSL"
+                  label="Şifreli bağlantı (SSL)"
                   value={config.sslMode}
                   onChange={(v) => set("sslMode", v)}
                   options={[
@@ -233,7 +251,7 @@ export function ConnectionDialog({
                   Salt okunur
                 </Switch>
                 <span className={s.readOnlyHint}>
-                  {config.readOnly ? "Yazma sorguları sunucu tarafında engellenir." : "Bu bağlantıda veri değiştirilebilir."}
+                  {config.readOnly ? "Kayıtlar görüntülenir ama değiştirilemez." : "Bu bağlantıda kayıtlar değiştirilebilir."}
                 </span>
               </div>
 

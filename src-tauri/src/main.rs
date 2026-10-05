@@ -21,6 +21,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::list_drivers,
             commands::list_connections,
             commands::parse_connection_url,
             commands::save_connection,

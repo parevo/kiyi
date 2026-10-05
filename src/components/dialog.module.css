@@ -103,3 +103,23 @@
 .confirmInput b { color: var(--text); font-family: var(--font-mono); font-weight: 500; }
 
 .dangerButton { background: var(--danger) !important; color: #fff !important; border-color: transparent !important; }
+
+.summary { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.summary li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+}
+.summary li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; transform: translateY(-1px); }
+.summary li[data-danger] { color: var(--danger); }
+.summary li[data-danger]::before { background: var(--danger); }
+.disclosure {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  padding: 2px 0;
+}
+.disclosure:hover { color: var(--text); }

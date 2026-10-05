@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   BrowseRequest,
+  DriverInfo,
   ChangeSet,
   ConnectionConfig,
   Page,
@@ -16,6 +17,7 @@ import type {
 } from "./types";
 
 export const ipc = {
+  listDrivers: () => invoke<DriverInfo[]>("list_drivers"),
   listConnections: () => invoke<ConnectionConfig[]>("list_connections"),
   parseConnectionUrl: (url: string) => invoke<ParsedUrl>("parse_connection_url", { url }),
   saveConnection: (config: ConnectionConfig, password: string | null) =>

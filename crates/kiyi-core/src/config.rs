@@ -50,6 +50,9 @@ pub struct ConnectionConfig {
     pub ssl_mode: SslMode,
     pub env: EnvTag,
     pub read_only: bool,
+    /// Catalog id ("postgres", "mariadb"…) for display; the driver itself follows `kind`.
+    #[serde(default)]
+    pub driver: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -78,6 +81,10 @@ pub fn guess_env(host: &str) -> EnvTag {
 /// Parses `postgres://user:pass@host:5432/db?sslmode=require` style URLs.
 pub fn parse_url(input: &str) -> Result<ParsedUrl> {
     let url = Url::parse(input.trim()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+    let driver = match url.scheme() {
+        "postgresql" => "postgres",
+        other => other,
+    };
     let kind = match url.scheme() {
         "postgres" | "postgresql" => DbKind::Postgres,
         "mysql" | "mariadb" => DbKind::Mysql,
@@ -120,6 +127,7 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
             ssl_mode,
             env,
             read_only: env == EnvTag::Production,
+            driver: Some(driver.to_string()),
         },
         password: url.password().map(decode),
     })
