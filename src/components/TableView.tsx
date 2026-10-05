@@ -5,7 +5,11 @@ import { useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { type Tab, tableKey, useTabs } from "../state/tabs";
 import { toast } from "../state/toasts";
-import { CopyIcon, PanelIcon, PlusIcon, RefreshIcon, Spinner, TrashIcon } from "./icons";
+import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
+import { ContextMenu, type MenuState } from "./ContextMenu";
+import { CopyIcon, MoreIcon, PanelIcon, PlusIcon, RefreshIcon, Spinner, TrashIcon } from "./icons";
+import { ImportSheet } from "./ImportSheet";
+import type { ExportFormat } from "../lib/types";
 import { InsertRowSheet } from "./InsertRowSheet";
 import { ActiveFilters, FilterButton, SearchBar, SortButton } from "./QueryControls";
 import { useUi } from "../state/ui";
@@ -14,6 +18,7 @@ import { CreateTable, StructureView } from "./StructureEditor";
 import { emptyQuery, TableData, type TableDataHandle, type TableDataStatus, type TableQuery } from "./TableData";
 import { Button, IconButton } from "./ui";
 import s from "./TableView.module.css";
+import { kbd } from "../lib/platform";
 
 const fmt = new Intl.NumberFormat("en-US");
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
@@ -42,6 +47,8 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   const [insert, setInsert] = useState<{ prefill?: Record<string, Cell> } | null>(null);
   const [asking, setAsking] = useState(false);
   const data = useRef<TableDataHandle>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const [importPath, setImportPath] = useState<string | null>(null);
 
   const loadDetails = useCallback(async () => {
     if (creating || !tab.connectionId || !tab.tableName) return;
@@ -104,6 +111,24 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   const follow = (fk: ForeignKeyDesign, value: string) =>
     openTable(connection.id, fk.refSchema ?? schema, fk.refTable, "data", [{ column: fk.refColumns[0], op: "eq", value }]);
 
+  const exportAs = async (format: ExportFormat) => {
+    if (!details || !data.current) return;
+    const path = await saveDialog({ defaultPath: `${details.design.name}.${format}`, filters: [{ name: format.toUpperCase(), extensions: [format] }] });
+    if (!path) return;
+    toast.info(`Exporting ${details.design.name}…`);
+    try {
+      const n = await ipc.exportTable(connection.id, data.current.request(), format, path);
+      toast.success(`Exported ${n.toLocaleString("en-US")} rows to ${path.split(/[\\/]/).pop()}`);
+    } catch (e) {
+      toast.error(`Export failed: ${errorMessage(e)}`);
+    }
+  };
+
+  const importCsv = async () => {
+    const path = await openDialog({ multiple: false, filters: [{ name: "CSV", extensions: ["csv", "tsv", "txt"] }] });
+    if (typeof path === "string") setImportPath(path);
+  };
+
   const loaded = status?.loaded ?? 0;
   const total = status?.total;
 
@@ -144,7 +169,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
                   Discard
                 </Button>
                 <Button variant="primary" onPress={() => data.current?.save()}>
-                  Save <span className={s.kbd}>⌘S</span>
+                  Save <span className={s.kbd}>{kbd("S")}</span>
                 </Button>
               </>
             )}
@@ -153,13 +178,31 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
                 <PlusIcon size={14} /> Insert row
               </Button>
             )}
-            <IconButton label="Reload" shortcut="⌘R" onPress={() => data.current?.refresh()}>
+            <IconButton label="Reload" shortcut={kbd("R")} onPress={() => data.current?.refresh()}>
               {status?.loading ? <Spinner size={13} /> : <RefreshIcon size={15} />}
+            </IconButton>
+            <IconButton
+              label="More"
+              onPress={() => {
+                const r = document.activeElement?.getBoundingClientRect();
+                setMenu({
+                  x: (r?.right ?? 0) - 220,
+                  y: (r?.bottom ?? 0) + 4,
+                  items: [
+                    { label: "Export as CSV…", onSelect: () => exportAs("csv") },
+                    { label: "Export as JSON…", onSelect: () => exportAs("json") },
+                    "separator",
+                    { label: "Import from CSV…", onSelect: importCsv, disabled: !editable },
+                  ],
+                });
+              }}
+            >
+              <MoreIcon size={16} />
             </IconButton>
           </>
         )}
         {view === "data" && (
-          <IconButton label={inspectorOpen ? "Hide details panel" : "Show details panel"} shortcut="⌘I" onPress={() => setSettings({ inspectorOpen: !inspectorOpen })}>
+          <IconButton label={inspectorOpen ? "Hide details panel" : "Show details panel"} shortcut={kbd("I")} onPress={() => setSettings({ inspectorOpen: !inspectorOpen })}>
             <PanelIcon size={16} />
           </IconButton>
         )}
@@ -242,6 +285,8 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
         />
       )}
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} onOpenInEditor={onOpenSql} />
+      <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {details && <ImportSheet path={importPath} connection={connection} details={details} onClose={() => setImportPath(null)} onImported={() => data.current?.refresh()} />}
     </div>
   );
 }

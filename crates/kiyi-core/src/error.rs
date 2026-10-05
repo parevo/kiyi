@@ -77,6 +77,8 @@ pub fn explain_connect_error(err: &Error) -> String {
             Some("28P01") | Some("28000") | Some("1045") => "The username or password is incorrect.".into(),
             Some("3D000") | Some("1049") => "That database does not exist. Check its name.".into(),
             Some("53300") | Some("1040") => "The server has reached its connection limit.".into(),
+            Some("14") => "Couldn't open the database file. Check that it exists and you can read it.".into(),
+            Some("26") => "That file isn't a SQLite database.".into(),
             _ => db.message().to_string(),
         },
         Error::Db(sqlx::Error::Io(io)) => {

@@ -8,6 +8,8 @@ use crate::error::{Error, Result};
 pub enum DbKind {
     Postgres,
     Mysql,
+    /// A database file; `database` holds its path.
+    Sqlite,
 }
 
 impl DbKind {
@@ -15,6 +17,7 @@ impl DbKind {
         match self {
             DbKind::Postgres => 5432,
             DbKind::Mysql => 3306,
+            DbKind::Sqlite => 0,
         }
     }
 }
@@ -36,6 +39,28 @@ pub enum SslMode {
     VerifyFull,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "method", rename_all = "camelCase")]
+pub enum SshAuth {
+    /// Keys loaded in ssh-agent (also 1Password / Secretive agents).
+    Agent,
+    /// A private key file; its passphrase, if any, is stored in the keychain.
+    Key { path: String },
+    /// Password stored in the keychain.
+    Password,
+}
+
+/// How to reach a database that isn't directly reachable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum TunnelConfig {
+    #[serde(rename_all = "camelCase")]
+    Ssh { host: String, port: u16, user: String, auth: SshAuth },
+    /// AWS Systems Manager port forwarding through an EC2 instance.
+    #[serde(rename_all = "camelCase")]
+    Ssm { target: String, region: Option<String>, profile: Option<String> },
+}
+
 /// Everything about a connection except the password, which lives in the OS keychain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,6 +78,8 @@ pub struct ConnectionConfig {
     /// Catalog id ("postgres", "mariadb"…) for display; the driver itself follows `kind`.
     #[serde(default)]
     pub driver: Option<String>,
+    #[serde(default)]
+    pub tunnel: Option<TunnelConfig>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,9 +96,12 @@ fn decode(s: &str) -> String {
 /// Best guess at the environment from the host name; the user can always change it.
 pub fn guess_env(host: &str) -> EnvTag {
     let h = host.to_ascii_lowercase();
-    if h == "localhost" || h == "127.0.0.1" || h == "::1" || h.ends_with(".local") || h == "host.docker.internal" {
+    // Look at whole name parts, so "postgres" isn't mistaken for "stg".
+    let parts: Vec<&str> = h.split(['.', '-', '_']).collect();
+    let has = |words: &[&str]| parts.iter().any(|p| words.iter().any(|w| p == w || (w.len() > 3 && p.starts_with(w))));
+    if h == "localhost" || h == "127.0.0.1" || h == "::1" || h.ends_with(".local") || h == "host.docker.internal" || !h.contains('.') {
         EnvTag::Local
-    } else if h.contains("stag") || h.contains("stg") || h.contains("dev") || h.contains("test") {
+    } else if has(&["staging", "stage", "stg", "dev", "develop", "test", "qa", "uat", "sandbox"]) {
         EnvTag::Staging
     } else {
         EnvTag::Production
@@ -80,7 +110,29 @@ pub fn guess_env(host: &str) -> EnvTag {
 
 /// Parses `postgres://user:pass@host:5432/db?sslmode=require` style URLs.
 pub fn parse_url(input: &str) -> Result<ParsedUrl> {
-    let url = Url::parse(input.trim()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+    let input = input.trim();
+    if let Some(path) = input.strip_prefix("sqlite://").or_else(|| input.strip_prefix("sqlite:")) {
+        let path = decode(path.split('?').next().unwrap_or(path));
+        let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
+        return Ok(ParsedUrl {
+            config: ConnectionConfig {
+                id: String::new(),
+                name,
+                kind: DbKind::Sqlite,
+                host: String::new(),
+                port: 0,
+                user: String::new(),
+                database: Some(path),
+                ssl_mode: SslMode::Disable,
+                env: EnvTag::Local,
+                read_only: false,
+                driver: Some("sqlite".into()),
+                tunnel: None,
+            },
+            password: None,
+        });
+    }
+    let url = Url::parse(input).map_err(|e| Error::InvalidUrl(e.to_string()))?;
     let driver = match url.scheme() {
         "postgresql" => "postgres",
         other => other,
@@ -128,6 +180,7 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
             env,
             read_only: env == EnvTag::Production,
             driver: Some(driver.to_string()),
+            tunnel: None,
         },
         password: url.password().map(decode),
     })
@@ -159,6 +212,23 @@ mod tests {
         assert_eq!(p.config.env, EnvTag::Local);
         assert!(!p.config.read_only);
         assert_eq!(p.password, None);
+    }
+
+    #[test]
+    fn parses_sqlite_paths() {
+        let p = parse_url("sqlite:///Users/me/My%20Data/shop.db").unwrap();
+        assert_eq!(p.config.kind, DbKind::Sqlite);
+        assert_eq!(p.config.database.as_deref(), Some("/Users/me/My Data/shop.db"));
+        assert_eq!(p.config.name, "shop.db");
+    }
+
+    #[test]
+    fn guesses_environments_from_name_parts() {
+        assert_eq!(guess_env("postgres"), EnvTag::Local, "a bare service name");
+        assert_eq!(guess_env("db.stg.example.com"), EnvTag::Staging);
+        assert_eq!(guess_env("orders-staging.abc.rds.amazonaws.com"), EnvTag::Staging);
+        assert_eq!(guess_env("postgres.prod.example.com"), EnvTag::Production);
+        assert_eq!(guess_env("latest.example.com"), EnvTag::Production, "'test' inside a word isn't a test server");
     }
 
     #[test]

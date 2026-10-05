@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog, Heading, Input, Modal, ModalOverlay, TextField } from "react-aria-components";
 import { errorMessage, ipc } from "../lib/ipc";
-import type { ConnectionConfig, DriverInfo, EnvTag, SslMode, TestReport } from "../lib/types";
+import type { ConnectionConfig, DriverInfo, EnvTag, SslMode, TestReport, TunnelConfig } from "../lib/types";
 import { driverFor, useCatalog } from "../state/catalog";
 import { useConnections } from "../state/connections";
 import { AlertIcon, CheckIcon, CloseIcon, Spinner } from "./icons";
@@ -59,6 +60,8 @@ export function ConnectionDialog({
   const [config, setConfig] = useState<ConnectionConfig>(blank);
   /** `null` = keep the password stored in the keychain (editing only). */
   const [password, setPassword] = useState<string | null>(null);
+  /** SSH password or key passphrase; `null` = keep the stored one (editing only). */
+  const [tunnelSecret, setTunnelSecret] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [urlError, setUrlError] = useState<string | null>(null);
   const [nameTouched, setNameTouched] = useState(false);
@@ -72,6 +75,7 @@ export function ConnectionDialog({
     const base = d && d.kind ? { ...blank, kind: d.kind, driver: d.id, port: d.defaultPort } : blank;
     setConfig(editing ?? { ...base, host: init?.host ?? base.host, port: init?.port ?? base.port, name: init?.host ? `${d?.name ?? "Database"} on ${init.host}:${init.port}` : base.name });
     setPassword(editing ? null : "");
+    setTunnelSecret(editing ? null : "");
     setUrl("");
     setUrlError(null);
     setNameTouched(!!editing);
@@ -105,12 +109,18 @@ export function ConnectionDialog({
     }
   };
 
-  const effectiveName = config.name.trim() || `${config.database ?? config.user} @ ${config.host}`;
-  const valid = config.host.trim() !== "" && config.user.trim() !== "" && config.port > 0;
+  const effectiveName =
+    config.name.trim() ||
+    (config.kind === "sqlite"
+      ? (config.database?.split(/[\\/]/).pop() ?? "SQLite")
+      : config.database || config.user
+        ? `${config.database || config.user} @ ${config.host}`
+        : config.host);
+  const valid = config.kind === "sqlite" ? !!config.database?.trim() : config.host.trim() !== "" && config.user.trim() !== "" && config.port > 0;
 
   const test = async () => {
     setBusy("test");
-    setReport(await ipc.testConnection(config, password));
+    setReport(await ipc.testConnection(config, password, tunnelSecret));
     setBusy(null);
   };
 
@@ -118,7 +128,7 @@ export function ConnectionDialog({
     setBusy("save");
     setError(null);
     try {
-      const saved = await save({ ...config, name: effectiveName }, password);
+      const saved = await save({ ...config, name: effectiveName }, password, tunnelSecret);
       onClose();
       activate(saved.id);
     } catch (e) {
@@ -168,6 +178,7 @@ export function ConnectionDialog({
                   <span className={ui.label}>Database</span>
                   <select
                     className={ui.input}
+                    aria-label="Database type"
                     value={driverFor(config, drivers)?.id ?? ""}
                     onChange={(e) => {
                       const d = drivers.find((x) => x.id === e.target.value);
@@ -200,8 +211,18 @@ export function ConnectionDialog({
                 />
               </div>
 
+              {config.kind === "sqlite" ? (
+                <SqliteFile
+                  path={config.database ?? ""}
+                  onChange={(path) => {
+                    setReport(null);
+                    setConfig((c) => ({ ...c, database: path || null, name: nameTouched || !path ? c.name : (path.split(/[\\/]/).pop() ?? c.name) }));
+                  }}
+                />
+              ) : (
+                <>
               <div className={s.hostRow}>
-                <Field label="Host" mono value={config.host} onChange={(v) => set("host", v)} />
+                <Field label={config.tunnel ? "Database host (as seen from the tunnel)" : "Host"} mono value={config.host} onChange={(v) => set("host", v)} />
                 <Field
                   label="Port"
                   mono
@@ -245,6 +266,20 @@ export function ConnectionDialog({
                 />
               </div>
 
+              <TunnelFields
+                tunnel={config.tunnel ?? null}
+                secret={tunnelSecret}
+                onChange={(tunnel) => set("tunnel", tunnel)}
+                onSecret={(v) => {
+                  setReport(null);
+                  setTunnelSecret(v);
+                }}
+              />
+
+                </>
+              )}
+
+
               <Segmented<EnvTag> label="Environment" value={config.env} onChange={(v) => set("env", v)} options={ENV_OPTIONS} />
 
               <div className={s.readOnly}>
@@ -269,6 +304,19 @@ export function ConnectionDialog({
                       {step.ok ? <CheckIcon className={s.ok} /> : <AlertIcon className={s.fail} />}
                       <span>{step.label}</span>
                       {step.detail && <span className={`${s.stepDetail} selectable`}>{step.detail}</span>}
+                      {step.detail?.includes("identity has changed") && config.tunnel?.type === "ssh" && (
+                        <span className={s.stepDetail}>
+                          <Button
+                            onPress={async () => {
+                              if (config.tunnel?.type !== "ssh") return;
+                              await ipc.forgetHostKey(config.tunnel.host, config.tunnel.port);
+                              test();
+                            }}
+                          >
+                            Trust the new identity
+                          </Button>
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -292,5 +340,108 @@ export function ConnectionDialog({
         </Dialog>
       </Modal>
     </ModalOverlay>
+  );
+}
+
+const blankSsh = (): TunnelConfig => ({ type: "ssh", host: "", port: 22, user: "ec2-user", auth: { method: "key", path: "~/.ssh/id_ed25519" } });
+const blankSsm = (): TunnelConfig => ({ type: "ssm", target: "", region: null, profile: null });
+
+/** "Connect through": direct, an SSH bastion, or AWS Systems Manager. */
+function TunnelFields({
+  tunnel,
+  secret,
+  onChange,
+  onSecret,
+}: {
+  tunnel: TunnelConfig | null;
+  secret: string | null;
+  onChange(t: TunnelConfig | null): void;
+  onSecret(v: string): void;
+}) {
+  const mode = tunnel?.type ?? "direct";
+  return (
+    <div className={s.tunnel}>
+      <Segmented<"direct" | "ssh" | "ssm">
+        label="Connect through"
+        value={mode}
+        onChange={(m) => onChange(m === "direct" ? null : m === "ssh" ? blankSsh() : blankSsm())}
+        options={[
+          { value: "direct", label: "Direct" },
+          { value: "ssh", label: "SSH tunnel" },
+          { value: "ssm", label: "AWS SSM" },
+        ]}
+      />
+      {tunnel?.type === "ssh" && (
+        <>
+          <div className={s.hostRow}>
+            <Field label="SSH host" mono value={tunnel.host} placeholder="bastion.example.com" onChange={(v) => onChange({ ...tunnel, host: v })} />
+            <Field label="SSH port" mono value={String(tunnel.port || "")} onChange={(v) => onChange({ ...tunnel, port: Number(v.replace(/\D/g, "")) || 0 })} />
+          </div>
+          <div className={s.row}>
+            <Field label="SSH user" mono value={tunnel.user} onChange={(v) => onChange({ ...tunnel, user: v })} />
+            <Segmented<"key" | "agent" | "password">
+              label="Sign in with"
+              value={tunnel.auth.method}
+              onChange={(m) => onChange({ ...tunnel, auth: m === "key" ? { method: "key", path: "~/.ssh/id_ed25519" } : { method: m } })}
+              options={[
+                { value: "key", label: "Key file" },
+                { value: "agent", label: "SSH agent" },
+                { value: "password", label: "Password" },
+              ]}
+            />
+          </div>
+          {tunnel.auth.method === "key" && (
+            <div className={s.row}>
+              <Field label="Private key" mono value={tunnel.auth.path} onChange={(v) => onChange({ ...tunnel, auth: { method: "key", path: v } })} />
+              <Field
+                label="Key passphrase"
+                type="password"
+                value={secret ?? ""}
+                placeholder={secret === null ? "Saved in Keychain" : "if the key has one"}
+                onChange={onSecret}
+              />
+            </div>
+          )}
+          {tunnel.auth.method === "password" && (
+            <Field label="SSH password" type="password" value={secret ?? ""} placeholder={secret === null ? "Saved in Keychain" : ""} onChange={onSecret} />
+          )}
+          {tunnel.auth.method === "agent" && <p className={s.tunnelHint}>Uses the keys loaded in your SSH agent (including 1Password and Secretive).</p>}
+        </>
+      )}
+      {tunnel?.type === "ssm" && (
+        <>
+          <Field label="EC2 instance ID" mono value={tunnel.target} placeholder="i-0123456789abcdef0" onChange={(v) => onChange({ ...tunnel, target: v.trim() })} />
+          <div className={s.row}>
+            <Field label="Region" mono value={tunnel.region ?? ""} placeholder="from your AWS config" onChange={(v) => onChange({ ...tunnel, region: v.trim() || null })} />
+            <Field label="AWS profile" mono value={tunnel.profile ?? ""} placeholder="default" onChange={(v) => onChange({ ...tunnel, profile: v.trim() || null })} />
+          </div>
+          <p className={s.tunnelHint}>Needs the AWS CLI and the Session Manager plugin installed, and the instance registered with Systems Manager. No open SSH port required.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** A SQLite database is a file: pick an existing one or create a new one. */
+function SqliteFile({ path, onChange }: { path: string; onChange(path: string): void }) {
+  const choose = async () => {
+    const picked = await openDialog({ multiple: false, filters: [{ name: "SQLite database", extensions: ["db", "sqlite", "sqlite3", "db3"] }, { name: "All files", extensions: ["*"] }] });
+    if (typeof picked === "string") onChange(picked);
+  };
+  const create = async () => {
+    const picked = await saveDialog({ defaultPath: "database.db", filters: [{ name: "SQLite database", extensions: ["db"] }] });
+    if (picked) onChange(picked);
+  };
+  return (
+    <div className={s.tunnel}>
+      <Field label="Database file" mono value={path} placeholder="/path/to/database.db" onChange={onChange} />
+      <div className={s.fileActions}>
+        <Button onPress={choose}>Choose file…</Button>
+        <Button variant="ghost" onPress={create}>
+          New database…
+        </Button>
+      </div>
+      <p className={s.tunnelHint}>Kiyi opens the file directly. A new file is created if it doesn't exist yet.</p>
+    </div>
   );
 }

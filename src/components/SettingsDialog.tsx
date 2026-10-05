@@ -10,6 +10,7 @@ import { CheckIcon, CloseIcon, EditIcon, PlusIcon, SparklesIcon, Spinner, TrashI
 import { Button, IconButton, Segmented, Switch } from "./ui";
 import f from "./Form.module.css";
 import s from "./SettingsDialog.module.css";
+import { kbd } from "../lib/platform";
 
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: "general", label: "General" },
@@ -81,7 +82,7 @@ function General() {
         <div className={s.row}>
           <div>
             <div className={f.label}>Details panel</div>
-            <p className={f.help}>The panel on the right of a table that shows the selected row. Toggle with ⌘I.</p>
+            <p className={f.help}>The panel on the right of a table that shows the selected row. Toggle with {kbd("I")}.</p>
           </div>
           <Switch isSelected={settings.inspectorOpen} onChange={(inspectorOpen) => settings.set({ inspectorOpen })}>
             <span className={s.srOnly}>Details panel</span>

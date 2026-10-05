@@ -49,9 +49,13 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         "list_drivers" => ok(kiyi_core::catalog::drivers()),
         "list_connections" => ok(ws.list()),
         "parse_connection_url" => kiyi_core::config::parse_url(&arg::<String>(a, "url")?).map(ok).unwrap_or_else(fail),
-        "save_connection" => ws.save(arg(a, "config")?, arg(a, "password")?).map(ok).unwrap_or_else(fail),
+        "save_connection" => ws.save(arg(a, "config")?, arg(a, "password")?, arg(a, "tunnelSecret")?).map(ok).unwrap_or_else(fail),
         "delete_connection" => ws.delete(&id()?).await.map(ok).unwrap_or_else(fail),
-        "test_connection" => ok(ws.test(arg(a, "config")?, arg(a, "password")?).await),
+        "test_connection" => ok(ws.test(arg(a, "config")?, arg(a, "password")?, arg(a, "tunnelSecret")?).await),
+        "forget_host_key" => {
+            ws.forget_host_key(&arg::<String>(a, "host")?, arg(a, "port")?);
+            ok(())
+        }
         "connect" => ws.connect(&id()?).await.map(ok).unwrap_or_else(fail),
         "disconnect" => {
             ws.disconnect(&id()?).await;
@@ -101,6 +105,13 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
                 .map(ok)
                 .unwrap_or_else(fail)
         }
+        "export_table" => ws
+            .export(&id()?, &arg(a, "request")?, arg(a, "format")?, std::path::Path::new(&arg::<String>(a, "path")?))
+            .await
+            .map(ok)
+            .unwrap_or_else(fail),
+        "csv_preview" => kiyi_core::transfer::preview(std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
+        "import_csv" => ws.import_csv(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), &arg(a, "plan")?).await.map(ok).unwrap_or_else(fail),
         "cancel_query" => {
             ws.cancel(&arg::<String>(a, "queryId")?).await;
             ok(())

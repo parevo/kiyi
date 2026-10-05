@@ -1,7 +1,7 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
-import { MySQL, PostgreSQL, sql, type SQLNamespace } from "@codemirror/lang-sql";
+import { MySQL, PostgreSQL, SQLite, sql, type SQLNamespace } from "@codemirror/lang-sql";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
 import {
@@ -19,6 +19,7 @@ import { useEffect, useRef } from "react";
 import { statementAt } from "../lib/sql";
 import type { DbKind, SchemaSnapshot } from "../lib/types";
 import { editorTheme, highlight } from "./editorTheme";
+import { kbd } from "../lib/platform";
 
 export interface RunRequest {
   sql: string;
@@ -88,7 +89,7 @@ function completionSchema(schema: SchemaSnapshot | undefined): SQLNamespace {
 
 function language(kind: DbKind, schema: SchemaSnapshot | undefined) {
   return sql({
-    dialect: kind === "mysql" ? MySQL : PostgreSQL,
+    dialect: kind === "mysql" ? MySQL : kind === "sqlite" ? SQLite : PostgreSQL,
     schema: completionSchema(schema),
     defaultSchema: schema?.defaultSchema ?? undefined,
     upperCaseKeywords: true,
@@ -136,7 +137,7 @@ export function QueryEditor({ value, kind, schema, errorAt, onChange, onRun, onC
           autocompletion({ activateOnTyping: true, icons: false }),
           highlightActiveLine(),
           highlightSelectionMatches(),
-          placeholder("SELECT …   ⌘↵ runs the statement under the cursor"),
+          placeholder(`SELECT …   ${kbd("↵")} runs the statement under the cursor`),
           lang.current.of(language(kind, schema)),
           errorField,
           flashField,

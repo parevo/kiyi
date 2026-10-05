@@ -17,6 +17,8 @@ export function installBridge() {
   mockIPC(async (cmd, payload) => {
     const args = (payload ?? {}) as Record<string, unknown>;
     if (cmd === "plugin:app|version") return "0.0.0-dev";
+    // File dialogs: tests put the path they want on window.__kiyiDialogPath.
+    if (cmd === "plugin:dialog|save" || cmd === "plugin:dialog|open") return (window as unknown as { __kiyiDialogPath?: string }).__kiyiDialogPath ?? null;
     if (cmd.startsWith("plugin:")) return null;
 
     const channel = Object.values(args).find((v): v is Channel<unknown> => v instanceof Channel);

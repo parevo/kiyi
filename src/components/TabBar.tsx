@@ -5,11 +5,15 @@ import { useTabs } from "../state/tabs";
 import { CloseIcon, LockIcon, PlusIcon, Spinner } from "./icons";
 import { IconButton } from "./ui";
 import s from "./TabBar.module.css";
+import { kbd } from "../lib/platform";
 
 const ENV_LABEL = { local: "Local", staging: "Staging", production: "Production" } as const;
 
 export function TabBar({ onNewTab }: { onNewTab(): void }) {
-  const tabs = useTabs((st) => st.tabs);
+  const activeConnectionId = useConnections((st) => st.activeId);
+  const allTabs = useTabs((st) => st.tabs);
+  // Only the open connection's tabs; others come back when you switch to it.
+  const tabs = allTabs.filter((t) => t.connectionId === activeConnectionId);
   const activeId = useTabs((st) => st.activeId);
   const focus = useTabs((st) => st.focus);
   const close = useTabs((st) => st.close);
@@ -52,7 +56,7 @@ export function TabBar({ onNewTab }: { onNewTab(): void }) {
         })}
       </div>
       {developerMode && (
-        <IconButton label="New query" shortcut="⌘T" onPress={onNewTab}>
+        <IconButton label="New query" shortcut={kbd("T")} onPress={onNewTab}>
           <PlusIcon />
         </IconButton>
       )}

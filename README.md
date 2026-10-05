@@ -2,17 +2,18 @@
 
 Herkes için veritabanı istemcisi: kayıtları bir tablo gibi gör ve düzenle, tablo oluştur, yapısını değiştir; SQL bilmek gerekmez. Geliştirici modunda her işlemin SQL'i görünür.
 
-Şu an PostgreSQL, MySQL ve MariaDB destekleniyor; yeni veritabanları `crates/kiyi-core/src/catalog.rs` ve bir sürücüyle eklenir. Rust + Tauri 2 + React.
+PostgreSQL, MySQL, MariaDB ve SQLite destekleniyor; özel ağdaki veritabanlarına SSH tunnel ya da AWS SSM üzerinden bağlanılır. Tablolar CSV/JSON olarak dışa aktarılır, CSV'den içe aktarılır. macOS ve Windows. Yeni veritabanları `crates/kiyi-core/src/catalog.rs` ve bir sürücüyle eklenir. Rust + Tauri 2 + React.
 
 ## Geliştirme
 
 ```sh
 pnpm install
-docker compose -f dev/docker-compose.yml up -d --wait   # test veritabanları
+./dev/setup-ssh-key.sh                                  # test bastion'ı için yerel anahtar
+docker compose -f dev/docker-compose.yml up -d --wait   # test veritabanları + SSH bastion
 pnpm tauri dev
 ```
 
-Test bağlantıları:
+Test bağlantıları (tunnel testi için: SSH `127.0.0.1:52222`, kullanıcı/şifre `kiyi`, veritabanı host'u `postgres:5432`):
 
 - `postgres://kiyi:kiyi@localhost:55432/shop`
 - `mysql://kiyi:kiyi@localhost:53306/shop`

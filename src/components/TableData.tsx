@@ -24,6 +24,7 @@ import { useGridTheme } from "./gridTheme";
 import { RecordPanel } from "./RecordPanel";
 import type { ReviewRequest } from "./ReviewDialog";
 import s from "./TableView.module.css";
+import { isMod, kbd } from "../lib/platform";
 
 const PAGE_SIZE = 300;
 const EXACT_COUNT_LIMIT = 5_000_000;
@@ -41,6 +42,8 @@ export const emptyQuery = (filters: Filter[] = []): TableQuery => ({ filters, ra
 
 export interface TableDataHandle {
   refresh(): void;
+  /** The current view (filters, search, sort) as a request, for export. */
+  request(): BrowseRequest;
   deleteSelected(): void;
   duplicateSelected(): void;
   save(): void;
@@ -224,9 +227,10 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
   // ---- saving
 
   const binaryColumns = () => columns.filter((c) => c.kind === "binary").map((c) => c.name);
+  const boolColumns = () => columns.filter((c) => c.kind === "bool").map((c) => c.name);
 
   const apply = async (changes: RowChange[]) => {
-    const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), changes });
+    const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), boolColumns: boolColumns(), changes });
     await ipc.executeScript(connection.id, statements, "data");
     return statements;
   };
@@ -297,7 +301,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
   const saveStaged = async () => {
     if (!updates.current.size) return;
     const changes = updatesToChanges(updates.current);
-    const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), changes });
+    const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), boolColumns: boolColumns(), changes });
     onReview({
       title: "Save changes",
       subtitle: `${design.name} · production`,
@@ -328,7 +332,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     if (!editable || !indices.length) return;
     const changes: RowChange[] = indices.map((r) => ({ type: "delete", key: keyOf(r) }));
     try {
-      const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), changes });
+      const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), boolColumns: boolColumns(), changes });
       const n = indices.length;
       onReview({
         title: n === 1 ? "Delete row" : `Delete ${n} rows`,
@@ -359,6 +363,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
   };
 
   useImperativeHandle(ref, () => ({
+    request: () => request(0),
     refresh: () => {
       if (updates.current.size && !confirm("Discard unsaved changes and reload?")) return;
       updates.current = new Map();
@@ -399,7 +404,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
   useEffect(() => {
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey) return;
+      if (!isMod(e)) return;
       const k = e.key.toLowerCase();
       if (k === "s" && staged) {
         e.preventDefault();
@@ -498,7 +503,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     const nullable = designByName.get(meta.name)?.nullable;
     const rowsSel = selection.rows.hasIndex(row) ? selection.rows.toArray() : [row];
     const items: MenuEntry[] = [
-      { label: "Copy value", onSelect: () => navigator.clipboard.writeText(value ?? ""), shortcut: "⌘C" },
+      { label: "Copy value", onSelect: () => navigator.clipboard.writeText(value ?? ""), shortcut: kbd("C") },
       { label: "Copy row as JSON", onSelect: () => navigator.clipboard.writeText(rowsSel.length > 1 ? `[${rowsSel.map(rowJson).join(",\n")}]` : rowJson(row)) },
       "separator",
       { label: value === null ? `Show rows where ${meta.name} is empty` : `Show rows with this ${meta.name}`, onSelect: () => filterBy(meta.name, value) },

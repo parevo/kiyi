@@ -16,6 +16,10 @@ use crate::secrets;
 use crate::store::ConnectionStore;
 use crate::types::{Cell, ColumnMeta, QueryEvent, SchemaSnapshot, Sink};
 
+fn tunnel_account(connection_id: &str) -> String {
+    format!("tunnel:{connection_id}")
+}
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
 /// After asking the server to cancel, give it this long before dropping the task.
 const CANCEL_GRACE: Duration = Duration::from_secs(3);
@@ -58,6 +62,8 @@ pub enum ScriptKind {
     Data,
     /// DDL: transactional on Postgres; MySQL commits each DDL statement implicitly.
     Schema,
+    /// Bulk inserts (imports): one transaction, any number of rows per statement.
+    Bulk,
 }
 
 struct Running {
@@ -69,10 +75,17 @@ struct Running {
     started: Instant,
 }
 
+/// An open connection: the pool, and the tunnel it goes through (closed on drop).
+struct Live {
+    driver: Arc<dyn DbDriver>,
+    _tunnel: Option<crate::tunnel::Tunnel>,
+}
+
 pub struct Workspace {
     store: Mutex<ConnectionStore>,
     ai: Mutex<crate::ai::AiStore>,
-    live: RwLock<HashMap<String, Arc<dyn DbDriver>>>,
+    known_hosts: crate::tunnel::KnownHosts,
+    live: RwLock<HashMap<String, Live>>,
     running: Arc<Mutex<HashMap<String, Running>>>,
 }
 
@@ -81,6 +94,7 @@ impl Workspace {
         Ok(Self {
             store: Mutex::new(ConnectionStore::load(config_dir.join("connections.json"))?),
             ai: Mutex::new(crate::ai::AiStore::load(config_dir.join("ai.json"))?),
+            known_hosts: crate::tunnel::KnownHosts::load(config_dir.join("known_hosts.json")),
             live: RwLock::new(HashMap::new()),
             running: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -90,8 +104,9 @@ impl Workspace {
         self.store.lock().unwrap().list().to_vec()
     }
 
-    /// `password`: `None` keeps the stored one, `Some("")` removes it, anything else replaces it.
-    pub fn save(&self, mut config: ConnectionConfig, password: Option<String>) -> Result<ConnectionConfig> {
+    /// `password` / `tunnel_secret`: `None` keeps the stored one, `Some("")` removes it,
+    /// anything else replaces it. The tunnel secret is the SSH password or key passphrase.
+    pub fn save(&self, mut config: ConnectionConfig, password: Option<String>, tunnel_secret: Option<String>) -> Result<ConnectionConfig> {
         if config.id.is_empty() {
             config.id = uuid::Uuid::new_v4().to_string();
         }
@@ -100,6 +115,11 @@ impl Workspace {
             Some("") => secrets::delete_password(&config.id)?,
             Some(p) => secrets::set_password(&config.id, p)?,
         }
+        match tunnel_secret.as_deref() {
+            None => {}
+            Some("") => secrets::set_secret(&tunnel_account(&config.id), None)?,
+            Some(p) => secrets::set_secret(&tunnel_account(&config.id), Some(p))?,
+        }
         self.store.lock().unwrap().upsert(config.clone())?;
         Ok(config)
     }
@@ -107,6 +127,7 @@ impl Workspace {
     pub async fn delete(&self, id: &str) -> Result<()> {
         self.disconnect(id).await;
         secrets::delete_password(id)?;
+        secrets::set_secret(&tunnel_account(id), None)?;
         self.store.lock().unwrap().remove(id)
     }
 
@@ -115,26 +136,62 @@ impl Workspace {
     }
 
     fn driver(&self, id: &str) -> Result<Arc<dyn DbDriver>> {
-        self.live.read().unwrap().get(id).cloned().ok_or(Error::NotConnected)
+        self.live.read().unwrap().get(id).map(|l| l.driver.clone()).ok_or(Error::NotConnected)
     }
 
-    async fn open(config: &ConnectionConfig, password: Option<&str>) -> Result<Arc<dyn DbDriver>> {
+    async fn open_driver(config: &ConnectionConfig, password: Option<&str>) -> Result<Arc<dyn DbDriver>> {
         tokio::time::timeout(CONNECT_TIMEOUT, drivers::open(config, password))
             .await
             .map_err(|_| Error::Timeout("connecting"))?
     }
 
-    /// Tries a connection without saving it. `password: None` falls back to the keychain.
-    pub async fn test(&self, config: ConnectionConfig, password: Option<String>) -> TestReport {
+    /// Opens the tunnel (if any) and returns the config the driver should actually use.
+    async fn open_tunnel(&self, config: &ConnectionConfig, secret: Option<&str>) -> Result<(ConnectionConfig, Option<crate::tunnel::Tunnel>)> {
+        let Some(tunnel) = &config.tunnel else { return Ok((config.clone(), None)) };
+        let t = crate::tunnel::open(tunnel, secret, &config.host, config.port, &self.known_hosts).await?;
+        let mut local = config.clone();
+        local.host = "127.0.0.1".into();
+        local.port = t.local_port;
+        Ok((local, Some(t)))
+    }
+
+    /// Lets the user accept an SSH server's new identity after it legitimately changed.
+    pub fn forget_host_key(&self, host: &str, port: u16) {
+        self.known_hosts.forget(host, port);
+    }
+
+    /// Tries a connection without saving it. Secrets left as `None` fall back to the keychain.
+    pub async fn test(&self, config: ConnectionConfig, password: Option<String>, tunnel_secret: Option<String>) -> TestReport {
         let password = match password {
             Some(p) => Some(p),
             None if !config.id.is_empty() => secrets::get_password(&config.id).ok().flatten(),
             None => None,
         };
-        let target = format!("{}:{}", config.host, config.port);
+        let tunnel_secret = match tunnel_secret {
+            Some(p) => Some(p),
+            None if !config.id.is_empty() => secrets::get_secret(&tunnel_account(&config.id)).ok().flatten(),
+            None => None,
+        };
+        let target = match config.kind {
+            crate::config::DbKind::Sqlite => config.database.clone().unwrap_or_default(),
+            _ => format!("{}:{}", config.host, config.port),
+        };
         let mut steps = Vec::new();
 
-        let driver = match Self::open(&config, password.as_deref()).await {
+        let (config, _tunnel) = match self.open_tunnel(&config, tunnel_secret.as_deref()).await {
+            Ok((local, tunnel)) => {
+                for step in tunnel.as_ref().map(|t| t.steps.clone()).unwrap_or_default() {
+                    steps.push(TestStep { label: step, ok: true, detail: None });
+                }
+                (local, tunnel)
+            }
+            Err(e) => {
+                steps.push(TestStep { label: "Couldn't open the tunnel".into(), ok: false, detail: Some(e.to_string()) });
+                return TestReport { ok: false, steps, server_version: None };
+            }
+        };
+
+        let driver = match Self::open_driver(&config, password.as_deref()).await {
             Ok(d) => {
                 steps.push(TestStep { label: format!("Connected to {target}"), ok: true, detail: None });
                 d
@@ -164,9 +221,11 @@ impl Workspace {
         }
         let config = self.config(id)?;
         let password = secrets::get_password(id)?;
-        let driver = Self::open(&config, password.as_deref()).await.map_err(|e| Error::InvalidUrl(explain_connect_error(&e)))?;
+        let tunnel_secret = secrets::get_secret(&tunnel_account(id))?;
+        let (config, tunnel) = self.open_tunnel(&config, tunnel_secret.as_deref()).await?;
+        let driver = Self::open_driver(&config, password.as_deref()).await.map_err(|e| Error::Invalid(explain_connect_error(&e)))?;
         let server_version = driver.server_version().await?;
-        self.live.write().unwrap().insert(id.to_string(), driver);
+        self.live.write().unwrap().insert(id.to_string(), Live { driver, _tunnel: tunnel });
         Ok(ConnectInfo { server_version })
     }
 
@@ -178,9 +237,9 @@ impl Workspace {
         for query_id in running {
             self.cancel(&query_id).await;
         }
-        let driver = self.live.write().unwrap().remove(id);
-        if let Some(driver) = driver {
-            driver.close().await;
+        let live = self.live.write().unwrap().remove(id);
+        if let Some(live) = live {
+            live.driver.close().await;
         }
     }
 
@@ -318,6 +377,20 @@ impl Workspace {
         match kind {
             ScriptKind::Data => driver.execute_script(statements, true, true).await,
             ScriptKind::Schema => driver.execute_script(statements, !driver.dialect().is_mysql(), false).await,
+            ScriptKind::Bulk => driver.execute_script(statements, true, false).await,
         }
+    }
+
+    pub async fn export(&self, id: &str, req: &BrowseRequest, format: crate::transfer::ExportFormat, path: &Path) -> Result<u64> {
+        let driver = self.driver(id)?;
+        Self::check_condition(&driver, req)?;
+        crate::transfer::export(driver.as_ref(), &dml::export_sql(driver.dialect(), req), format, path).await
+    }
+
+    pub async fn import_csv(&self, id: &str, path: &Path, plan: &crate::transfer::ImportPlan) -> Result<u64> {
+        let driver = self.driver(id)?;
+        let (statements, count) = crate::transfer::plan_import(driver.dialect(), path, plan)?;
+        driver.execute_script(&statements, true, false).await?;
+        Ok(count)
     }
 }

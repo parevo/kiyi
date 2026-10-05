@@ -4,6 +4,7 @@ import type { RunState } from "../state/tabs";
 import { AlertIcon, CheckIcon, Spinner } from "./icons";
 import { ResultGrid } from "./ResultGrid";
 import s from "./ResultPane.module.css";
+import { kbd } from "../lib/platform";
 
 const fmt = new Intl.NumberFormat("en-US");
 
@@ -52,10 +53,10 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
         {!run && (
           <div className={`${s.center} ${s.hint}`}>
             <span>
-              <kbd>⌘</kbd> <kbd>↵</kbd> runs the statement under the cursor
+              <kbd>{kbd("↵")}</kbd> runs the statement under the cursor
             </span>
             <span>
-              <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>↵</kbd> runs everything
+              <kbd>⇧</kbd> <kbd>{kbd("↵")}</kbd> runs everything
             </span>
           </div>
         )}
@@ -100,7 +101,7 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
             <span className={s.spacer} />
             <span>{duration(elapsed)}</span>
             <AriaButton className={s.cancel} onPress={onCancel}>
-              Cancel <span className={s.faint}>⌘.</span>
+              Cancel <span className={s.faint}>{kbd(".")}</span>
             </AriaButton>
           </>
         ) : run ? (

@@ -2,6 +2,9 @@
 // Changes it makes are reverted at the end. Needs Vite (:1420) and kiyi-devbridge (:1421).
 //
 //   node dev/flows.mjs <out-dir>
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { webkit } from "playwright";
 
 const out = process.argv[2] ?? "screenshots";
@@ -35,15 +38,24 @@ const call = (cmd, body = {}) =>
   fetch(`http://127.0.0.1:1421/invoke/${cmd}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
 
 for (const c of await call("list_connections")) await call("delete_connection", { id: c.id });
+const tmp = (name) => join(tmpdir(), `kiyi-flow-${process.pid}-${name}`);
+const setDialogPath = (path) => page.evaluate((p) => (window.__kiyiDialogPath = p), path);
 await page.goto("http://localhost:1420");
 await page.evaluate(() => localStorage.clear());
 await page.reload();
 await page.getByLabel("Connection URL").fill("postgres://kiyi:kiyi@localhost:55432/shop");
 await page.keyboard.press("Enter");
 await btn("Save & connect").click();
-// Leftovers from an interrupted earlier run.
+// Leftovers from an interrupted earlier run, and a table to import into.
 await page.waitForTimeout(800);
-await call("execute_script", { id: (await call("list_connections"))[0].id, statements: ["DROP TABLE IF EXISTS kiyi_demo"], kind: "schema" });
+const connId = (await call("list_connections"))[0].id;
+await call("execute_script", {
+  id: connId,
+  statements: ["DROP TABLE IF EXISTS kiyi_demo", "DROP TABLE IF EXISTS kiyi_flow_import", "CREATE TABLE kiyi_flow_import (id serial PRIMARY KEY, name text NOT NULL, city text)"],
+  kind: "schema",
+});
+await page.locator("aside").first().getByRole("button", { name: "Reload list" }).click();
+await page.waitForTimeout(800);
 await page.locator("main").getByRole("button", { name: /^orders/ }).first().click();
 await page.waitForTimeout(1500);
 
@@ -133,6 +145,84 @@ await check("ask AI without a provider opens Settings › AI", async () => {
   await shot("ai-setup");
   await page.keyboard.press("Escape");
 });
+
+await check("export the filtered view to CSV", async () => {
+  await page.keyboard.press("Escape");
+  await page.locator("aside").first().getByText("orders", { exact: true }).click();
+  await page.getByLabel("Search rows or ask AI").fill("shipped");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(800);
+  const path = tmp("orders.csv");
+  await setDialogPath(path);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export as CSV…" }).click();
+  await toast("Exported");
+  const lines = readFileSync(path, "utf8").trim().split("\n");
+  if (lines.length !== 16_667 + 1) throw new Error(`exported ${lines.length - 1} rows`);
+  if (!lines.slice(1).every((l) => l.includes("shipped"))) throw new Error("export ignored the search");
+  unlinkSync(path);
+  await btn("Clear all").click();
+});
+
+await check("import a CSV through the sheet", async () => {
+  const path = tmp("people.csv");
+  writeFileSync(path, "Name,City\nAyşe,İzmir\n\"Lee, Ann\",\nBob,Paris\n");
+  await page.locator("aside").first().getByText("kiyi_flow_import", { exact: true }).click();
+  await page.waitForTimeout(800);
+  await setDialogPath(path);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Import from CSV…" }).click();
+  await page.getByRole("button", { name: "Import 3 rows" }).waitFor();
+  await shot("import-sheet");
+  await page.getByRole("button", { name: "Import 3 rows" }).click();
+  await toast("Imported 3 rows");
+  const r = await call("browse_table", { id: connId, request: { schema: "public", table: "kiyi_flow_import", filters: [], rawWhere: null, sort: [], tiebreak: ["id"], limit: 10, offset: 0 } });
+  if (r.rows.length !== 3 || r.rows[1][1] !== "Lee, Ann" || r.rows[1][2] !== null) throw new Error(JSON.stringify(r.rows));
+  unlinkSync(path);
+});
+
+await check("test a connection through an SSH tunnel", async () => {
+  await page.locator("aside").first().getByRole("button", { name: "Choose connection" }).click();
+  await btn("New connection").click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Connection URL").fill("postgres://kiyi:kiyi@postgres:5432/shop");
+  await page.waitForTimeout(400);
+  await dialog.getByRole("radio", { name: "SSH tunnel" }).click();
+  await dialog.getByLabel("SSH host").fill("127.0.0.1");
+  await dialog.getByLabel("SSH port").fill("52222");
+  await dialog.getByLabel("SSH user").fill("kiyi");
+  await dialog.getByRole("radio", { name: "Password" }).last().click();
+  await dialog.getByLabel("SSH password").fill("kiyi");
+  await dialog.getByRole("button", { name: "Test connection" }).click();
+  await dialog.getByText("Signed in as kiyi").waitFor({ timeout: 20000 });
+  await dialog.getByText(/PostgreSQL 17/).waitFor();
+  await shot("ssh-tunnel-test");
+  await dialog.getByRole("button", { name: "Close" }).click();
+});
+
+await check("open a new SQLite database and create a table", async () => {
+  const path = tmp("notes.db");
+  await page.locator("aside").first().getByRole("button", { name: "Choose connection" }).click();
+  await btn("New connection").click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Database type").selectOption("sqlite");
+  await setDialogPath(path);
+  await dialog.getByRole("button", { name: "New database…" }).click();
+  await page.waitForTimeout(300);
+  await shot("sqlite-dialog");
+  await dialog.getByRole("button", { name: "Save & connect" }).click();
+  await page.getByText("New table").first().waitFor();
+  await page.getByRole("button", { name: "New table" }).first().click();
+  await page.getByPlaceholder("e.g. customers").fill("todo");
+  await btn("Create table").click();
+  await toast("Create table");
+  await page.waitForTimeout(800);
+  await shot("sqlite-table");
+  if (!existsSync(path)) throw new Error("database file not created");
+});
+
+await page.evaluate(() => 0);
+await call("execute_script", { id: connId, statements: ["DROP TABLE IF EXISTS kiyi_flow_import"], kind: "schema" }).catch(() => {});
 
 const real = [...new Set(errors)].filter((e) => !/access control checks/.test(e));
 console.log(real.length ? `console errors:\n${real.join("\n")}` : "no console errors");

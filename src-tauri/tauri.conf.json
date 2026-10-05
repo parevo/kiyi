@@ -31,7 +31,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": "all",
     "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "shortDescription": "The database app for everyone",

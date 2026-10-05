@@ -66,10 +66,14 @@ pub struct BrowseRequest {
 /// Checks that a hand-written (or AI-written) condition is a single boolean expression,
 /// so it can't smuggle in a second statement such as `1=1; DROP TABLE t`.
 pub fn validate_condition(d: Dialect, condition: &str) -> Result<(), String> {
-    use sqlparser::dialect::{MySqlDialect, PostgreSqlDialect};
+    use sqlparser::dialect::{MySqlDialect, PostgreSqlDialect, SQLiteDialect};
     use sqlparser::parser::Parser;
     let sql = format!("SELECT 1 FROM t WHERE ({condition})");
-    let parsed = if d.is_mysql() { Parser::parse_sql(&MySqlDialect {}, &sql) } else { Parser::parse_sql(&PostgreSqlDialect {}, &sql) };
+    let parsed = match d.kind {
+        crate::config::DbKind::Mysql => Parser::parse_sql(&MySqlDialect {}, &sql),
+        crate::config::DbKind::Sqlite => Parser::parse_sql(&SQLiteDialect {}, &sql),
+        crate::config::DbKind::Postgres => Parser::parse_sql(&PostgreSqlDialect {}, &sql),
+    };
     match parsed {
         Ok(statements) if statements.len() == 1 && matches!(statements[0], sqlparser::ast::Statement::Query(_)) => Ok(()),
         Ok(_) => Err("The condition must be a single expression.".into()),
@@ -97,8 +101,14 @@ fn like_pattern(value: &str, prefix: bool, suffix: bool) -> String {
 fn condition(d: Dialect, f: &Filter) -> String {
     let col = d.ident(&f.column);
     // Text matching works on any type: compare the column's text form.
-    let as_text = if d.is_mysql() { format!("CAST({col} AS CHAR)") } else { format!("{col}::text") };
-    let like = if d.is_mysql() { "LIKE" } else { "ILIKE" };
+    let as_text = match d.kind {
+        crate::config::DbKind::Mysql => format!("CAST({col} AS CHAR)"),
+        crate::config::DbKind::Sqlite => format!("CAST({col} AS TEXT)"),
+        crate::config::DbKind::Postgres => format!("{col}::text"),
+    };
+    let like = if d.kind == crate::config::DbKind::Postgres { "ILIKE" } else { "LIKE" };
+    // SQLite has no default LIKE escape character.
+    let esc = if d.is_sqlite() { " ESCAPE '\\'" } else { "" };
     let v = &f.value;
     match f.op {
         FilterOp::Eq => format!("{col} = {}", d.string(v)),
@@ -107,10 +117,10 @@ fn condition(d: Dialect, f: &Filter) -> String {
         FilterOp::Gt => format!("{col} > {}", d.string(v)),
         FilterOp::Le => format!("{col} <= {}", d.string(v)),
         FilterOp::Ge => format!("{col} >= {}", d.string(v)),
-        FilterOp::Contains => format!("{as_text} {like} {}", d.string(&like_pattern(v, true, true))),
-        FilterOp::NotContains => format!("{as_text} NOT {like} {}", d.string(&like_pattern(v, true, true))),
-        FilterOp::StartsWith => format!("{as_text} {like} {}", d.string(&like_pattern(v, false, true))),
-        FilterOp::EndsWith => format!("{as_text} {like} {}", d.string(&like_pattern(v, true, false))),
+        FilterOp::Contains => format!("{as_text} {like} {}{esc}", d.string(&like_pattern(v, true, true))),
+        FilterOp::NotContains => format!("{as_text} NOT {like} {}{esc}", d.string(&like_pattern(v, true, true))),
+        FilterOp::StartsWith => format!("{as_text} {like} {}{esc}", d.string(&like_pattern(v, false, true))),
+        FilterOp::EndsWith => format!("{as_text} {like} {}{esc}", d.string(&like_pattern(v, true, false))),
         FilterOp::IsNull => format!("{col} IS NULL"),
         FilterOp::NotNull => format!("{col} IS NOT NULL"),
         FilterOp::In => {
@@ -158,6 +168,26 @@ pub fn browse_sql(d: Dialect, req: &BrowseRequest) -> String {
     sql
 }
 
+/// Every row matching the request, in order, without paging (for export).
+pub fn export_sql(d: Dialect, req: &BrowseRequest) -> String {
+    let paged = browse_sql(d, &BrowseRequest { offset: 0, ..req.clone() });
+    paged.rsplit_once(" LIMIT ").map(|(head, _)| head.to_string()).unwrap_or(paged)
+}
+
+/// Multi-row INSERTs, `batch` rows per statement, for imports.
+pub fn plan_bulk_insert(d: Dialect, schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Cell>], batch: usize) -> Vec<String> {
+    let head = format!("INSERT INTO {} ({}) VALUES ", d.table(schema, table), d.ident_list(columns));
+    rows.chunks(batch.max(1))
+        .map(|chunk| {
+            let values: Vec<String> = chunk
+                .iter()
+                .map(|row| format!("({})", row.iter().map(|v| d.value(v.as_deref(), false)).collect::<Vec<_>>().join(", ")))
+                .collect();
+            format!("{head}{}", values.join(", "))
+        })
+        .collect()
+}
+
 pub fn count_sql(d: Dialect, req: &BrowseRequest) -> String {
     format!("SELECT COUNT(*) FROM {}{}", d.table(req.schema.as_deref(), &req.table), where_clause(d, req))
 }
@@ -187,12 +217,24 @@ pub struct ChangeSet {
     /// Columns whose values are shown as `0x…` hex and must be written as binary.
     #[serde(default)]
     pub binary_columns: Vec<String>,
+    /// True/false columns; SQLite stores these as 1/0.
+    #[serde(default)]
+    pub bool_columns: Vec<String>,
     pub changes: Vec<RowChange>,
 }
 
 pub fn plan_changes(d: Dialect, set: &ChangeSet) -> Vec<String> {
     let table = d.table(set.schema.as_deref(), &set.table);
-    let value = |cv: &ColumnValue| d.value(cv.value.as_deref(), set.binary_columns.contains(&cv.column));
+    let value = |cv: &ColumnValue| {
+        if d.is_sqlite() && set.bool_columns.contains(&cv.column) {
+            match cv.value.as_deref() {
+                Some("true") => return "1".to_string(),
+                Some("false") => return "0".to_string(),
+                _ => {}
+            }
+        }
+        d.value(cv.value.as_deref(), set.binary_columns.contains(&cv.column))
+    };
     let key_where = |key: &[ColumnValue]| {
         key.iter()
             .map(|k| match &k.value {
@@ -290,6 +332,16 @@ mod tests {
     }
 
     #[test]
+    fn export_and_bulk_insert() {
+        let mut r = req();
+        r.offset = 600;
+        assert_eq!(export_sql(PG, &r), r#"SELECT * FROM "public"."orders" ORDER BY "id""#);
+        let rows = vec![vec![Some("a".to_string()), None], vec![Some("it's".to_string()), Some("2".to_string())], vec![Some("c".into()), Some("3".into())]];
+        let sql = plan_bulk_insert(MY, None, "t", &["name".into(), "n".into()], &rows, 2);
+        assert_eq!(sql, vec!["INSERT INTO `t` (`name`, `n`) VALUES ('a', NULL), ('it''s', '2')", "INSERT INTO `t` (`name`, `n`) VALUES ('c', '3')"]);
+    }
+
+    #[test]
     fn sort_on_key_is_not_repeated() {
         let mut r = req();
         r.sort = vec![Sort { column: "id".into(), descending: true }];
@@ -303,6 +355,7 @@ mod tests {
             schema: None,
             table: "customers".into(),
             binary_columns: vec!["public_id".into()],
+            bool_columns: vec![],
             changes: vec![
                 RowChange::Update { key: vec![cv("id", Some("7"))], values: vec![cv("name", Some("O'Brien")), cv("bio", None)] },
                 RowChange::Insert { values: vec![cv("name", Some("x")), cv("public_id", Some("0xabcd"))] },

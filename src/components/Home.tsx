@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ipc } from "../lib/ipc";
 import type { DriverInfo, LocalDatabase } from "../lib/types";
-import { driverFor, useCatalog } from "../state/catalog";
+import { connectionWhere, driverFor, useCatalog } from "../state/catalog";
 import { useActiveConnection, useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
@@ -115,8 +115,7 @@ export function ConnectionsHome({ onNew }: { onNew(): void }) {
             </span>
             <span className={s.cardName}>{c.name}</span>
             <span className={s.cardMeta}>
-              {driverFor(c, drivers)?.name} · {c.host}
-              {c.database ? ` / ${c.database}` : ""}
+              {driverFor(c, drivers)?.name} · {connectionWhere(c)}
             </span>
             {live[c.id]?.status === "error" && <span className={s.cardError}>{live[c.id]?.error}</span>}
           </button>

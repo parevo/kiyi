@@ -7,6 +7,7 @@ import type { TableQuery } from "./TableData";
 import { Button, IconButton } from "./ui";
 import f from "./Form.module.css";
 import s from "./QueryControls.module.css";
+import { isMod, kbd } from "../lib/platform";
 
 export const OP_LABEL: Record<FilterOp, string> = {
   eq: "is",
@@ -58,7 +59,7 @@ export function SearchBar({
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) {
+          if (e.key === "Enter" && isMod(e) && text.trim()) {
             e.preventDefault();
             onAsk(text.trim());
           }
@@ -72,7 +73,7 @@ export function SearchBar({
         spellCheck={false}
       />
       <span className={s.keys}>↵ search</span>
-      <button type="button" className={s.ask} onClick={() => text.trim() && onAsk(text.trim())} disabled={asking || !text.trim()} title="Ask AI to turn this into filters (⌘↵)">
+      <button type="button" className={s.ask} onClick={() => text.trim() && onAsk(text.trim())} disabled={asking || !text.trim()} title={`Ask AI to turn this into filters (${kbd("↵")})`}>
         {asking ? <Spinner size={13} /> : <SparklesIcon size={14} />}
         Ask AI
       </button>

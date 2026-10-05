@@ -17,14 +17,19 @@ pub struct Dialect {
 impl Dialect {
     pub const POSTGRES: Dialect = Dialect { kind: DbKind::Postgres, backslash_escapes: false };
     pub const MYSQL: Dialect = Dialect { kind: DbKind::Mysql, backslash_escapes: true };
+    pub const SQLITE: Dialect = Dialect { kind: DbKind::Sqlite, backslash_escapes: false };
 
     pub fn is_mysql(self) -> bool {
         self.kind == DbKind::Mysql
     }
 
+    pub fn is_sqlite(self) -> bool {
+        self.kind == DbKind::Sqlite
+    }
+
     pub fn ident(self, name: &str) -> String {
         match self.kind {
-            DbKind::Postgres => format!("\"{}\"", name.replace('"', "\"\"")),
+            DbKind::Postgres | DbKind::Sqlite => format!("\"{}\"", name.replace('"', "\"\"")),
             DbKind::Mysql => format!("`{}`", name.replace('`', "``")),
         }
     }
@@ -58,7 +63,7 @@ impl Dialect {
     pub fn value(self, value: Option<&str>, binary: bool) -> String {
         match value {
             None => "NULL".into(),
-            Some(v) if binary && self.is_mysql() && is_hex_literal(v) => {
+            Some(v) if binary && !matches!(self.kind, DbKind::Postgres) && is_hex_literal(v) => {
                 if v.len() == 2 { "''".into() } else { format!("X'{}'", &v[2..]) }
             }
             Some(v) => self.string(v),

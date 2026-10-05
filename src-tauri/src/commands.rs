@@ -30,8 +30,8 @@ pub fn parse_connection_url(url: String) -> CmdResult<ParsedUrl> {
 }
 
 #[tauri::command]
-pub fn save_connection(ws: Ws<'_>, config: ConnectionConfig, password: Option<String>) -> CmdResult<ConnectionConfig> {
-    Ok(ws.save(config, password)?)
+pub fn save_connection(ws: Ws<'_>, config: ConnectionConfig, password: Option<String>, tunnel_secret: Option<String>) -> CmdResult<ConnectionConfig> {
+    Ok(ws.save(config, password, tunnel_secret)?)
 }
 
 #[tauri::command]
@@ -40,8 +40,13 @@ pub async fn delete_connection(ws: Ws<'_>, id: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn test_connection(ws: Ws<'_>, config: ConnectionConfig, password: Option<String>) -> CmdResult<TestReport> {
-    Ok(ws.test(config, password).await)
+pub async fn test_connection(ws: Ws<'_>, config: ConnectionConfig, password: Option<String>, tunnel_secret: Option<String>) -> CmdResult<TestReport> {
+    Ok(ws.test(config, password, tunnel_secret).await)
+}
+
+#[tauri::command]
+pub fn forget_host_key(ws: Ws<'_>, host: String, port: u16) {
+    ws.forget_host_key(&host, port);
 }
 
 #[tauri::command]
@@ -172,4 +177,19 @@ pub async fn ai_filters(
     today: String,
 ) -> CmdResult<kiyi_core::ai::AiFilterResult> {
     Ok(ws.ai_filters(&id, schema.as_deref(), &table, &prompt, &today).await?)
+}
+
+#[tauri::command]
+pub async fn export_table(ws: Ws<'_>, id: String, request: BrowseRequest, format: kiyi_core::transfer::ExportFormat, path: String) -> CmdResult<u64> {
+    Ok(ws.export(&id, &request, format, std::path::Path::new(&path)).await?)
+}
+
+#[tauri::command]
+pub fn csv_preview(path: String) -> CmdResult<kiyi_core::transfer::CsvPreview> {
+    Ok(kiyi_core::transfer::preview(std::path::Path::new(&path))?)
+}
+
+#[tauri::command]
+pub async fn import_csv(ws: Ws<'_>, id: String, path: String, plan: kiyi_core::transfer::ImportPlan) -> CmdResult<u64> {
+    Ok(ws.import_csv(&id, std::path::Path::new(&path), &plan).await?)
 }

@@ -164,6 +164,21 @@ pub fn validate(design: &TableDesign) -> Result<(), String> {
 
 fn column_def(d: Dialect, c: &ColumnDesign) -> String {
     let mut sql = format!("{} {}", d.ident(&c.name), c.data_type.trim());
+    if d.is_sqlite() {
+        // SQLite's auto-increment is an INTEGER PRIMARY KEY declared on the column itself.
+        if c.auto_increment {
+            return format!("{} INTEGER PRIMARY KEY AUTOINCREMENT", d.ident(&c.name));
+        }
+        if !c.nullable {
+            sql.push_str(" NOT NULL");
+        }
+        if let Some(def) = &c.default {
+            // Expressions must be parenthesised; literals and CURRENT_* keywords needn't be.
+            let simple = def.starts_with('\'') || def.parse::<f64>().is_ok() || def.to_ascii_uppercase().starts_with("CURRENT_") || def.starts_with('(');
+            sql.push_str(&if simple { format!(" DEFAULT {def}") } else { format!(" DEFAULT ({def})") });
+        }
+        return sql;
+    }
     if d.is_mysql() {
         sql.push_str(if c.nullable { " NULL" } else { " NOT NULL" });
         if let Some(def) = c.default.as_deref().filter(|_| !c.auto_increment) {
@@ -225,15 +240,76 @@ pub fn plan_create(d: Dialect, schema: Option<&str>, design: &TableDesign) -> Re
     let table = d.table(schema, &design.name);
     let mut parts: Vec<String> = design.columns.iter().map(|c| column_def(d, c)).collect();
     let pk = design.primary_key();
-    if !pk.is_empty() {
+    let inline_pk = d.is_sqlite() && design.columns.iter().any(|c| c.auto_increment);
+    if d.is_sqlite() && design.columns.iter().any(|c| c.auto_increment) && pk.len() > 1 {
+        return Err("SQLite's auto-increment column must be the only primary key column.".into());
+    }
+    if !pk.is_empty() && !inline_pk {
         parts.push(format!("PRIMARY KEY ({})", d.ident_list(&pk)));
     }
     parts.extend(design.foreign_keys.iter().map(|f| fk_def(d, schema, f)));
 
     let mut out = vec![format!("CREATE TABLE {table} (\n  {}\n)", parts.join(",\n  "))];
     out.extend(design.indexes.iter().map(|i| create_index(d, schema, &design.name, i)));
-    if !d.is_mysql() {
+    if d.kind == crate::config::DbKind::Postgres {
         out.extend(design.columns.iter().filter(|c| c.comment.as_deref().is_some_and(|s| !s.is_empty())).map(|c| pg_comment(d, &table, c)));
+    }
+    Ok(out)
+}
+
+/// SQLite can rename tables and columns, add and drop columns, and manage indexes —
+/// but not change an existing column or its constraints in place.
+fn plan_alter_sqlite(d: Dialect, schema: Option<&str>, old: &TableDesign, new: &TableDesign) -> Result<Vec<String>, String> {
+    let table = d.table(schema, &old.name);
+    let olds: HashMap<&str, &ColumnDesign> = old.columns.iter().map(|c| (c.name.as_str(), c)).collect();
+    for c in &new.columns {
+        let Some(o) = c.original.as_deref().and_then(|n| olds.get(n)) else {
+            if c.primary_key || c.auto_increment {
+                return Err(format!("SQLite can't add a primary key column (\"{}\") to an existing table.", c.name));
+            }
+            if !c.nullable && c.default.is_none() {
+                return Err(format!("In SQLite a new required column (\"{}\") needs a default value.", c.name));
+            }
+            continue;
+        };
+        if o.data_type != c.data_type || o.nullable != c.nullable || o.default != c.default || o.primary_key != c.primary_key || o.auto_increment != c.auto_increment {
+            return Err(format!("SQLite can't change the type, rules or default of an existing column (\"{}\"). Rename, add or remove columns instead.", o.name));
+        }
+    }
+    let renamed = |cols: &[String]| -> Vec<String> {
+        cols.iter().map(|c| new.columns.iter().find(|n| n.original.as_deref() == Some(c)).map(|n| n.name.clone()).unwrap_or_else(|| c.clone())).collect()
+    };
+    let same_fks = old.foreign_keys.len() == new.foreign_keys.len()
+        && old.foreign_keys.iter().zip(&new.foreign_keys).all(|(o, n)| renamed(&o.columns) == n.columns && o.ref_table == n.ref_table && o.ref_columns == n.ref_columns && o.on_delete == n.on_delete);
+    if !same_fks {
+        return Err("SQLite can't add or remove relationships on an existing table.".into());
+    }
+
+    let mut out = Vec::new();
+    let kept = |i: &IndexDesign| new.indexes.iter().any(|n| n.original.as_deref() == Some(&i.name) && n.unique == i.unique && renamed(&i.columns) == n.columns);
+    for i in old.indexes.iter().filter(|i| !kept(i)) {
+        if i.is_constraint {
+            return Err(format!("SQLite can't remove the uniqueness rule \"{}\" from an existing table.", i.name));
+        }
+        out.push(format!("DROP INDEX {}", d.table(schema, &i.name)));
+    }
+    let survivors: Vec<&str> = new.columns.iter().filter_map(|c| c.original.as_deref()).collect();
+    for c in old.columns.iter().filter(|c| !survivors.contains(&c.name.as_str())) {
+        out.push(format!("ALTER TABLE {table} DROP COLUMN {}", d.ident(&c.name)));
+    }
+    for c in &new.columns {
+        match c.original.as_deref() {
+            Some(o) if o != c.name => out.push(format!("ALTER TABLE {table} RENAME COLUMN {} TO {}", d.ident(o), d.ident(&c.name))),
+            Some(_) => {}
+            None => out.push(format!("ALTER TABLE {table} ADD COLUMN {}", column_def(d, c))),
+        }
+    }
+    let old_names: Vec<&str> = old.indexes.iter().filter(|i| kept(i)).map(|i| i.name.as_str()).collect();
+    for i in new.indexes.iter().filter(|i| !i.original.as_deref().is_some_and(|o| old_names.contains(&o))) {
+        out.push(create_index(d, schema, &old.name, i));
+    }
+    if new.name != old.name {
+        out.push(format!("ALTER TABLE {table} RENAME TO {}", d.ident(&new.name)));
     }
     Ok(out)
 }
@@ -243,6 +319,9 @@ pub fn plan_create(d: Dialect, schema: Option<&str>, design: &TableDesign) -> Re
 /// rename comes at the very end so every other statement can use the old name.
 pub fn plan_alter(d: Dialect, schema: Option<&str>, old: &TableDesign, new: &TableDesign) -> Result<Vec<String>, String> {
     validate(new)?;
+    if d.is_sqlite() {
+        return plan_alter_sqlite(d, schema, old, new);
+    }
     let table = d.table(schema, &old.name);
     let alter = |clause: String| format!("ALTER TABLE {table} {clause}");
     let mut out = Vec::new();
@@ -415,6 +494,7 @@ pub fn plan_action(d: Dialect, schema: Option<&str>, table: &str, is_view: bool,
     vec![match action {
         TableAction::Drop if is_view => format!("DROP VIEW {t}"),
         TableAction::Drop => format!("DROP TABLE {t}"),
+        TableAction::Truncate if d.is_sqlite() => format!("DELETE FROM {t}"),
         TableAction::Truncate => format!("TRUNCATE TABLE {t}"),
         TableAction::Rename { to } if d.is_mysql() => format!("RENAME TABLE {t} TO {}", d.table(schema, to)),
         TableAction::Rename { to } => {
@@ -591,6 +671,37 @@ mod tests {
             f.original = Some(f.name.clone());
         }
         d
+    }
+
+    #[test]
+    fn sqlite_create_and_supported_alters() {
+        const SQ: Dialect = Dialect::SQLITE;
+        let mut d = base();
+        for c in &mut d.columns {
+            c.original = None;
+        }
+        d.columns[1].default = Some("lower('X')".into());
+        let sql = plan_create(SQ, Some("main"), &d).unwrap();
+        assert_eq!(sql[0], "CREATE TABLE \"main\".\"users\" (\n  \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n  \"email\" text DEFAULT (lower('X')),\n  \"age\" integer\n)");
+
+        let old = base();
+        let mut new = base();
+        new.columns[1].name = "mail".into();
+        new.indexes[0].columns = vec!["mail".into()];
+        new.columns.remove(2);
+        new.columns.push(ColumnDesign { original: None, ..col("bio", "text") });
+        let sql = plan_alter(SQ, None, &old, &new).unwrap();
+        assert_eq!(
+            sql,
+            vec![
+                "ALTER TABLE \"users\" DROP COLUMN \"age\"",
+                "ALTER TABLE \"users\" RENAME COLUMN \"email\" TO \"mail\"",
+                "ALTER TABLE \"users\" ADD COLUMN \"bio\" text",
+            ]
+        );
+        let mut retyped = base();
+        retyped.columns[2].data_type = "bigint".into();
+        assert!(plan_alter(SQ, None, &old, &retyped).unwrap_err().contains("can't change the type"));
     }
 
     #[test]

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Dialog, DialogTrigger, Heading, Modal, ModalOverlay, Popover, Button as AriaButton } from "react-aria-components";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { ConnectionConfig, TableAction, TableInfo } from "../lib/types";
-import { driverFor, useCatalog } from "../state/catalog";
+import { connectionWhere, driverFor, useCatalog } from "../state/catalog";
 import { useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { tableKey, useTabs } from "../state/tabs";
@@ -149,7 +149,7 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
                     <span className={s.switcherText}>
                       <span className={s.switcherName}>{c.name}</span>
                       <span className={s.switcherMeta}>
-                        {driverFor(c, drivers)?.name} · {c.host}
+                        {driverFor(c, drivers)?.name} · {connectionWhere(c)}
                       </span>
                     </span>
                     {c.readOnly && <LockIcon size={12} />}

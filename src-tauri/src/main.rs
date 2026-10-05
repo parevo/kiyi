@@ -14,6 +14,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             app.manage(Arc::new(Workspace::new(&config_dir)?));
@@ -27,6 +28,7 @@ fn main() {
             commands::save_connection,
             commands::delete_connection,
             commands::test_connection,
+            commands::forget_host_key,
             commands::connect,
             commands::disconnect,
             commands::load_schema,
@@ -47,6 +49,9 @@ fn main() {
             commands::set_active_ai,
             commands::ai_models,
             commands::discover_local,
+            commands::export_table,
+            commands::csv_preview,
+            commands::import_csv,
             commands::ai_filters,
             updater::check_update,
             updater::download_update,

@@ -1,6 +1,7 @@
 mod engine;
 mod mysql;
 mod postgres;
+mod sqlite;
 
 use std::sync::Arc;
 
@@ -48,5 +49,6 @@ pub async fn open(config: &ConnectionConfig, password: Option<&str>) -> Result<A
     Ok(match config.kind {
         DbKind::Postgres => Arc::new(postgres::PgDriver::connect(config, password).await?),
         DbKind::Mysql => Arc::new(mysql::MySqlDriver::connect(config, password).await?),
+        DbKind::Sqlite => Arc::new(sqlite::SqliteDriver::connect(config).await?),
     })
 }

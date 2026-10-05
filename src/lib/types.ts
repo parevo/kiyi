@@ -1,6 +1,6 @@
 // Mirrors of the Rust types in crates/kiyi-core (serde camelCase).
 
-export type DbKind = "postgres" | "mysql";
+export type DbKind = "postgres" | "mysql" | "sqlite";
 export type EnvTag = "local" | "staging" | "production";
 export type SslMode = "disable" | "prefer" | "require" | "verify-full";
 
@@ -16,7 +16,14 @@ export interface ConnectionConfig {
   env: EnvTag;
   readOnly: boolean;
   driver?: string | null;
+  tunnel?: TunnelConfig | null;
 }
+
+export type SshAuth = { method: "agent" } | { method: "key"; path: string } | { method: "password" };
+
+export type TunnelConfig =
+  | { type: "ssh"; host: string; port: number; user: string; auth: SshAuth }
+  | { type: "ssm"; target: string; region: string | null; profile: string | null };
 
 export interface ParsedUrl {
   config: ConnectionConfig;
@@ -205,10 +212,28 @@ export interface ChangeSet {
   schema: string | null;
   table: string;
   binaryColumns: string[];
+  /** True/false columns; SQLite stores them as 1/0. */
+  boolColumns?: string[];
   changes: RowChange[];
 }
 
-export type ScriptKind = "data" | "schema";
+export type ScriptKind = "data" | "schema" | "bulk";
+
+export type ExportFormat = "csv" | "json";
+
+export interface CsvPreview {
+  headers: string[];
+  rows: string[][];
+  total: number;
+}
+
+export interface ImportPlan {
+  schema: string | null;
+  table: string;
+  mapping: (string | null)[];
+  hasHeader: boolean;
+  emptyAsNull: boolean;
+}
 
 // ---- catalog
 

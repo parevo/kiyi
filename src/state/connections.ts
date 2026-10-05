@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { ConnectionConfig, SchemaSnapshot } from "../lib/types";
 import { useSettings } from "./settings";
+import { useTabs } from "./tabs";
 
 type Status = "idle" | "connecting" | "connected" | "error";
 
@@ -19,7 +20,7 @@ interface ConnectionsState {
   activeId: string | null;
   live: Record<string, LiveState>;
   load(): Promise<void>;
-  save(config: ConnectionConfig, password: string | null): Promise<ConnectionConfig>;
+  save(config: ConnectionConfig, password: string | null, tunnelSecret?: string | null): Promise<ConnectionConfig>;
   remove(id: string): Promise<void>;
   activate(id: string): Promise<void>;
   disconnect(id: string): Promise<void>;
@@ -44,8 +45,8 @@ export const useConnections = create<ConnectionsState>((set, get) => {
       if (!get().activeId && last && connections.some((c) => c.id === last)) get().activate(last);
     },
 
-    async save(config, password) {
-      const saved = await ipc.saveConnection(config, password);
+    async save(config, password, tunnelSecret = null) {
+      const saved = await ipc.saveConnection(config, password, tunnelSecret);
       set((s) => {
         const exists = s.connections.some((c) => c.id === saved.id);
         return {
@@ -73,6 +74,11 @@ export const useConnections = create<ConnectionsState>((set, get) => {
     },
 
     async activate(id) {
+      if (get().activeId !== id) {
+        // Show this connection's work: its most recent tab, or its overview.
+        const mine = useTabs.getState().tabs.filter((t) => t.connectionId === id);
+        useTabs.setState({ activeId: mine[mine.length - 1]?.id ?? null });
+      }
       set({ activeId: id });
       useSettings.getState().set({ lastConnectionId: id });
       const current = get().live[id]?.status;

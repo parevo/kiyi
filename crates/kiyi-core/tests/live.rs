@@ -26,6 +26,7 @@ fn config(kind: DbKind) -> ConnectionConfig {
         env: EnvTag::Local,
         read_only: false,
         driver: None,
+        tunnel: None,
     }
 }
 
@@ -333,7 +334,7 @@ async fn structure_cycle(driver: Arc<dyn DbDriver>, schema: Option<&str>, int: &
 
     // Grid edits: insert, update, and a stale update that must roll back the whole batch.
     let cv = |c: &str, v: Option<&str>| ColumnValue { column: c.into(), value: v.map(Into::into) };
-    let set = |changes| ChangeSet { schema: schema.map(Into::into), table: name.clone(), binary_columns: vec![], changes };
+    let set = |changes| ChangeSet { schema: schema.map(Into::into), table: name.clone(), binary_columns: vec![], bool_columns: vec![], changes };
     let insert = dml::plan_changes(d, &set(vec![RowChange::Insert { values: vec![cv("headline", Some("O'Brien \\ ok"))] }]));
     driver.execute_script(&insert, true, true).await.unwrap();
     let (_, rows) = driver.fetch(&format!("SELECT id, headline, score FROM {}", d.table(schema, &name))).await.unwrap();
@@ -444,4 +445,132 @@ async fn discovers_local_databases_by_protocol() {
     let my = found.iter().find(|f| f.port == 53306).expect("mysql on 53306");
     assert_eq!(my.driver, "mysql");
     assert!(my.version.as_deref().unwrap_or("").starts_with('8'), "{:?}", my.version);
+}
+
+// ---------------------------------------------------------------- tunnels
+
+use kiyi_core::config::{SshAuth, TunnelConfig};
+use kiyi_core::workspace::Workspace;
+
+fn via_bastion(auth: SshAuth, db_host: &str) -> ConnectionConfig {
+    ConnectionConfig {
+        host: db_host.into(),
+        port: 5432,
+        tunnel: Some(TunnelConfig::Ssh { host: "127.0.0.1".into(), port: 52222, user: "kiyi".into(), auth }),
+        id: String::new(),
+        ..config(DbKind::Postgres)
+    }
+}
+
+fn scratch_workspace() -> Workspace {
+    let dir = std::env::temp_dir().join(format!("kiyi-tunnel-test-{}", std::process::id()));
+    Workspace::new(&dir).unwrap()
+}
+
+#[tokio::test]
+async fn ssh_tunnel_with_password_and_with_key() {
+    if !live() {
+        return;
+    }
+    let ws = scratch_workspace();
+    // `postgres` only resolves inside the Docker network: the bastion has to do the hop.
+    let report = ws.test(via_bastion(SshAuth::Password, "postgres"), Some("kiyi".into()), Some("kiyi".into())).await;
+    assert!(report.ok, "{:#?}", report.steps);
+    assert!(report.steps[0].label.contains("SHA256:"), "{:?}", report.steps[0]);
+    assert!(report.server_version.unwrap().starts_with("PostgreSQL"));
+
+    let key = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dev/ssh/id_ed25519").to_string();
+    let report = ws.test(via_bastion(SshAuth::Key { path: key }, "postgres"), Some("kiyi".into()), None).await;
+    assert!(report.ok, "{:#?}", report.steps);
+}
+
+#[tokio::test]
+async fn ssh_tunnel_explains_failures() {
+    if !live() {
+        return;
+    }
+    let ws = scratch_workspace();
+    let wrong_password = ws.test(via_bastion(SshAuth::Password, "postgres"), Some("kiyi".into()), Some("nope".into())).await;
+    assert!(!wrong_password.ok);
+    assert!(wrong_password.steps.last().unwrap().detail.as_deref().unwrap().contains("didn't accept these credentials"));
+
+    let unreachable = ws.test(via_bastion(SshAuth::Password, "no-such-db"), Some("kiyi".into()), Some("kiyi".into())).await;
+    assert!(!unreachable.ok);
+    assert!(unreachable.steps.last().unwrap().detail.as_deref().unwrap().contains("can't reach no-such-db:5432"), "{:#?}", unreachable.steps);
+}
+
+// ---------------------------------------------------------------- export / import
+
+use kiyi_core::dml::{BrowseRequest, Filter, FilterOp};
+use kiyi_core::transfer::{self, ExportFormat, ImportPlan};
+
+#[tokio::test]
+async fn export_filtered_rows_to_csv_and_json() {
+    if !live() {
+        return;
+    }
+    let pg = open(DbKind::Postgres).await;
+    let req = BrowseRequest {
+        schema: Some("public".into()),
+        table: "orders".into(),
+        filters: vec![Filter { column: "status".into(), op: FilterOp::Eq, value: "paid".into() }],
+        raw_where: None,
+        search: None,
+        search_columns: vec![],
+        sort: vec![],
+        tiebreak: vec!["id".into()],
+        limit: 300,
+        offset: 0,
+    };
+    let sql = kiyi_core::dml::export_sql(pg.dialect(), &req);
+    let dir = std::env::temp_dir();
+    let csv_path = dir.join(format!("kiyi-export-{}.csv", std::process::id()));
+    let n = transfer::export(pg.as_ref(), &sql, ExportFormat::Csv, &csv_path).await.unwrap();
+    assert_eq!(n, 16_667, "all matching rows, not just one page");
+    let text = std::fs::read_to_string(&csv_path).unwrap();
+    assert!(text.starts_with("id,customer_id,status,total,placed_on\n"));
+    assert_eq!(text.lines().count() as u64, n + 1);
+
+    let json_path = dir.join(format!("kiyi-export-{}.json", std::process::id()));
+    transfer::export(pg.as_ref(), &sql, ExportFormat::Json, &json_path).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&json_path).unwrap()).unwrap();
+    assert_eq!(json.as_array().unwrap().len() as u64, n);
+    assert!(json[0]["id"].is_number() && json[0]["total"].is_number());
+    assert_eq!(json[0]["status"], "paid");
+}
+
+#[tokio::test]
+async fn import_a_messy_csv() {
+    if !live() {
+        return;
+    }
+    let pg = open(DbKind::Postgres).await;
+    let table = scratch_table("kiyi_import");
+    pg.execute_script(&[format!("CREATE TABLE {table} (id serial PRIMARY KEY, name text NOT NULL, note text, amount numeric)")], false, false)
+        .await
+        .unwrap();
+    // BOM, semicolons, quoted delimiters and newlines, a non-ASCII name, an empty field, a column to skip.
+    let path = std::env::temp_dir().join(format!("{table}.csv"));
+    std::fs::write(&path, "\u{feff}Name;Ignored;Note;Amount\nAyşe;x;\"has; semicolon\";12.50\n\"O'Brien\";y;\"two\nlines\";\nZoë;z;;3\n").unwrap();
+
+    let preview = transfer::preview(&path).unwrap();
+    assert_eq!(preview.headers, ["Name", "Ignored", "Note", "Amount"]);
+    assert_eq!(preview.total, 3);
+
+    let plan = ImportPlan {
+        schema: None,
+        table: table.clone(),
+        mapping: vec![Some("name".into()), None, Some("note".into()), Some("amount".into())],
+        has_header: true,
+        empty_as_null: true,
+    };
+    let (statements, count) = transfer::plan_import(pg.dialect(), &path, &plan).unwrap();
+    assert_eq!(count, 3);
+    pg.execute_script(&statements, true, false).await.unwrap();
+
+    let (_, rows) = pg.fetch(&format!("SELECT name, note, amount FROM {table} ORDER BY id")).await.unwrap();
+    assert_eq!(rows[0], vec![Some("Ayşe".into()), Some("has; semicolon".into()), Some("12.50".into())]);
+    assert_eq!(rows[1], vec![Some("O'Brien".into()), Some("two\nlines".into()), None]);
+    assert_eq!(rows[2][1], None, "empty field imported as NULL");
+    pg.execute_script(&[format!("DROP TABLE {table}")], false, false).await.unwrap();
 }

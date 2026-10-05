@@ -154,6 +154,46 @@ fn mysql_recognise() -> Vec<(&'static str, TypeCategory)> {
     ]
 }
 
+fn sqlite_types() -> Vec<TypeOption> {
+    vec![
+        ty!("Text", Text, "TEXT", "Names, descriptions, addresses: any length of text"),
+        ty!("Integer", Number, "INTEGER", "Whole numbers"),
+        ty!("Decimal", Decimal, "REAL", "Approximate values such as measurements"),
+        ty!("Money / exact number", Decimal, "NUMERIC", "Exact amounts"),
+        ty!("True / False", Boolean, "BOOLEAN", "A yes-or-no value (stored as 1 or 0)"),
+        ty!("Date", Date, "DATE", "A calendar day, as YYYY-MM-DD"),
+        ty!("Date & time", DateTime, "DATETIME", "A moment, as YYYY-MM-DD HH:MM:SS"),
+        ty!("JSON", Json, "JSON", "Flexible, nested data"),
+        ty!("Binary", Binary, "BLOB", "Raw bytes, such as files"),
+    ]
+}
+
+fn sqlite_recognise() -> Vec<(&'static str, TypeCategory)> {
+    use TypeCategory::*;
+    vec![
+        ("bool", Boolean),
+        ("integer", Number),
+        ("int", Number),
+        ("bigint", Number),
+        ("smallint", Number),
+        ("real", Decimal),
+        ("double", Decimal),
+        ("float", Decimal),
+        ("numeric", Decimal),
+        ("decimal", Decimal),
+        ("datetime", DateTime),
+        ("timestamp", DateTime),
+        ("date", Date),
+        ("time", Time),
+        ("json", Json),
+        ("blob", Binary),
+        ("text", Text),
+        ("varchar", Text),
+        ("char", Text),
+        ("clob", Text),
+    ]
+}
+
 pub fn drivers() -> Vec<DriverInfo> {
     vec![
         DriverInfo {
@@ -186,11 +226,11 @@ pub fn drivers() -> Vec<DriverInfo> {
         DriverInfo {
             id: "sqlite",
             name: "SQLite",
-            kind: None,
+            kind: Some(DbKind::Sqlite),
             default_port: 0,
-            url_example: "",
-            types: vec![],
-            recognise: vec![],
+            url_example: "sqlite:///path/to/database.db",
+            types: sqlite_types(),
+            recognise: sqlite_recognise(),
         },
         DriverInfo {
             id: "sqlserver",

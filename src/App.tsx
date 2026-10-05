@@ -15,6 +15,7 @@ import { applyTheme, useSettings } from "./state/settings";
 import { useUi } from "./state/ui";
 import { useTabs } from "./state/tabs";
 import s from "./App.module.css";
+import { isMod } from "./lib/platform";
 
 export function App() {
   const loadConnections = useConnections((st) => st.load);
@@ -59,7 +60,7 @@ export function App() {
   // Global shortcuts. Editor and table shortcuts (⌘↵, ⌘S, ⌘Z…) live in those components.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey && !e.ctrlKey) return;
+      if (!isMod(e)) return;
       const k = e.key.toLowerCase();
       const st = useTabs.getState();
       if (k === "t") newTab();
@@ -73,7 +74,8 @@ export function App() {
       else if (k === "r" || k === "p" || k === "=" || k === "-" || k === "0") {
         // Browser reload / print / zoom don't belong in a desktop app.
       } else if (/^[1-9]$/.test(k)) {
-        const target = k === "9" ? st.tabs[st.tabs.length - 1] : st.tabs[Number(k) - 1];
+        const mine = st.tabs.filter((t) => t.connectionId === useConnections.getState().activeId);
+        const target = k === "9" ? mine[mine.length - 1] : mine[Number(k) - 1];
         if (target) focus(target.id);
       } else return;
       e.preventDefault();

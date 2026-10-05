@@ -58,8 +58,11 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin]
-    runs-on: macos-latest
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, bundles: "app,dmg" }
+          - { os: macos-latest, target: x86_64-apple-darwin, bundles: "app,dmg" }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -77,6 +80,8 @@ jobs:
       - name: Stamp version
         run: npm pkg set version=${{ needs.prepare.outputs.version }}
       - name: Apple signing (when configured)
+        if: runner.os == 'macOS'
+        shell: bash
         # Without these secrets the app is ad-hoc signed; set them to get a notarized build.
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -103,7 +108,7 @@ jobs:
           releaseDraft: true
           prerelease: ${{ needs.prepare.outputs.channel == 'beta' }}
           includeUpdaterJson: true
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
   publish:
     needs: [prepare, build]

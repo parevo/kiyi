@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { Cell, ColumnDesign, ConnectionConfig, TableDetails } from "../lib/types";
-import { columnTypeLabel, driverFor, useCatalog } from "../state/catalog";
+import { categorise, columnTypeLabel, driverFor, useCatalog } from "../state/catalog";
 import { toast } from "../state/toasts";
 import { FieldInput } from "./FieldInput";
 import { Sheet } from "./Sheet";
@@ -65,6 +65,7 @@ export function InsertRowSheet({
         schema: details.schema,
         table: design.name,
         binaryColumns: [],
+        boolColumns: design.columns.filter((c) => categorise(c.dataType, driver) === "boolean").map((c) => c.name),
         changes: [{ type: "insert", values: row.map(([column, value]) => ({ column, value })) }],
       });
       await ipc.executeScript(connection.id, statements, "data");

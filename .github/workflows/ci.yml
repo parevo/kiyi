@@ -30,12 +30,28 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  windows:
+    # Catches Windows-only compile problems before a release build does.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vite build
+      - run: cargo check -p kiyi
+
   live-db:
-    # Driver tests against real PostgreSQL and MySQL (Linux runners have Docker).
+    # Driver and tunnel tests against real PostgreSQL, MySQL and an SSH bastion (Linux runners have Docker).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose -f dev/docker-compose.yml up -d --wait
+      - run: ./dev/setup-ssh-key.sh && docker compose -f dev/docker-compose.yml up -d --wait
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: KIYI_LIVE=1 cargo test -p kiyi-core --test live

@@ -1,6 +1,9 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   AiFilterResult,
+  CsvPreview,
+  ExportFormat,
+  ImportPlan,
   AiProvider,
   AiSettings,
   AiStatus,
@@ -26,11 +29,12 @@ export const ipc = {
   listDrivers: () => invoke<DriverInfo[]>("list_drivers"),
   listConnections: () => invoke<ConnectionConfig[]>("list_connections"),
   parseConnectionUrl: (url: string) => invoke<ParsedUrl>("parse_connection_url", { url }),
-  saveConnection: (config: ConnectionConfig, password: string | null) =>
-    invoke<ConnectionConfig>("save_connection", { config, password }),
+  saveConnection: (config: ConnectionConfig, password: string | null, tunnelSecret: string | null = null) =>
+    invoke<ConnectionConfig>("save_connection", { config, password, tunnelSecret }),
   deleteConnection: (id: string) => invoke<void>("delete_connection", { id }),
-  testConnection: (config: ConnectionConfig, password: string | null) =>
-    invoke<TestReport>("test_connection", { config, password }),
+  testConnection: (config: ConnectionConfig, password: string | null, tunnelSecret: string | null = null) =>
+    invoke<TestReport>("test_connection", { config, password, tunnelSecret }),
+  forgetHostKey: (host: string, port: number) => invoke<void>("forget_host_key", { host, port }),
   connect: (id: string) => invoke<{ serverVersion: string }>("connect", { id }),
   disconnect: (id: string) => invoke<void>("disconnect", { id }),
   loadSchema: (id: string) => invoke<SchemaSnapshot>("load_schema", { id }),
@@ -62,6 +66,9 @@ export const ipc = {
   setActiveAi: (id: string) => invoke<void>("set_active_ai", { id }),
   aiModels: (provider: AiProvider, key: string | null) => invoke<string[]>("ai_models", { provider, key }),
   discoverLocal: () => invoke<LocalDatabase[]>("discover_local"),
+  exportTable: (id: string, request: BrowseRequest, format: ExportFormat, path: string) => invoke<number>("export_table", { id, request, format, path }),
+  csvPreview: (path: string) => invoke<CsvPreview>("csv_preview", { path }),
+  importCsv: (id: string, path: string, plan: ImportPlan) => invoke<number>("import_csv", { id, path, plan }),
   aiFilters: (id: string, schema: string | null, table: string, prompt: string, today: string) =>
     invoke<AiFilterResult>("ai_filters", { id, schema, table, prompt, today }),
 

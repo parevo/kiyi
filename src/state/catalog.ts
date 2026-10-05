@@ -51,3 +51,9 @@ export function friendlyType(dataType: string, driver: DriverInfo | undefined): 
   const exact = driver?.types.find((o) => o.sql.toLowerCase() === dataType.toLowerCase());
   return exact?.label ?? CATEGORY_LABEL[categorise(dataType, driver)];
 }
+
+/** Where a connection points, for lists: `host` or `host / database`, or the SQLite file name. */
+export function connectionWhere(c: Pick<ConnectionConfig, "kind" | "host" | "database">): string {
+  if (c.kind === "sqlite") return c.database?.split(/[\\/]/).pop() ?? "";
+  return c.database ? `${c.host} / ${c.database}` : c.host;
+}

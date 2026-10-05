@@ -1,5 +1,5 @@
 # Local databases for development and the live driver tests.
-#   docker compose -f dev/docker-compose.yml up -d
+#   ./dev/setup-ssh-key.sh && docker compose -f dev/docker-compose.yml up -d --wait
 services:
   postgres:
     image: postgres:17
@@ -31,3 +31,11 @@ services:
       test: ["CMD", "mysql", "-h127.0.0.1", "-ukiyi", "-pkiyi", "-e", "SELECT 1 FROM kiyi_test.orders LIMIT 1"]
       interval: 2s
       retries: 90
+  bastion:
+    build: ./bastion
+    ports: ["52222:22"]
+    volumes: ["./ssh/id_ed25519.pub:/home/kiyi/.ssh/authorized_keys:ro"]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "22"]
+      interval: 2s
+      retries: 30
