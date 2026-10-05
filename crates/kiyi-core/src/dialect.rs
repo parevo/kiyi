@@ -1,4 +1,4 @@
-//! Quoting and literal escaping. Every SQL string Kıyı generates goes through here,
+//! Quoting and literal escaping. Every SQL string Kiyi generates goes through here,
 //! so what the user reviews is exactly what runs — no hidden bind parameters.
 
 use serde::{Deserialize, Serialize};

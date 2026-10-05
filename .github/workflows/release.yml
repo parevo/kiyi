@@ -44,12 +44,12 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
-          echo "### Kıyı $version ($channel)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Kiyi $version ($channel)" >> "$GITHUB_STEP_SUMMARY"
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          args=(--draft --title "Kıyı ${{ steps.v.outputs.version }}" --target "$GITHUB_SHA" --generate-notes)
+          args=(--draft --title "Kiyi ${{ steps.v.outputs.version }}" --target "$GITHUB_SHA" --generate-notes)
           [[ "${{ steps.v.outputs.channel }}" == beta ]] && args+=(--prerelease)
           gh release create "${{ steps.v.outputs.tag }}" "${args[@]}"
 
@@ -126,5 +126,5 @@ jobs:
           gh release download "$TAG" --pattern latest.json --dir out
           gh release view updater-beta >/dev/null 2>&1 || \
             gh release create updater-beta --prerelease --title "Beta update channel" \
-              --notes "Kıyı uygulamasının beta güncelleme kanalı. Buradaki dosyaları elle değiştirme." --target "$GITHUB_SHA"
+              --notes "Update feed for the Kiyi beta channel. Managed by CI; do not edit these files by hand." --target "$GITHUB_SHA"
           gh release upload updater-beta out/latest.json --clobber

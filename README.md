@@ -1,4 +1,4 @@
-# Kıyı
+# Kiyi
 
 Herkes için veritabanı istemcisi: kayıtları bir tablo gibi gör ve düzenle, tablo oluştur, yapısını değiştir; SQL bilmek gerekmez. Geliştirici modunda her işlemin SQL'i görünür.
 

@@ -1,4 +1,4 @@
-//! Kıyı core: database drivers, connection storage and secrets.
+//! Kiyi core: database drivers, connection storage and secrets.
 //! Deliberately free of any Tauri dependency so the UI layer can be swapped.
 
 pub mod ai;
