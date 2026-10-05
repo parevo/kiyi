@@ -1,6 +1,15 @@
 // Small progressive enhancements; the page works without any of this.
 
 const REPO = "parevo/kiyi";
+const tr = document.documentElement.lang === "tr";
+
+// Turkish browsers land on the Turkish page, until the visitor picks a language themselves.
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+document.querySelectorAll("[data-lang]").forEach((a) => a.addEventListener("click", () => store.set("kiyi-lang", a.dataset.lang)));
+if (!tr && !store.get("kiyi-lang") && /^tr\b/i.test(navigator.language || "")) location.replace("tr/" + location.hash);
 
 // Reveal sections as they scroll into view.
 const io = new IntersectionObserver(
@@ -20,8 +29,8 @@ document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
 const ua = navigator.userAgent;
 const os = /Windows/.test(ua) ? "windows" : /Mac/.test(ua) ? "mac" : null;
 const primary = document.querySelector("[data-primary-label]");
-if (os === "mac") primary.textContent = "Download for macOS";
-if (os === "windows") primary.textContent = "Download for Windows";
+if (os === "mac") primary.textContent = tr ? "macOS için indir" : "Download for macOS";
+if (os === "windows") primary.textContent = tr ? "Windows için indir" : "Download for Windows";
 if (os) document.querySelector(`.dl[data-os="${os}"]`)?.classList.add("recommended");
 
 // Link straight to the latest release's files.
@@ -45,19 +54,27 @@ fetch(`https://api.github.com/repos/${REPO}`)
   .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
   .then((repo) => {
     const n = repo.stargazers_count;
-    if (n > 0) document.querySelector("[data-stars]").textContent = `${n >= 1000 ? (n / 1000).toFixed(1) + "k" : n} stars`;
+    if (n > 0) document.querySelector("[data-stars]").textContent = `${n >= 1000 ? (n / 1000).toFixed(1) + "k" : n} ${tr ? "yıldız" : "stars"}`;
   })
   .catch(() => {});
 
 // Cycle example prompts in the AI section, typed out.
 const typed = document.querySelector("[data-typed]");
-const prompts = [
-  "pro customers in germany who spent over 1k",
-  "orders refunded last month, newest first",
-  "products running low on stock",
-  "users who signed up this year but never ordered",
-  "müşterileri şehre göre göster",
-];
+const prompts = tr
+  ? [
+      "almanya'daki pro müşterilerden 1000 üstü harcayanlar",
+      "geçen ay iade edilen siparişler, en yeniler önce",
+      "stoğu azalan ürünler",
+      "bu yıl kaydolup hiç sipariş vermeyen kullanıcılar",
+      "active customers in berlin or paris",
+    ]
+  : [
+      "pro customers in germany who spent over 1k",
+      "orders refunded last month, newest first",
+      "products running low on stock",
+      "users who signed up this year but never ordered",
+      "berlin ya da paris'teki aktif müşteriler",
+    ];
 if (typed && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
   let p = 0;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
