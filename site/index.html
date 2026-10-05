@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kiyi — The database app for everyone</title>
+    <meta name="description" content="Browse, search and edit PostgreSQL, MySQL, MariaDB and SQLite like a spreadsheet, and ask for data in plain words. Free, open source, built in Rust." />
+    <meta name="theme-color" content="#0e1013" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <meta property="og:title" content="Kiyi — The database app for everyone" />
+    <meta property="og:description" content="Browse, search and edit your database like a spreadsheet, and ask for data in plain words. Free and open source." />
+    <meta property="og:image" content="https://parevo.github.io/kiyi/assets/og.png" />
+    <meta property="og:url" content="https://parevo.github.io/kiyi/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /><path d="M20 3v4M22 5h-4M4 17v2M5 18H3" /></symbol>
+        <symbol id="i-table" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" /></symbol>
+        <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" /></symbol>
+        <symbol id="i-network" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1" /><rect x="2" y="16" width="6" height="6" rx="1" /><rect x="9" y="2" width="6" height="6" rx="1" /><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8" /></symbol>
+        <symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18" /></symbol>
+        <symbol id="i-transfer" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" /></symbol>
+        <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></symbol>
+        <symbol id="i-code" viewBox="0 0 24 24"><path d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16" /></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
+        <symbol id="i-laptop" viewBox="0 0 24 24"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16" /></symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7" /></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></symbol>
+        <symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></symbol>
+        <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" /></symbol>
+      </defs>
+    </svg>
+
+    <header class="nav">
+      <a class="brand" href="#top" aria-label="Kiyi home"><img src="assets/icon.svg" alt="" width="28" height="28" /> Kiyi</a>
+      <nav class="links" aria-label="Main">
+        <a href="#ai">AI</a>
+        <a href="#features">Features</a>
+        <a href="#connect">Connect</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="ghost-btn" href="https://github.com/parevo/kiyi" aria-label="Kiyi on GitHub"><svg class="ic"><use href="#i-github" /></svg><span data-stars>GitHub</span></a>
+        <a class="btn small" href="#download"><svg class="ic"><use href="#i-download" /></svg> Download</a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="horizon" aria-hidden="true"><span class="moon"></span><span class="sea"></span><span class="sand"></span></div>
+        <div class="hero-copy reveal">
+          <a class="pill" href="https://github.com/parevo/kiyi/releases/latest" data-release-pill><span class="dot"></span><span><span data-version>v0.1.0</span> is out · Free and open source</span> <svg class="ic"><use href="#i-arrow" /></svg></a>
+          <h1>Your database,<br /><span class="gradient">finally friendly.</span></h1>
+          <p class="lede">
+            Kiyi lets anyone browse, search and edit PostgreSQL, MySQL, MariaDB and SQLite like a spreadsheet, and ask for data in plain words. No SQL required. All of it there the moment you want it.
+          </p>
+          <div class="cta">
+            <a class="btn" href="#download" data-primary-download><svg class="ic"><use href="#i-download" /></svg> <span data-primary-label>Download Kiyi</span></a>
+            <a class="btn secondary" href="https://github.com/parevo/kiyi"><svg class="ic"><use href="#i-github" /></svg> Star on GitHub</a>
+          </div>
+          <p class="fineprint">macOS (Apple Silicon &amp; Intel) and Windows · MIT licensed · No account needed</p>
+        </div>
+
+        <div class="stage reveal">
+          <div class="window">
+            <div class="chrome"><span></span><span></span><span></span></div>
+            <picture>
+              <source srcset="assets/shots/data-light.webp" media="(prefers-color-scheme: light)" />
+              <img src="assets/shots/data-dark.webp" width="2880" height="1800" alt="Kiyi showing a customers table with a row open in the details panel" fetchpriority="high" />
+            </picture>
+          </div>
+          <div class="float f1"><svg class="ic ok"><use href="#i-check" /></svg> Saved <span class="undo">Undo</span></div>
+          <div class="float f2"><svg class="ic ai"><use href="#i-sparkles" /></svg> “pro customers in germany who spent over 1k”</div>
+          <div class="float f3"><svg class="ic ok"><use href="#i-lock" /></svg> SSH tunnel · Signed in</div>
+        </div>
+      </section>
+
+      <section class="strip reveal" aria-label="Supported databases and AI providers">
+        <div>
+          <span class="strip-label">Works with</span>
+          <span class="chip">PostgreSQL</span><span class="chip">MySQL</span><span class="chip">MariaDB</span><span class="chip">SQLite</span><span class="chip muted">SQL Server · soon</span>
+        </div>
+        <div>
+          <span class="strip-label">Bring your own AI</span>
+          <span class="chip">Anthropic</span><span class="chip">OpenAI</span><span class="chip">Gemini</span><span class="chip">OpenRouter</span><span class="chip">Groq</span><span class="chip">Mistral</span><span class="chip">Ollama</span><span class="chip">LM Studio</span>
+        </div>
+      </section>
+
+      <section id="ai" class="split">
+        <div class="split-copy reveal">
+          <span class="eyebrow ai"><svg class="ic"><use href="#i-sparkles" /></svg> Ask AI</span>
+          <h2>Ask for rows the way you'd ask a colleague.</h2>
+          <div class="prompt" aria-live="polite"><svg class="ic"><use href="#i-sparkles" /></svg><span data-typed>pro customers in germany who spent over 1k</span><span class="caret"></span></div>
+          <p>Kiyi turns your sentence into filters you can see, tweak and remove one by one. Nothing runs that you can't inspect.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Any provider, or none.</b> Claude, GPT, Gemini, open models on OpenRouter or Groq, or a model running on your own Mac with Ollama.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Your rows never leave.</b> Only the table's structure is sent, column names and types.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Checked before it runs.</b> Anything the AI writes must parse as a single read-only condition.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="assets/shots/ai-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="assets/shots/ai-dark.webp" width="2880" height="1800" loading="lazy" alt="Ask AI turned a request into three filters and a sort, shown as removable chips" />
+          </picture>
+        </div>
+      </section>
+
+      <section id="features" class="features">
+        <div class="section-head reveal">
+          <span class="eyebrow">Everything in one window</span>
+          <h2>Built for people who aren't DBAs.<br />Loved by the ones who are.</h2>
+        </div>
+        <div class="bento">
+          <article class="card wide reveal">
+            <svg class="ic big"><use href="#i-table" /></svg>
+            <h3>Edit like a spreadsheet</h3>
+            <p>Change a cell and it's saved, with an Undo right there. Production connections wait for an explicit Save. Deleting always asks first.</p>
+            <div class="mini-grid" aria-hidden="true">
+              <span>name</span><span>plan</span><span>lifetime_value</span>
+              <span>Noah Patel</span><span class="edited">enterprise</span><span>2,994.81</span>
+              <span>Isla Dubois</span><span>pro</span><span>1,207.40</span>
+            </div>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-radar" /></svg>
+            <h3>Finds your databases</h3>
+            <p>Kiyi spots PostgreSQL, MySQL and MariaDB running on your Mac and connects in one click.</p>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-columns" /></svg>
+            <h3>Structure, in plain words</h3>
+            <p>“Money / exact number”, “Required”, “Unique”, “Links to customers”. Kiyi writes the SQL.</p>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-network" /></svg>
+            <h3>Private networks</h3>
+            <p>SSH tunnels through a bastion, or AWS Systems Manager without opening a port.</p>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-transfer" /></svg>
+            <h3>Import &amp; export</h3>
+            <p>Any view to CSV or JSON. CSV in, with column matching and one all-or-nothing transaction.</p>
+          </article>
+          <article class="card wide reveal">
+            <svg class="ic big"><use href="#i-shield" /></svg>
+            <h3>Safe by default</h3>
+            <p>Production connections are marked in red and read-only unless you say otherwise. Every destructive change is explained in plain language before it runs, and you type the table's name to confirm on production.</p>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-code" /></svg>
+            <h3>Developer mode</h3>
+            <p>See the SQL behind every action, raw types, and a SQL editor with schema-aware autocomplete.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="split reverse" id="structure">
+        <div class="split-copy reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-columns" /></svg> Structure</span>
+          <h2>Design tables without learning DDL.</h2>
+          <p>Pick a type from a list that makes sense, mark a column required or unique, link it to another table and decide what happens when that row is deleted. Kiyi turns it into the right ALTER statements for your database, in the right order.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span>Rename, add and remove columns, indexes and relationships.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span>MySQL quirks handled, like keeping comments and <code>ON UPDATE</code> when a column changes.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span>Saving a table you didn't change does nothing at all. Tested against real servers.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="assets/shots/structure-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="assets/shots/structure-dark.webp" width="2880" height="1800" loading="lazy" alt="Editing a column: type, default value, rules and links to other tables" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="split" id="connect">
+        <div class="split-copy reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-network" /></svg> Connect anywhere</span>
+          <h2>From localhost to a private subnet.</h2>
+          <p>Paste a connection URL, pick a SQLite file, or go through a bastion. Every step of the connection test tells you exactly what worked, and what didn't.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>SSH:</b> password, key file or ssh-agent, with the server's identity remembered and checked.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>AWS SSM:</b> reach RDS through an EC2 instance with no open SSH port.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Keychain:</b> passwords and keys live in your system keychain, never in a file.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="assets/shots/connect-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="assets/shots/connect-dark.webp" width="2880" height="1800" loading="lazy" alt="A connection test through an SSH tunnel, every step passing" />
+          </picture>
+        </div>
+      </section>
+
+      <section id="privacy" class="privacy reveal">
+        <svg class="ic huge"><use href="#i-lock" /></svg>
+        <h2>Your data stays yours.</h2>
+        <div class="privacy-grid">
+          <div><b>No account.</b><span>Download, open, connect. That's it.</span></div>
+          <div><b>No telemetry.</b><span>Kiyi talks to your databases, the AI provider you pick, and GitHub to check for updates. Nothing else.</span></div>
+          <div><b>Open source.</b><span>MIT licensed. Read every line on GitHub, build it yourself.</span></div>
+          <div><b>Native and fast.</b><span>A Rust core that streams results straight to the grid.</span></div>
+        </div>
+      </section>
+
+      <section id="download" class="download">
+        <div class="section-head reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-download" /></svg> Download</span>
+          <h2>Get Kiyi <span data-version>v0.1.0</span></h2>
+          <p class="muted">Free. Updates itself in the background and asks before restarting.</p>
+        </div>
+        <div class="downloads">
+          <article class="dl reveal" data-os="mac">
+            <svg class="ic big"><use href="#i-laptop" /></svg>
+            <h3>macOS</h3>
+            <p>macOS 11 or later</p>
+            <a class="btn" data-asset="aarch64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Apple Silicon</a>
+            <a class="btn secondary" data-asset="x64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Intel</a>
+          </article>
+          <article class="dl reveal" data-os="windows">
+            <svg class="ic big"><use href="#i-monitor" /></svg>
+            <h3>Windows</h3>
+            <p>Windows 10 or 11, 64-bit</p>
+            <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Download installer</a>
+            <a class="btn secondary" href="https://github.com/parevo/kiyi/releases">All releases</a>
+          </article>
+        </div>
+        <p class="note reveal">Early releases aren't code-signed yet. On macOS, right-click Kiyi and choose <b>Open</b> the first time; on Windows, choose <b>More info → Run anyway</b>.</p>
+      </section>
+
+      <section id="faq" class="faq">
+        <div class="section-head reveal"><h2>Questions</h2></div>
+        <div class="faq-list reveal">
+          <details>
+            <summary>Do I need to know SQL?</summary>
+            <p>No. Browsing, searching, filtering, editing, importing and designing tables all work with buttons and plain words. If you do know SQL, turn on Developer mode for the SQL editor and to see the statements behind every action.</p>
+          </details>
+          <details>
+            <summary>Does the AI see my data?</summary>
+            <p>No. Kiyi sends the table's structure (column names, types and allowed values) and your request, never row data. You choose the provider, and you can run a model entirely on your own Mac with Ollama or LM Studio.</p>
+          </details>
+          <details>
+            <summary>Is it safe to use on production?</summary>
+            <p>Mark a connection as Production and Kiyi makes it read-only by default, outlines it in red, waits for an explicit Save on edits, and asks you to type the table's name before anything destructive. Grid edits run in a single transaction and are rolled back if any row changed underneath you.</p>
+          </details>
+          <details>
+            <summary>How do I reach a database in a private network?</summary>
+            <p>Choose “SSH tunnel” to go through a bastion host, or “AWS SSM” to go through an EC2 instance using Systems Manager. The connection test shows each step: tunnel, sign-in, forwarding, database.</p>
+          </details>
+          <details>
+            <summary>Which databases are supported?</summary>
+            <p>PostgreSQL, MySQL, MariaDB and SQLite today. SQL Server is next. Kiyi's core is built so new engines plug in without changing the app.</p>
+          </details>
+          <details>
+            <summary>What does it cost?</summary>
+            <p>Nothing. Kiyi is free and open source under the MIT license. If you use AI, you pay your provider directly, or nothing at all with a local model.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="final reveal">
+        <h2>Make your database feel like home.</h2>
+        <div class="cta center">
+          <a class="btn" href="#download"><svg class="ic"><use href="#i-download" /></svg> Download Kiyi</a>
+          <a class="btn secondary" href="https://github.com/parevo/kiyi"><svg class="ic"><use href="#i-star" /></svg> Star on GitHub</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span><img src="assets/icon.svg" alt="" width="18" height="18" /> Kiyi · MIT License · Made by <a href="https://github.com/parevo">Parevo</a></span>
+      <span><a href="https://github.com/parevo/kiyi">GitHub</a> · <a href="https://github.com/parevo/kiyi/releases">Releases</a> · <a href="https://github.com/parevo/kiyi/issues">Report an issue</a></span>
+    </footer>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

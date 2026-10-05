@@ -93,7 +93,8 @@ export function FieldInput({
     );
   }
 
-  const long = isJson || (category === "text" && (shown.length > 60 || shown.includes("\n") || /text$/i.test(column.dataType)));
+  // Short text stays on one line; long or multi-line text gets room to breathe.
+  const long = isJson || (category === "text" && (shown.length > 60 || shown.includes("\n")));
   if (long) {
     return (
       <>
