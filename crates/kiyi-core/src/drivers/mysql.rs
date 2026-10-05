@@ -105,7 +105,8 @@ impl MySqlDriver {
 }
 
 const SCHEMA_SQL: &str = r#"
-SELECT c.TABLE_SCHEMA, c.TABLE_NAME, t.TABLE_TYPE, c.COLUMN_NAME, c.COLUMN_TYPE, c.IS_NULLABLE
+SELECT c.TABLE_SCHEMA, c.TABLE_NAME, t.TABLE_TYPE, c.COLUMN_NAME, c.COLUMN_TYPE, c.IS_NULLABLE,
+       CASE WHEN t.TABLE_TYPE = 'BASE TABLE' THEN t.TABLE_ROWS END
 FROM information_schema.COLUMNS c
 JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
 WHERE c.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
@@ -150,14 +151,14 @@ impl DbDriver for MySqlDriver {
         let mut conn = self.pool.acquire().await?;
         let schema_name = match schema {
             Some(s) => s.to_string(),
-            None => first_cell(text_rows(&mut conn, "SELECT DATABASE()").await?).ok_or_else(|| Error::Invalid("Veritabanı seçili değil".into()))?,
+            None => first_cell(text_rows(&mut conn, "SELECT DATABASE()").await?).ok_or_else(|| Error::Invalid("No database is selected".into()))?,
         };
         let (schema_lit, table_lit) = (d.string(&schema_name), d.string(table));
         let filter = format!("TABLE_SCHEMA = {schema_lit} AND TABLE_NAME = {table_lit}");
         let get = |row: &Vec<Cell>, i: usize| row.get(i).cloned().flatten();
 
         let info = text_rows(&mut conn, &format!("SELECT TABLE_TYPE, TABLE_ROWS FROM information_schema.TABLES WHERE {filter}")).await?;
-        let info = info.into_iter().next().ok_or_else(|| Error::Invalid(format!("{table} bulunamadı")))?;
+        let info = info.into_iter().next().ok_or_else(|| Error::Invalid(format!("Table {table} was not found")))?;
         let is_view = get(&info, 0).is_some_and(|t| t.contains("VIEW"));
         let row_estimate = get(&info, 1).and_then(|v| v.parse().ok());
 
@@ -184,6 +185,7 @@ impl DbDriver for MySqlDriver {
                     primary_key: get(r, 6).as_deref() == Some("PRI"),
                     auto_increment: extra_lower.contains("auto_increment"),
                     comment: get(r, 5).filter(|c| !c.is_empty()),
+                    enum_values: enum_values(&get(r, 1).unwrap_or_default()),
                     generated,
                     extra: on_update,
                 }
@@ -270,5 +272,43 @@ fn default_expr(d: Dialect, raw: &str, extra_lower: &str, data_type: &str) -> St
         raw.to_string()
     } else {
         d.string(raw)
+    }
+}
+
+/// Values of an `enum('a','b')` column type, unescaping doubled quotes.
+fn enum_values(column_type: &str) -> Vec<String> {
+    let Some(inner) = column_type.strip_prefix("enum(").and_then(|s| s.strip_suffix(')')) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\'' {
+            continue;
+        }
+        let mut value = String::new();
+        while let Some(c) = chars.next() {
+            if c == '\'' {
+                if chars.peek() == Some(&'\'') {
+                    chars.next();
+                    value.push('\'');
+                } else {
+                    break;
+                }
+            } else {
+                value.push(c);
+            }
+        }
+        out.push(value);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parses_enum_values() {
+        assert_eq!(super::enum_values("enum('a','it''s','c d')"), ["a", "it's", "c d"]);
+        assert!(super::enum_values("varchar(10)").is_empty());
     }
 }

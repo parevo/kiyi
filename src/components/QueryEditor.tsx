@@ -136,7 +136,7 @@ export function QueryEditor({ value, kind, schema, errorAt, onChange, onRun, onC
           autocompletion({ activateOnTyping: true, icons: false }),
           highlightActiveLine(),
           highlightSelectionMatches(),
-          placeholder("SELECT … ⌘↵ ile imlecin altındaki ifadeyi çalıştır"),
+          placeholder("SELECT …   ⌘↵ runs the statement under the cursor"),
           lang.current.of(language(kind, schema)),
           errorField,
           flashField,

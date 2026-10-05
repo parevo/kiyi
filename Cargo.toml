@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/kiyi-core", "src-tauri"]
+members = ["crates/kiyi-core", "crates/kiyi-devbridge", "src-tauri"]
 
 [workspace.package]
 edition = "2021"

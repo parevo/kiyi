@@ -1,0 +1,43 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(5, 6, 8, 0.35);
+}
+.overlay[data-entering] { animation: fade var(--dur) var(--ease); }
+.sheet {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 40px);
+  background: var(--bg-raised);
+  border-left: 1px solid var(--line-strong);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
+  outline: none;
+}
+.sheet[data-entering] { animation: slide 180ms var(--ease); }
+@keyframes fade { from { opacity: 0; } }
+@keyframes slide { from { transform: translateX(24px); opacity: 0; } }
+.dialog { display: flex; flex-direction: column; height: 100%; outline: none; }
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--line);
+}
+.title { margin: 0; font-size: var(--text-lg); font-weight: 600; }
+.subtitle { margin: 3px 0 0; color: var(--text-muted); font-size: var(--text-sm); }
+.body { flex: 1; overflow: auto; padding: var(--space-4) var(--space-6) var(--space-6); }
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--line);
+}
+.footer > :first-child { margin-right: auto; }

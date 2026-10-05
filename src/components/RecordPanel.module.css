@@ -1,5 +1,5 @@
 .panel {
-  width: 340px;
+  width: 360px;
   flex-shrink: 0;
   height: 100%;
   overflow: auto;
@@ -22,8 +22,11 @@
 .fieldList li { display: flex; justify-content: space-between; gap: var(--space-3); padding: 5px 0; border-bottom: 1px solid var(--line); font-size: var(--text-sm); }
 .mono { font-family: var(--font-mono); font-size: 12px; }
 .muted { color: var(--text-muted); }
-.textButton { margin: var(--space-3) var(--space-4); border: 0; background: transparent; color: var(--accent); font-size: var(--text-sm); padding: 0; text-align: left; }
-.field .textButton { margin: 0; }
+.textButton { display: inline-flex; align-items: center; gap: 4px; margin: var(--space-3) var(--space-4); border: 0; background: transparent; color: var(--accent); font-size: var(--text-sm); padding: 0; text-align: left; }
+.colName { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+.colName svg, .name svg { color: var(--text-faint); }
+.readonly { padding: 6px 10px; border-radius: var(--radius-md); background: var(--bg-sunken); color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+.field .textButton { margin: 0; align-self: flex-start; }
 .textButton:hover { text-decoration: underline; }
 
 .recordHeader {
@@ -54,9 +57,9 @@
 
 .fields { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field[data-edited] .input { border-color: var(--env-staging); background: color-mix(in srgb, var(--env-staging) 8%, var(--bg-sunken)); }
+.field[data-edited] :is(input, textarea, select) { border-color: var(--env-staging); }
 .label { display: flex; align-items: baseline; gap: var(--space-2); }
-.name { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+.name { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 12px; color: var(--text); }
 .type { color: var(--text-faint); font-size: var(--text-xs); }
 .tag { font-size: 10px; padding: 0 6px; border-radius: 8px; background: var(--bg-active); color: var(--text-muted); }
 .nullButton {

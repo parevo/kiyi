@@ -5,12 +5,12 @@ import { AlertIcon, CheckIcon, Spinner } from "./icons";
 import { ResultGrid } from "./ResultGrid";
 import s from "./ResultPane.module.css";
 
-const fmt = new Intl.NumberFormat("tr-TR");
+const fmt = new Intl.NumberFormat("en-US");
 
 function duration(ms: number) {
   if (ms < 1000) return `${Math.round(ms)} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)} sn`;
-  return `${Math.floor(ms / 60_000)} dk ${Math.round((ms % 60_000) / 1000)} sn`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)} s`;
+  return `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`;
 }
 
 function useElapsed(run: RunState | null) {
@@ -42,7 +42,7 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
         <div className={s.sets} role="tablist">
           {withRows.map(({ set, i }, n) => (
             <AriaButton key={i} className={s.setTab} data-selected={i === shownIndex || undefined} onPress={() => setPicked(i)}>
-              Sonuç {n + 1} · {fmt.format(set.rows.length)}
+              Result {n + 1} · {fmt.format(set.rows.length)}
             </AriaButton>
           ))}
         </div>
@@ -52,10 +52,10 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
         {!run && (
           <div className={`${s.center} ${s.hint}`}>
             <span>
-              <kbd>⌘</kbd> <kbd>↵</kbd> imlecin altındaki ifadeyi çalıştırır
+              <kbd>⌘</kbd> <kbd>↵</kbd> runs the statement under the cursor
             </span>
             <span>
-              <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>↵</kbd> hepsini çalıştırır
+              <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>↵</kbd> runs everything
             </span>
           </div>
         )}
@@ -64,7 +64,7 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
           <div className={s.error} role="alert">
             <div className={s.errorTitle}>
               <AlertIcon />
-              Sorgu hata verdi
+              Query failed
               {run.error.code && <span className={s.errorCode}>{run.error.code}</span>}
             </div>
             <div className={`${s.errorBody} selectable`}>{run.error.message}</div>
@@ -77,8 +77,8 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
           <div className={s.center}>
             <span className={s.message}>
               <CheckIcon />
-              {run.statements > 1 ? `${run.statements} ifade çalıştı` : "Sorgu tamamlandı"}
-              {shown.rowsAffected !== null && ` · ${fmt.format(shown.rowsAffected)} satır etkilendi`}
+              {run.statements > 1 ? `Ran ${run.statements} statements` : "Query finished"}
+              {shown.rowsAffected !== null && ` · ${fmt.format(shown.rowsAffected)} rows affected`}
             </span>
           </div>
         )}
@@ -94,30 +94,30 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
         {run?.status === "running" ? (
           <>
             <span className={s.running}>
-              <Spinner size={12} /> Çalışıyor
+              <Spinner size={12} /> Running
             </span>
-            {run.rowCount > 0 && <span>{fmt.format(run.rowCount)} satır</span>}
+            {run.rowCount > 0 && <span>{fmt.format(run.rowCount)} rows</span>}
             <span className={s.spacer} />
             <span>{duration(elapsed)}</span>
             <AriaButton className={s.cancel} onPress={onCancel}>
-              İptal <span className={s.faint}>⌘.</span>
+              Cancel <span className={s.faint}>⌘.</span>
             </AriaButton>
           </>
         ) : run ? (
           <>
             {run.cancelled ? (
-              <span>İptal edildi</span>
+              <span>Cancelled</span>
             ) : shown && shown.columns.length > 0 ? (
-              <span>{fmt.format(shownRows)} satır</span>
+              <span>{fmt.format(shownRows)} rows</span>
             ) : (
-              <span>{run.error ? "Hata" : "Tamamlandı"}</span>
+              <span>{run.error ? "Error" : "Done"}</span>
             )}
             {run.statements > 1 && <span className={s.faint}>{run.statements} ifade</span>}
             <span className={s.spacer} />
             <span className={s.faint}>{duration(elapsed)}</span>
           </>
         ) : (
-          <span className={s.faint}>Hazır</span>
+          <span className={s.faint}>Ready</span>
         )}
       </div>
     </div>

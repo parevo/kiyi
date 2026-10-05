@@ -1,0 +1,4 @@
+.segmented { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--bg-sunken); }
+.segmented button { flex: 1; height: 26px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); font-size: var(--text-sm); }
+.segmented button[aria-checked="true"] { background: var(--bg-active); color: var(--text); }
+.segmented button:disabled { opacity: 0.6; }

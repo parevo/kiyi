@@ -69,6 +69,7 @@ export interface TableInfo {
   name: string;
   kind: "table" | "view";
   columns: ColumnInfo[];
+  rowEstimate: number | null;
 }
 
 export interface SchemaInfo {
@@ -104,6 +105,7 @@ export interface ColumnDesign {
   comment: string | null;
   generated: boolean;
   extra: string | null;
+  enumValues: string[];
 }
 
 export interface IndexDesign {
@@ -175,6 +177,8 @@ export interface BrowseRequest {
   table: string;
   filters: Filter[];
   rawWhere: string | null;
+  search?: string | null;
+  searchColumns?: string[];
   sort: Sort[];
   tiebreak: string[];
   limit: number;
@@ -227,4 +231,19 @@ export interface DriverInfo {
   urlExample: string;
   types: TypeOption[];
   recognise: [string, TypeCategory][];
+}
+
+// ---- AI
+
+export interface AiStatus {
+  configured: boolean;
+  source: "keychain" | "environment" | null;
+  model: string;
+}
+
+export interface AiFilterResult {
+  filters: Filter[];
+  sort: Sort[];
+  condition: string | null;
+  explanation: string;
 }

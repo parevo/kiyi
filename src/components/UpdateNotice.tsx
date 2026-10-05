@@ -53,14 +53,14 @@ export function UpdateNotice() {
 
   const restart = async () => {
     const running = useTabs.getState().tabs.filter((t) => t.run?.status === "running").length;
-    if (running > 0 && !confirm(`${running} sorgu hâlâ çalışıyor. Yeniden başlatınca iptal edilecek. Devam edilsin mi?`)) return;
+    if (running > 0 && !confirm(`${running} ${running === 1 ? "query is" : "queries are"} still running and will be stopped. Restart anyway?`)) return;
     setInstalling(true);
     try {
       await ipc.installUpdate();
       await relaunch();
     } catch (e) {
       setInstalling(false);
-      alert(`Güncelleme kurulamadı: ${errorMessage(e)}`);
+      alert(`The update couldn't be installed: ${errorMessage(e)}`);
     }
   };
 
@@ -68,12 +68,12 @@ export function UpdateNotice() {
     <div className={`${s.notice} ${update.critical ? s.critical : ""}`} role="status">
       {showNotes && update.notes && <div className={`${s.notes} selectable`}>{update.notes}</div>}
       <div className={s.text} onMouseEnter={() => setShowNotes(true)} onMouseLeave={() => setShowNotes(false)}>
-        <span>Kıyı {update.version} hazır</span>
-        <span className={s.sub}>{update.critical ? "Önemli güvenlik güncellemesi" : `Şu an ${update.currentVersion}`}</span>
+        <span>Kiyi {update.version} is ready</span>
+        <span className={s.sub}>{update.critical ? "Important security update" : `You have ${update.currentVersion}`}</span>
       </div>
       <Button variant="primary" onPress={restart} isDisabled={installing}>
         {installing && <Spinner />}
-        Yeniden başlat
+        Restart
       </Button>
     </div>
   );

@@ -1,5 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  AiFilterResult,
+  AiStatus,
   BrowseRequest,
   DriverInfo,
   ChangeSet,
@@ -47,6 +49,11 @@ export const ipc = {
     invoke<string[]>("plan_table_action", { id, schema, table, isView, action }),
   executeScript: (id: string, statements: string[], kind: ScriptKind) =>
     invoke<number[]>("execute_script", { id, statements, kind }),
+
+  aiStatus: () => invoke<AiStatus>("ai_status"),
+  setAiKey: (key: string | null) => invoke<void>("set_ai_key", { key }),
+  aiFilters: (id: string, schema: string | null, table: string, prompt: string, today: string) =>
+    invoke<AiFilterResult>("ai_filters", { id, schema, table, prompt, today }),
 
   checkUpdate: (channel: "stable" | "beta") => invoke<UpdateInfo | null>("check_update", { channel }),
   downloadUpdate(onProgress: (downloaded: number, total: number | null) => void) {

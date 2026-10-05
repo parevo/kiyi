@@ -8,6 +8,8 @@ interface Settings {
   theme: Theme;
   updateChannel: "stable" | "beta";
   inspectorOpen: boolean;
+  /** Reconnected on launch. */
+  lastConnectionId: string | null;
   set(patch: Partial<Omit<Settings, "set">>): void;
 }
 
@@ -26,6 +28,7 @@ export const useSettings = create<Settings>((set, get) => ({
   theme: "system",
   updateChannel: "stable",
   inspectorOpen: true,
+  lastConnectionId: null,
   ...read(),
   set(patch) {
     set(patch);

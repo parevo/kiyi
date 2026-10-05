@@ -27,6 +27,21 @@ KIYI_LIVE=1 cargo test -p kiyi-core --test live # gerçek veritabanlarına karş
 pnpm typecheck
 ```
 
+## Arayüzü tarayıcıda çalıştırmak (ekran görüntüleri, uçtan uca testler)
+
+`kiyi-devbridge`, core'u küçük bir HTTP sunucusuyla açar; tarayıcıda açılan arayüz Tauri yerine onunla konuşur (`src/dev/bridge.ts`).
+
+```sh
+pnpm dev                                   # Vite :1420
+cargo run -p kiyi-devbridge                # köprü :1421
+node dev/shoot.mjs /tmp/shots dark         # ana ekranların görüntüleri (WebKit)
+node dev/flows.mjs /tmp/flows              # gerçek veritabanında uçtan uca akışlar
+```
+
+## AI
+
+Tablolarda "Ask AI", isteği Claude ile filtreye çevirir. Ayarlar'dan bir Anthropic API anahtarı girilir (Keychain'de saklanır) ya da `ANTHROPIC_API_KEY` kullanılır. Yalnızca tablo yapısı gönderilir, satırlar asla gönderilmez; AI'ın yazdığı koşul çalışmadan önce tek bir ifade olarak doğrulanır.
+
 ## Yapı
 
 ```

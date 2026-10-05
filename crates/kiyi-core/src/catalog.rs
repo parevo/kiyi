@@ -26,7 +26,7 @@ pub enum TypeCategory {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TypeOption {
-    /// What a non-developer sees: "Metin", "Tam sayı"…
+    /// What a non-developer sees: "Text", "Integer"…
     pub label: &'static str,
     pub category: TypeCategory,
     /// The SQL type written to the database.
@@ -58,38 +58,38 @@ macro_rules! ty {
 
 fn postgres_types() -> Vec<TypeOption> {
     vec![
-        ty!("Metin", Text, "text", "İsim, açıklama, adres gibi her türlü yazı"),
-        ty!("Kısa metin", Text, "varchar(255)", "En fazla 255 karakter"),
-        ty!("Tam sayı", Number, "integer", "-2 milyar ile +2 milyar arası"),
-        ty!("Büyük tam sayı", Number, "bigint", "Kimlik numaraları ve çok büyük sayılar"),
-        ty!("Ondalık sayı", Decimal, "double precision", "Ölçüm gibi yaklaşık değerler"),
-        ty!("Para / kesin sayı", Decimal, "numeric(12,2)", "Kuruşu kuruşuna doğru tutar"),
-        ty!("Evet / Hayır", Boolean, "boolean", "Doğru ya da yanlış"),
-        ty!("Tarih", Date, "date", "Gün, ay, yıl"),
-        ty!("Tarih ve saat", DateTime, "timestamptz", "Saat dilimiyle birlikte an"),
-        ty!("Saat", Time, "time", "Sadece saat"),
-        ty!("Benzersiz kimlik (UUID)", Identifier, "uuid", "Tahmin edilemeyen kimlik"),
-        ty!("JSON", Json, "jsonb", "Esnek, iç içe veri"),
-        ty!("Dosya / ikili veri", Binary, "bytea", "Ham bayt dizisi"),
-        ty!("Metin listesi", List, "text[]", "Birden fazla metin"),
+        ty!("Text", Text, "text", "Names, descriptions, addresses: any length of text"),
+        ty!("Short text", Text, "varchar(255)", "Up to 255 characters"),
+        ty!("Integer", Number, "integer", "Whole numbers up to about ±2 billion"),
+        ty!("Big integer", Number, "bigint", "IDs and very large whole numbers"),
+        ty!("Decimal", Decimal, "double precision", "Approximate values such as measurements"),
+        ty!("Money / exact number", Decimal, "numeric(12,2)", "Exact amounts, to the cent"),
+        ty!("True / False", Boolean, "boolean", "A yes-or-no value"),
+        ty!("Date", Date, "date", "A calendar day"),
+        ty!("Date & time", DateTime, "timestamptz", "A moment in time, with time zone"),
+        ty!("Time", Time, "time", "A time of day"),
+        ty!("UUID", Identifier, "uuid", "A unique, unguessable identifier"),
+        ty!("JSON", Json, "jsonb", "Flexible, nested data"),
+        ty!("Binary", Binary, "bytea", "Raw bytes, such as files"),
+        ty!("List of text", List, "text[]", "Several text values"),
     ]
 }
 
 fn mysql_types() -> Vec<TypeOption> {
     vec![
-        ty!("Metin", Text, "text", "İsim, açıklama, adres gibi her türlü yazı"),
-        ty!("Kısa metin", Text, "varchar(255)", "En fazla 255 karakter"),
-        ty!("Tam sayı", Number, "int", "-2 milyar ile +2 milyar arası"),
-        ty!("Büyük tam sayı", Number, "bigint", "Kimlik numaraları ve çok büyük sayılar"),
-        ty!("Ondalık sayı", Decimal, "double", "Ölçüm gibi yaklaşık değerler"),
-        ty!("Para / kesin sayı", Decimal, "decimal(12,2)", "Kuruşu kuruşuna doğru tutar"),
-        ty!("Evet / Hayır", Boolean, "tinyint(1)", "Doğru ya da yanlış"),
-        ty!("Tarih", Date, "date", "Gün, ay, yıl"),
-        ty!("Tarih ve saat", DateTime, "datetime", "Tarih ve saat"),
-        ty!("Saat", Time, "time", "Sadece saat"),
-        ty!("Benzersiz kimlik (UUID)", Identifier, "char(36)", "Tahmin edilemeyen kimlik"),
-        ty!("JSON", Json, "json", "Esnek, iç içe veri"),
-        ty!("Dosya / ikili veri", Binary, "blob", "Ham bayt dizisi"),
+        ty!("Text", Text, "text", "Names, descriptions, addresses: any length of text"),
+        ty!("Short text", Text, "varchar(255)", "Up to 255 characters"),
+        ty!("Integer", Number, "int", "Whole numbers up to about ±2 billion"),
+        ty!("Big integer", Number, "bigint", "IDs and very large whole numbers"),
+        ty!("Decimal", Decimal, "double", "Approximate values such as measurements"),
+        ty!("Money / exact number", Decimal, "decimal(12,2)", "Exact amounts, to the cent"),
+        ty!("True / False", Boolean, "tinyint(1)", "A yes-or-no value"),
+        ty!("Date", Date, "date", "A calendar day"),
+        ty!("Date & time", DateTime, "datetime", "A date with a time of day"),
+        ty!("Time", Time, "time", "A time of day"),
+        ty!("UUID", Identifier, "char(36)", "A unique, unguessable identifier"),
+        ty!("JSON", Json, "json", "Flexible, nested data"),
+        ty!("Binary", Binary, "blob", "Raw bytes, such as files"),
     ]
 }
 
@@ -161,7 +161,7 @@ pub fn drivers() -> Vec<DriverInfo> {
             name: "PostgreSQL",
             kind: Some(DbKind::Postgres),
             default_port: 5432,
-            url_example: "postgres://kullanici:sifre@sunucu:5432/veritabani",
+            url_example: "postgres://user:password@host:5432/database",
             types: postgres_types(),
             recognise: postgres_recognise(),
         },
@@ -170,7 +170,7 @@ pub fn drivers() -> Vec<DriverInfo> {
             name: "MySQL",
             kind: Some(DbKind::Mysql),
             default_port: 3306,
-            url_example: "mysql://kullanici:sifre@sunucu:3306/veritabani",
+            url_example: "mysql://user:password@host:3306/database",
             types: mysql_types(),
             recognise: mysql_recognise(),
         },
@@ -179,7 +179,7 @@ pub fn drivers() -> Vec<DriverInfo> {
             name: "MariaDB",
             kind: Some(DbKind::Mysql),
             default_port: 3306,
-            url_example: "mariadb://kullanici:sifre@sunucu:3306/veritabani",
+            url_example: "mariadb://user:password@host:3306/database",
             types: mysql_types(),
             recognise: mysql_recognise(),
         },

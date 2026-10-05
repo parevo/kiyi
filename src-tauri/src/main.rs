@@ -39,10 +39,13 @@ fn main() {
             commands::plan_table,
             commands::plan_table_action,
             commands::execute_script,
+            commands::ai_status,
+            commands::set_ai_key,
+            commands::ai_filters,
             updater::check_update,
             updater::download_update,
             updater::install_update,
         ])
         .run(tauri::generate_context!())
-        .expect("failed to start Kıyı");
+        .expect("failed to start Kiyi");
 }

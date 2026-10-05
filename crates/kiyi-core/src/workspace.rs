@@ -119,7 +119,7 @@ impl Workspace {
     async fn open(config: &ConnectionConfig, password: Option<&str>) -> Result<Arc<dyn DbDriver>> {
         tokio::time::timeout(CONNECT_TIMEOUT, drivers::open(config, password))
             .await
-            .map_err(|_| Error::Timeout("bağlantı"))?
+            .map_err(|_| Error::Timeout("connecting"))?
     }
 
     /// Tries a connection without saving it. `password: None` falls back to the keychain.
@@ -134,21 +134,21 @@ impl Workspace {
 
         let driver = match Self::open(&config, password.as_deref()).await {
             Ok(d) => {
-                steps.push(TestStep { label: format!("{target} adresine bağlanıldı"), ok: true, detail: None });
+                steps.push(TestStep { label: format!("Connected to {target}"), ok: true, detail: None });
                 d
             }
             Err(e) => {
-                steps.push(TestStep { label: format!("{target} adresine bağlanılamadı"), ok: false, detail: Some(explain_connect_error(&e)) });
+                steps.push(TestStep { label: format!("Could not connect to {target}"), ok: false, detail: Some(explain_connect_error(&e)) });
                 return TestReport { ok: false, steps, server_version: None };
             }
         };
         let report = match driver.server_version().await {
             Ok(v) => {
-                steps.push(TestStep { label: "Sorgu çalıştırıldı".into(), ok: true, detail: Some(v.clone()) });
+                steps.push(TestStep { label: "Ran a test query".into(), ok: true, detail: Some(v.clone()) });
                 TestReport { ok: true, steps, server_version: Some(v) }
             }
             Err(e) => {
-                steps.push(TestStep { label: "Sorgu çalıştırılamadı".into(), ok: false, detail: Some(explain_connect_error(&e)) });
+                steps.push(TestStep { label: "Could not run a test query".into(), ok: false, detail: Some(explain_connect_error(&e)) });
                 TestReport { ok: false, steps, server_version: None }
             }
         };
@@ -249,8 +249,22 @@ impl Workspace {
         self.driver(id)?.table_details(schema, table).await
     }
 
+    fn check_condition(driver: &Arc<dyn DbDriver>, req: &BrowseRequest) -> Result<()> {
+        match req.raw_where.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(c) => dml::validate_condition(driver.dialect(), c).map_err(Error::Invalid),
+            None => Ok(()),
+        }
+    }
+
+    pub async fn ai_filters(&self, id: &str, schema: Option<&str>, table: &str, prompt: &str, today: &str) -> Result<crate::ai::AiFilterResult> {
+        let driver = self.driver(id)?;
+        let details = driver.table_details(schema, table).await?;
+        crate::ai::filters_from_prompt(driver.dialect(), &details, prompt, today).await
+    }
+
     pub async fn browse(&self, id: &str, req: &BrowseRequest) -> Result<Page> {
         let driver = self.driver(id)?;
+        Self::check_condition(&driver, req)?;
         let sql = dml::browse_sql(driver.dialect(), req);
         let (columns, rows) = driver.fetch(&sql).await?;
         Ok(Page { columns, rows, sql })
@@ -258,6 +272,7 @@ impl Workspace {
 
     pub async fn count(&self, id: &str, req: &BrowseRequest) -> Result<u64> {
         let driver = self.driver(id)?;
+        Self::check_condition(&driver, req)?;
         let (_, rows) = driver.fetch(&dml::count_sql(driver.dialect(), req)).await?;
         Ok(rows.first().and_then(|r| r.first().cloned().flatten()).and_then(|v| v.parse().ok()).unwrap_or(0))
     }

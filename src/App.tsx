@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ConnectionDialog } from "./components/ConnectionDialog";
-import { Overview, Welcome } from "./components/Home";
+import { ConnectionsHome, Overview, Welcome } from "./components/Home";
 import { QueryPane } from "./components/QueryPane";
 import { Sidebar } from "./components/Sidebar";
 import { TabBar } from "./components/TabBar";
@@ -108,9 +108,11 @@ export function App() {
             <Welcome onConnect={(init) => setDialog({ editing: null, init })} />
           ) : activeConn && live?.status === "connected" ? (
             <Overview />
+          ) : !activeConn || live?.status === "error" ? (
+            <ConnectionsHome onNew={() => setDialog({ editing: null })} />
           ) : (
             <div className={s.empty}>
-              <p className={s.lede}>{activeConn ? "Bağlanılıyor…" : "Başlamak için soldan bir bağlantı seç."}</p>
+              <p className={s.lede}>Connecting to {activeConn.name}…</p>
             </div>
           ))}
       </main>

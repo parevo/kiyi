@@ -6,26 +6,26 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub enum Error {
     #[error("{0}")]
     Db(#[from] sqlx::Error),
-    #[error("Bağlantı bulunamadı: {0}")]
+    #[error("Connection not found: {0}")]
     UnknownConnection(String),
-    #[error("Bağlantı açık değil")]
+    #[error("Not connected")]
     NotConnected,
-    #[error("Geçersiz bağlantı adresi: {0}")]
+    #[error("Invalid connection address: {0}")]
     InvalidUrl(String),
-    #[error("Zaman aşımı: {0}")]
+    #[error("Timed out: {0}")]
     Timeout(&'static str),
-    #[error("Keychain hatası: {0}")]
+    #[error("Keychain error: {0}")]
     Secret(#[from] keyring::Error),
-    #[error("Dosya hatası: {0}")]
+    #[error("File error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Veri hatası: {0}")]
+    #[error("Data error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("{0}")]
     Invalid(String),
     /// A statement in a multi-statement script failed; everything was rolled back.
     #[error("{source}")]
     Script { index: usize, source: Box<Error> },
-    #[error("Beklenen 1 satır yerine {0} satır etkilendi. Satır başka biri tarafından değiştirilmiş ya da silinmiş olabilir.")]
+    #[error("Expected to change 1 row but {0} were affected. Someone may have changed or deleted it in the meantime.")]
     RowMismatch(u64),
 }
 
@@ -74,27 +74,27 @@ impl From<Error> for ErrorInfo {
 pub fn explain_connect_error(err: &Error) -> String {
     match err {
         Error::Db(sqlx::Error::Database(db)) => match db.code().as_deref() {
-            Some("28P01") | Some("28000") | Some("1045") => "Kullanıcı adı veya şifre yanlış.".into(),
-            Some("3D000") | Some("1049") => "Veritabanı bulunamadı. Adını kontrol et.".into(),
-            Some("53300") | Some("1040") => "Sunucu bağlantı limitine ulaşmış.".into(),
+            Some("28P01") | Some("28000") | Some("1045") => "The username or password is incorrect.".into(),
+            Some("3D000") | Some("1049") => "That database does not exist. Check its name.".into(),
+            Some("53300") | Some("1040") => "The server has reached its connection limit.".into(),
             _ => db.message().to_string(),
         },
         Error::Db(sqlx::Error::Io(io)) => {
             let text = io.to_string();
             match io.kind() {
                 std::io::ErrorKind::ConnectionRefused => {
-                    "Bağlantı reddedildi. Host ve port doğru mu, sunucu çalışıyor mu?".into()
+                    "Connection refused. Check the host and port, and that the server is running.".into()
                 }
-                std::io::ErrorKind::TimedOut => "Sunucu yanıt vermedi. Firewall ya da security group engelliyor olabilir.".into(),
+                std::io::ErrorKind::TimedOut => "The server did not respond. A firewall or security group may be blocking it.".into(),
                 _ if text.contains("lookup") || text.contains("nodename") => {
-                    "Host adı çözümlenemedi. Adresi kontrol et.".into()
+                    "The host name could not be resolved. Check the address.".into()
                 }
                 _ => text,
             }
         }
-        Error::Db(sqlx::Error::Tls(e)) => format!("TLS/SSL hatası: {e}"),
+        Error::Db(sqlx::Error::Tls(e)) => format!("TLS/SSL error: {e}"),
         Error::Db(sqlx::Error::PoolTimedOut) | Error::Timeout(_) => {
-            "Sunucu zamanında yanıt vermedi. Ağ erişimini (VPN, firewall, security group) kontrol et.".into()
+            "The server did not respond in time. Check network access (VPN, firewall, security group).".into()
         }
         other => other.to_string(),
     }

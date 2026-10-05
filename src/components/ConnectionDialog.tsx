@@ -25,9 +25,9 @@ const blank: ConnectionConfig = {
 
 const ENV_OPTIONS: { value: EnvTag; label: React.ReactNode }[] = (
   [
-    ["local", "Yerel"],
-    ["staging", "Test"],
-    ["production", "Canlı"],
+    ["local", "Local"],
+    ["staging", "Staging"],
+    ["production", "Production"],
   ] as const
 ).map(([value, label]) => ({
   value,
@@ -139,9 +139,9 @@ export function ConnectionDialog({
           >
             <div className={s.header}>
               <Heading slot="title" className={s.title}>
-                {editing ? "Bağlantıyı düzenle" : "Yeni bağlantı"}
+                {editing ? "Edit connection" : "New connection"}
               </Heading>
-              <IconButton label="Kapat" onPress={onClose}>
+              <IconButton label="Close" onPress={onClose}>
                 <CloseIcon />
               </IconButton>
             </div>
@@ -149,22 +149,22 @@ export function ConnectionDialog({
             <div className={s.body}>
               {!editing && (
                 <div className={s.paste}>
-                  <TextField aria-label="Bağlantı adresi" value={url} onChange={onUrl} autoFocus>
+                  <TextField aria-label="Connection URL" value={url} onChange={onUrl} autoFocus>
                     <Input
                       className={`${ui.input} ${ui.mono}`}
-                      placeholder={driverFor(config, drivers)?.urlExample ?? "bağlantı adresi"}
+                      placeholder={driverFor(config, drivers)?.urlExample ?? "connection URL"}
                       spellCheck={false}
                     />
                   </TextField>
                   <div className={s.pasteHint} data-error={urlError ? true : undefined}>
-                    {urlError ?? "Adresi yapıştır, form kendini doldursun. Ya da aşağıdan elle gir."}
+                    {urlError ?? "Paste a connection URL to fill in the form, or enter the details below."}
                   </div>
                 </div>
               )}
 
               <div className={s.row}>
                 <label className={ui.field}>
-                  <span className={ui.label}>Veritabanı türü</span>
+                  <span className={ui.label}>Database</span>
                   <select
                     className={ui.input}
                     value={driverFor(config, drivers)?.id ?? ""}
@@ -189,7 +189,7 @@ export function ConnectionDialog({
                   </select>
                 </label>
                 <Field
-                  label="Ad"
+                  label="Name"
                   value={config.name}
                   placeholder={effectiveName}
                   onChange={(v) => {
@@ -200,7 +200,7 @@ export function ConnectionDialog({
               </div>
 
               <div className={s.hostRow}>
-                <Field label="Sunucu" mono value={config.host} onChange={(v) => set("host", v)} />
+                <Field label="Host" mono value={config.host} onChange={(v) => set("host", v)} />
                 <Field
                   label="Port"
                   mono
@@ -210,12 +210,12 @@ export function ConnectionDialog({
               </div>
 
               <div className={s.row}>
-                <Field label="Kullanıcı" mono value={config.user} onChange={(v) => set("user", v)} />
+                <Field label="User" mono value={config.user} onChange={(v) => set("user", v)} />
                 <Field
-                  label="Şifre"
+                  label="Password"
                   type="password"
                   value={password ?? ""}
-                  placeholder={password === null ? "Keychain'de kayıtlı" : ""}
+                  placeholder={password === null ? "Saved in Keychain" : ""}
                   onChange={(v) => {
                     setReport(null);
                     setPassword(v);
@@ -225,33 +225,33 @@ export function ConnectionDialog({
 
               <div className={s.row}>
                 <Field
-                  label="Veritabanı"
+                  label="Database name"
                   mono
                   value={config.database ?? ""}
-                  placeholder="isteğe bağlı"
+                  placeholder="optional"
                   onChange={(v) => set("database", v.trim() ? v : null)}
                 />
                 <Segmented<SslMode>
-                  label="Şifreli bağlantı (SSL)"
+                  label="Encryption (SSL)"
                   value={config.sslMode}
                   onChange={(v) => set("sslMode", v)}
                   options={[
-                    { value: "disable", label: "Kapalı" },
-                    { value: "prefer", label: "Tercih" },
-                    { value: "require", label: "Zorunlu" },
-                    { value: "verify-full", label: "Doğrula" },
+                    { value: "disable", label: "Off" },
+                    { value: "prefer", label: "Prefer" },
+                    { value: "require", label: "Require" },
+                    { value: "verify-full", label: "Verify" },
                   ]}
                 />
               </div>
 
-              <Segmented<EnvTag> label="Ortam" value={config.env} onChange={(v) => set("env", v)} options={ENV_OPTIONS} />
+              <Segmented<EnvTag> label="Environment" value={config.env} onChange={(v) => set("env", v)} options={ENV_OPTIONS} />
 
               <div className={s.readOnly}>
                 <Switch isSelected={config.readOnly} onChange={(v) => set("readOnly", v)}>
-                  Salt okunur
+                  Read-only
                 </Switch>
                 <span className={s.readOnlyHint}>
-                  {config.readOnly ? "Kayıtlar görüntülenir ama değiştirilemez." : "Bu bağlantıda kayıtlar değiştirilebilir."}
+                  {config.readOnly ? "Data can be viewed but not changed." : "Data on this connection can be changed."}
                 </span>
               </div>
 
@@ -260,7 +260,7 @@ export function ConnectionDialog({
                   {busy === "test" && (
                     <div className={s.step}>
                       <Spinner />
-                      <span>{config.host}:{config.port} deneniyor…</span>
+                      <span>Trying {config.host}:{config.port}…</span>
                     </div>
                   )}
                   {report?.steps.map((step, i) => (
@@ -277,13 +277,13 @@ export function ConnectionDialog({
             <div className={s.footer}>
               <Button type="button" onPress={test} isDisabled={!valid || busy !== null}>
                 {busy === "test" ? <Spinner /> : null}
-                Bağlantıyı test et
+                Test connection
               </Button>
               <div className={s.footerRight}>
                 {error && <span className={s.error}>{error}</span>}
                 <Button type="submit" variant="primary" isDisabled={!valid || busy !== null}>
                   {busy === "save" ? <Spinner /> : null}
-                  {editing ? "Kaydet" : "Kaydet ve bağlan"}
+                  {editing ? "Save" : "Save & connect"}
                 </Button>
               </div>
             </div>

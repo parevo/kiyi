@@ -49,6 +49,11 @@ pub struct BrowseRequest {
     /// Hand-written condition, ANDed with the filters.
     #[serde(default)]
     pub raw_where: Option<String>,
+    /// Free text matched (case-insensitively) against any of `search_columns`.
+    #[serde(default)]
+    pub search: Option<String>,
+    #[serde(default)]
+    pub search_columns: Vec<String>,
     #[serde(default)]
     pub sort: Vec<Sort>,
     /// Appended to `sort` so paging is stable (normally the primary key).
@@ -56,6 +61,20 @@ pub struct BrowseRequest {
     pub tiebreak: Vec<String>,
     pub limit: u32,
     pub offset: u64,
+}
+
+/// Checks that a hand-written (or AI-written) condition is a single boolean expression,
+/// so it can't smuggle in a second statement such as `1=1; DROP TABLE t`.
+pub fn validate_condition(d: Dialect, condition: &str) -> Result<(), String> {
+    use sqlparser::dialect::{MySqlDialect, PostgreSqlDialect};
+    use sqlparser::parser::Parser;
+    let sql = format!("SELECT 1 FROM t WHERE ({condition})");
+    let parsed = if d.is_mysql() { Parser::parse_sql(&MySqlDialect {}, &sql) } else { Parser::parse_sql(&PostgreSqlDialect {}, &sql) };
+    match parsed {
+        Ok(statements) if statements.len() == 1 && matches!(statements[0], sqlparser::ast::Statement::Query(_)) => Ok(()),
+        Ok(_) => Err("The condition must be a single expression.".into()),
+        Err(e) => Err(format!("The condition is not valid SQL: {e}")),
+    }
 }
 
 fn like_pattern(value: &str, prefix: bool, suffix: bool) -> String {
@@ -104,6 +123,16 @@ fn condition(d: Dialect, f: &Filter) -> String {
 
 fn where_clause(d: Dialect, req: &BrowseRequest) -> String {
     let mut parts: Vec<String> = req.filters.iter().map(|f| condition(d, f)).collect();
+    if let Some(term) = req.search.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let any: Vec<String> = req
+            .search_columns
+            .iter()
+            .map(|c| condition(d, &Filter { column: c.clone(), op: FilterOp::Contains, value: term.to_string() }))
+            .collect();
+        if !any.is_empty() {
+            parts.push(format!("({})", any.join(" OR ")));
+        }
+    }
     if let Some(raw) = req.raw_where.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         parts.push(format!("({raw})"));
     }
@@ -210,6 +239,8 @@ mod tests {
             table: "orders".into(),
             filters: vec![],
             raw_where: None,
+            search: None,
+            search_columns: vec![],
             sort: vec![],
             tiebreak: vec!["id".into()],
             limit: 200,
@@ -235,6 +266,26 @@ mod tests {
         assert_eq!(
             count_sql(MY, &r),
             r#"SELECT COUNT(*) FROM `public`.`orders` WHERE `status` = 'paid' AND CAST(`note` AS CHAR) LIKE '%50\\%\\_off%' AND `id` IN ('1', '2', '3') AND (total > 10)"#
+        );
+    }
+
+    #[test]
+    fn conditions_must_be_a_single_expression() {
+        assert!(validate_condition(PG, "total > 10 AND note ILIKE '%x%'").is_ok());
+        assert!(validate_condition(MY, "placed_on >= CURDATE() - INTERVAL 7 DAY").is_ok());
+        assert!(validate_condition(PG, "1=1); DROP TABLE orders; --").is_err());
+        assert!(validate_condition(PG, "1=1; DROP TABLE orders").is_err());
+        assert!(validate_condition(PG, "total > ").is_err());
+    }
+
+    #[test]
+    fn search_matches_any_column() {
+        let mut r = req();
+        r.search = Some(" o'b ".into());
+        r.search_columns = vec!["name".into(), "email".into()];
+        assert_eq!(
+            count_sql(PG, &r),
+            r#"SELECT COUNT(*) FROM "public"."orders" WHERE ("name"::text ILIKE '%o''b%' OR "email"::text ILIKE '%o''b%')"#
         );
     }
 

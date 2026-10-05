@@ -232,6 +232,7 @@ fn new_col(name: &str, ty: &str) -> ColumnDesign {
         comment: None,
         generated: false,
         extra: None,
+        enum_values: vec![],
     }
 }
 
@@ -403,4 +404,31 @@ async fn postgres_foreign_key_round_trip() {
     assert_eq!(reread.foreign_keys[0].on_delete, FkAction::SetNull);
     assert!(design::plan_alter(d, None, &reread, &reread).unwrap().is_empty());
     pg.execute_script(&design::plan_action(d, None, &name, false, &design::TableAction::Drop), false, false).await.unwrap();
+}
+
+#[tokio::test]
+async fn enum_values_and_row_estimates() {
+    if !live() {
+        return;
+    }
+    let pg = open(DbKind::Postgres).await;
+    let orders = pg.table_details(Some("public"), "orders").await.unwrap();
+    let status = orders.design.columns.iter().find(|c| c.name == "status").unwrap();
+    assert_eq!(status.enum_values, ["pending", "paid", "shipped"]);
+    sqlx_analyze(&pg).await;
+    let schema = pg.schema().await.unwrap();
+    let public = schema.schemas.iter().find(|s| s.name == "public").unwrap();
+    let orders_info = public.tables.iter().find(|t| t.name == "orders").unwrap();
+    assert!(orders_info.row_estimate.unwrap_or(0) > 1000, "{:?}", orders_info.row_estimate);
+    assert!(public.tables.iter().find(|t| t.name == "active_customers").unwrap().row_estimate.is_none());
+
+    let my = open(DbKind::Mysql).await;
+    let customers = my.table_details(None, "customers").await.unwrap();
+    let status = customers.design.columns.iter().find(|c| c.name == "status").unwrap();
+    assert_eq!(status.enum_values, ["pending", "paid", "shipped"]);
+}
+
+/// Fresh databases have no planner statistics until analyzed.
+async fn sqlx_analyze(driver: &Arc<dyn DbDriver>) {
+    driver.execute_script(&["ANALYZE".to_string()], false, false).await.unwrap();
 }

@@ -20,18 +20,18 @@ export function driverFor(c: Pick<ConnectionConfig, "kind" | "driver"> | undefin
 }
 
 export const CATEGORY_LABEL: Record<TypeCategory, string> = {
-  text: "Metin",
-  number: "Tam sayı",
-  decimal: "Ondalık sayı",
-  boolean: "Evet / Hayır",
-  date: "Tarih",
-  dateTime: "Tarih ve saat",
-  time: "Saat",
-  identifier: "Kimlik",
+  text: "Text",
+  number: "Integer",
+  decimal: "Decimal",
+  boolean: "True / False",
+  date: "Date",
+  dateTime: "Date & time",
+  time: "Time",
+  identifier: "UUID",
   json: "JSON",
-  binary: "İkili veri",
-  list: "Liste",
-  other: "Diğer",
+  binary: "Binary",
+  list: "List",
+  other: "Custom",
 };
 
 /** Category of a native column type such as `character varying(120)` or `int unsigned`. */
@@ -39,6 +39,11 @@ export function categorise(dataType: string, driver: DriverInfo | undefined): Ty
   const t = dataType.toLowerCase().trim();
   for (const [prefix, cat] of driver?.recognise ?? []) if (t.startsWith(prefix)) return cat;
   return "other";
+}
+
+/** Friendly type of a column, knowing about enums ("Choice"). */
+export function columnTypeLabel(c: { dataType: string; enumValues?: string[] }, driver: DriverInfo | undefined): string {
+  return c.enumValues?.length ? "Choice" : friendlyType(c.dataType, driver);
 }
 
 /** The friendly name for a native type: the catalog label when it's an exact match. */

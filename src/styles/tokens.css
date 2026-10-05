@@ -1,5 +1,5 @@
 /*
- * Kıyı design tokens. Everything visual — app chrome, CodeMirror and the data grid —
+ * Kiyi design tokens. Everything visual — app chrome, CodeMirror and the data grid —
  * reads from these variables, so the theme lives in exactly one place.
  */
 :root {

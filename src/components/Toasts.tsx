@@ -11,6 +11,18 @@ export function Toasts() {
         <div key={t.id} className={s.toast} data-tone={t.tone} onClick={() => dismiss(t.id)}>
           {t.tone === "error" ? <AlertIcon /> : <CheckIcon />}
           <span className="selectable">{t.text}</span>
+          {t.action && (
+            <button
+              className={s.action}
+              onClick={(e) => {
+                e.stopPropagation();
+                dismiss(t.id);
+                t.action!.run();
+              }}
+            >
+              {t.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>

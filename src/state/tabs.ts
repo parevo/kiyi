@@ -77,7 +77,7 @@ export const useTabs = create<TabsState>((set, get) => {
 
     open(init) {
       const n = get().tabs.filter((t) => t.kind === "query").length + 1;
-      const tab: Tab = { id: newId(), kind: "query", title: `Sorgu ${n}`, sql: "", run: null, ...init };
+      const tab: Tab = { id: newId(), kind: "query", title: `Query ${n}`, sql: "", run: null, ...init };
       set((s) => ({ tabs: [...s.tabs, tab], activeId: tab.id }));
       return tab.id;
     },
@@ -106,14 +106,14 @@ export const useTabs = create<TabsState>((set, get) => {
     },
 
     openCreate(connectionId, schema) {
-      return get().open({ kind: "create", connectionId, schema, title: "Yeni tablo" });
+      return get().open({ kind: "create", connectionId, schema, title: "New table" });
     },
 
     patch: (id, p) => update(id, () => p),
 
     close(id, force = false) {
       const tab = get().tabs.find((t) => t.id === id);
-      if (tab?.dirty && !force && !confirm(`"${tab.title}" içinde kaydedilmemiş değişiklikler var. Yine de kapatılsın mı?`)) {
+      if (tab?.dirty && !force && !confirm(`"${tab.title}" has unsaved changes. Close it anyway?`)) {
         return false;
       }
       if (tab?.run?.status === "running") ipc.cancelQuery(tab.run.queryId);

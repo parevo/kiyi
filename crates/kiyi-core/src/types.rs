@@ -69,6 +69,8 @@ pub struct TableInfo {
     pub name: String,
     pub kind: TableKind,
     pub columns: Vec<ColumnInfo>,
+    /// From planner statistics; cheap but approximate, and missing for views.
+    pub row_estimate: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,7 +89,7 @@ pub struct SchemaSnapshot {
 }
 
 impl SchemaSnapshot {
-    /// Builds the tree from flat `(schema, table, table_type, column, data_type, is_nullable)`
+    /// Builds the tree from flat `(schema, table, table_type, column, data_type, is_nullable, row_estimate)`
     /// rows that are already ordered by schema, table and column position.
     pub(crate) fn from_rows(default_schema: Option<String>, rows: Vec<Vec<Cell>>) -> Self {
         let mut schemas: Vec<SchemaInfo> = Vec::new();
@@ -100,7 +102,8 @@ impl SchemaSnapshot {
             let tables = &mut schemas.last_mut().unwrap().tables;
             if tables.last().map(|t| t.name != table).unwrap_or(true) {
                 let kind = if get(2).contains("VIEW") { TableKind::View } else { TableKind::Table };
-                tables.push(TableInfo { name: table, kind, columns: Vec::new() });
+                let row_estimate = get(6).parse::<i64>().ok().filter(|n| *n >= 0);
+                tables.push(TableInfo { name: table, kind, columns: Vec::new(), row_estimate });
             }
             tables.last_mut().unwrap().columns.push(ColumnInfo {
                 name: get(3),

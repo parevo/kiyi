@@ -44,7 +44,7 @@
   transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 .card:hover { border-color: var(--line-strong); transform: translateY(-1px); }
-.cardTop { display: flex; align-items: center; gap: var(--space-2); color: var(--text-faint); }
+.cardTop { display: flex; align-items: center; gap: var(--space-2); color: var(--text-faint); width: 100%; }
 .cardName { font-weight: 600; font-size: var(--text-lg); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cardMeta { color: var(--text-muted); font-size: var(--text-sm); }
 .cardCols { margin-top: auto; color: var(--text-faint); font-size: var(--text-xs); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -87,6 +87,12 @@
 .driver:not(:disabled):hover { border-color: var(--accent); }
 .driver:disabled { opacity: 0.5; }
 .soon { font-size: var(--text-xs); color: var(--text-faint); font-weight: 400; }
+.driver svg { color: var(--text-muted); }
+.envTag { margin-left: auto; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; line-height: 18px; }
+.envTag[data-env="local"] { background: color-mix(in srgb, var(--env-local) 16%, transparent); color: var(--env-local); }
+.envTag[data-env="staging"] { background: color-mix(in srgb, var(--env-staging) 16%, transparent); color: var(--env-staging); }
+.envTag[data-env="production"] { background: color-mix(in srgb, var(--env-production) 16%, transparent); color: var(--env-production); }
+.cardError { color: var(--danger); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .driverMark {
   display: flex;
   align-items: center;

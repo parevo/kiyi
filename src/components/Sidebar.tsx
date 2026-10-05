@@ -2,13 +2,14 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogTrigger, Heading, Modal, ModalOverlay, Popover, Button as AriaButton } from "react-aria-components";
 import { errorMessage, ipc } from "../lib/ipc";
-import type { ConnectionConfig, TableAction, TableInfo } from "../lib/types";
+import type { AiStatus, ConnectionConfig, TableAction, TableInfo } from "../lib/types";
 import { driverFor, useCatalog } from "../state/catalog";
 import { useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { tableKey, useTabs } from "../state/tabs";
 import { ContextMenu, type MenuState } from "./ContextMenu";
 import { ChevronIcon, CodeIcon, HomeIcon, LockIcon, MoreIcon, PlusIcon, RefreshIcon, SearchIcon, SettingsIcon, Spinner, TableIcon, ViewIcon } from "./icons";
+import { AiKeyDialog } from "./QueryControls";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import { Button, Field, IconButton, Segmented, Switch } from "./ui";
 import d from "./dialog.module.css";
@@ -37,7 +38,7 @@ export function Sidebar({
       {live?.status === "error" && <div className={`${s.connError} selectable`}>{live.error}</div>}
       {live?.status === "connecting" && (
         <div className={s.connecting}>
-          <Spinner size={12} /> Bağlanılıyor…
+          <Spinner size={12} /> Connecting…
         </div>
       )}
 
@@ -45,7 +46,7 @@ export function Sidebar({
         <>
           <nav className={s.nav}>
             <button className={s.navItem} data-active={activeTabId === null || undefined} onClick={() => useTabs.setState({ activeId: null })}>
-              <HomeIcon size={15} /> Genel bakış
+              <HomeIcon size={15} /> Overview
             </button>
           </nav>
           <TableList
@@ -61,7 +62,7 @@ export function Sidebar({
       <div className={s.footer}>
         {activeId && live?.status === "connected" && (
           <button className={s.footerButton} onClick={() => onOpenSql("")}>
-            <CodeIcon size={15} /> SQL editörü
+            <CodeIcon size={15} /> SQL editor
           </button>
         )}
         <span className={s.flex} />
@@ -85,7 +86,7 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
 
   return (
     <DialogTrigger isOpen={open} onOpenChange={setOpen}>
-      <AriaButton className={s.switcher} aria-label="Bağlantı seç">
+      <AriaButton className={s.switcher} aria-label="Choose connection">
         {active ? (
           <>
             <span className={s.dot} data-on={live[active.id]?.status === "connected" || undefined} style={{ "--env": `var(--env-${active.env})` } as React.CSSProperties} />
@@ -99,13 +100,13 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
           </>
         ) : (
           <span className={s.switcherText}>
-            <span className={s.switcherName}>{connections.length ? "Bağlantı seç" : "Bağlantı yok"}</span>
+            <span className={s.switcherName}>{connections.length ? "Choose a connection" : "No connections"}</span>
           </span>
         )}
         <ChevronIcon size={12} className={s.switcherChevron} />
       </AriaButton>
       <Popover className={s.popover} placement="bottom start" offset={4}>
-        <Dialog className={s.popDialog} aria-label="Bağlantılar">
+        <Dialog className={s.popDialog} aria-label="Connections">
           <div className={s.popList}>
             {connections.map((c) => {
               const status = live[c.id]?.status;
@@ -130,7 +131,7 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
                   </button>
                   <span className={s.popActions}>
                     <IconButton
-                      label="Düzenle"
+                      label="Edit connection"
                       onPress={() => {
                         setOpen(false);
                         onEdit(c);
@@ -151,7 +152,7 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
                 onNew();
               }}
             >
-              <PlusIcon size={14} /> Yeni bağlantı
+              <PlusIcon size={14} /> New connection
             </button>
             {active && live[active.id]?.status === "connected" && (
               <button
@@ -161,7 +162,7 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
                   disconnect(active.id);
                 }}
               >
-                Bağlantıyı kes
+                Disconnect
               </button>
             )}
             {active && (
@@ -169,10 +170,10 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
                 className={`${s.popAction} ${s.danger}`}
                 onClick={() => {
                   setOpen(false);
-                  if (confirm(`"${active.name}" bağlantısı silinsin mi? Kayıtlı şifresi de silinir; veritabanına dokunulmaz.`)) remove(active.id);
+                  if (confirm(`Remove the connection "${active.name}"? Its saved password is removed too. The database itself is not touched.`)) remove(active.id);
                 }}
               >
-                Bu bağlantıyı sil
+                Remove this connection
               </button>
             )}
           </div>
@@ -185,43 +186,57 @@ function ConnectionSwitcher({ onNew, onEdit }: { onNew(): void; onEdit(c: Connec
 function SettingsButton() {
   const settings = useSettings();
   const [version, setVersion] = useState("");
+  const [ai, setAi] = useState<AiStatus | null>(null);
+  const [aiDialog, setAiDialog] = useState(false);
+  const refreshAi = () => ipc.aiStatus().then(setAi, () => setAi(null));
   useEffect(() => {
     getVersion().then(setVersion, () => {});
+    refreshAi();
   }, []);
   return (
+    <>
+    <AiKeyDialog isOpen={aiDialog} onClose={() => setAiDialog(false)} onSaved={refreshAi} />
     <DialogTrigger>
-      <AriaButton className={s.footerButton} aria-label="Ayarlar">
+      <AriaButton className={s.footerButton} aria-label="Settings">
         <SettingsIcon size={15} />
       </AriaButton>
       <Popover className={s.popover} placement="top start" offset={6}>
-        <Dialog className={s.settings} aria-label="Ayarlar">
+        <Dialog className={s.settings} aria-label="Settings">
           <Segmented
-            label="Görünüm"
+            label="Appearance"
             value={settings.theme}
             onChange={(theme) => settings.set({ theme })}
             options={[
-              { value: "system", label: "Sistem" },
-              { value: "light", label: "Açık" },
-              { value: "dark", label: "Koyu" },
+              { value: "system", label: "System" },
+              { value: "light", label: "Light" },
+              { value: "dark", label: "Dark" },
             ]}
           />
           <Switch isSelected={settings.developerMode} onChange={(developerMode) => settings.set({ developerMode })}>
-            Geliştirici modu
+            Developer mode
           </Switch>
-          <p className={s.settingsHint}>SQL'i, ham veri tiplerini ve teknik ayrıntıları gösterir.</p>
+          <p className={s.settingsHint}>Shows the SQL behind every action, raw column types and the SQL editor.</p>
           <Segmented
-            label="Güncellemeler"
+            label="Updates"
             value={settings.updateChannel}
             onChange={(updateChannel) => settings.set({ updateChannel })}
             options={[
-              { value: "stable", label: "Kararlı" },
+              { value: "stable", label: "Stable" },
               { value: "beta", label: "Beta" },
             ]}
           />
-          {version && <p className={s.settingsHint}>Kıyı {version}</p>}
+          <div className={s.settingsRow}>
+            <span>
+              AI
+              <span className={s.settingsHint}>{ai?.configured ? ` · ready (${ai.source === "environment" ? "from environment" : "key in Keychain"})` : " · not set up"}</span>
+            </span>
+            <Button onPress={() => setAiDialog(true)}>{ai?.configured ? "Change key" : "Set up"}</Button>
+          </div>
+          {version && <p className={s.settingsHint}>Kiyi {version}</p>}
         </Dialog>
       </Popover>
     </DialogTrigger>
+    </>
   );
 }
 
@@ -265,16 +280,16 @@ function TableList({
       const statements = await ipc.planTableAction(connectionId, schema, table.name, table.kind === "view", action);
       const view = table.kind === "view";
       setReview({
-        title: action.type === "drop" ? (view ? "Görünümü sil" : "Tabloyu sil") : action.type === "truncate" ? "Tabloyu boşalt" : "Yeniden adlandır",
+        title: action.type === "drop" ? (view ? "Delete view" : "Delete table") : action.type === "truncate" ? "Empty table" : "Rename table",
         subtitle: table.name,
         summary:
           action.type === "drop"
-            ? [{ text: view ? `${table.name} görünümü silinecek` : `${table.name} tablosu ve içindeki tüm kayıtlar kalıcı olarak silinecek`, danger: true }]
+            ? [{ text: view ? `The view ${table.name} will be deleted` : `The table ${table.name} and all of its rows will be permanently deleted`, danger: true }]
             : action.type === "truncate"
-              ? [{ text: `${table.name} tablosundaki tüm kayıtlar silinecek; alanlar kalacak`, danger: true }]
+              ? [{ text: `Every row in ${table.name} will be deleted; its columns stay`, danger: true }]
               : [{ text: `${table.name} → ${action.to}` }],
         statements,
-        action: action.type === "drop" ? "Kalıcı olarak sil" : action.type === "truncate" ? "Tüm kayıtları sil" : "Yeniden adlandır",
+        action: action.type === "drop" ? "Delete permanently" : action.type === "truncate" ? "Delete all rows" : "Rename",
         confirmWord: table.name,
         run: async () => {
           await ipc.executeScript(connectionId, statements, "schema");
@@ -296,13 +311,13 @@ function TableList({
       x,
       y,
       items: [
-        { label: "Kayıtları aç", onSelect: () => openTable(connectionId, schema, t.name, "data") },
-        { label: "Yapıyı düzenle", onSelect: () => openTable(connectionId, schema, t.name, "structure") },
-        ...(developerMode ? [{ label: "SQL ile sorgula", onSelect: () => onOpenSql(`SELECT * FROM ${schema && schema !== snapshot?.defaultSchema ? `${q(schema)}.` : ""}${q(t.name)} LIMIT 100;`) }] : []),
+        { label: "Open data", onSelect: () => openTable(connectionId, schema, t.name, "data") },
+        { label: "Edit structure", onSelect: () => openTable(connectionId, schema, t.name, "structure") },
+        ...(developerMode ? [{ label: "Query with SQL", onSelect: () => onOpenSql(`SELECT * FROM ${schema && schema !== snapshot?.defaultSchema ? `${q(schema)}.` : ""}${q(t.name)} LIMIT 100;`) }] : []),
         "separator",
-        { label: "Yeniden adlandır…", onSelect: () => setRenaming(t), disabled: !writable },
-        { label: "Tüm kayıtları sil…", onSelect: () => runAction(t, { type: "truncate" }), disabled: !writable || t.kind === "view", danger: true },
-        { label: t.kind === "view" ? "Görünümü sil…" : "Tabloyu sil…", onSelect: () => runAction(t, { type: "drop" }), disabled: !writable, danger: true },
+        { label: "Rename…", onSelect: () => setRenaming(t), disabled: !writable },
+        { label: "Delete all rows…", onSelect: () => runAction(t, { type: "truncate" }), disabled: !writable || t.kind === "view", danger: true },
+        { label: t.kind === "view" ? "Delete view…" : "Delete table…", onSelect: () => runAction(t, { type: "drop" }), disabled: !writable, danger: true },
       ],
     });
   };
@@ -327,7 +342,7 @@ function TableList({
       </span>
       <button
         className={s.rowMenu}
-        aria-label={`${t.name} seçenekleri`}
+        aria-label={`${t.name} options`}
         onClick={(e) => {
           e.stopPropagation();
           const r = e.currentTarget.getBoundingClientRect();
@@ -343,10 +358,10 @@ function TableList({
     <>
       <label className={s.filter}>
         <SearchIcon size={14} />
-        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Tablo ara" spellCheck={false} />
+        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a table" spellCheck={false} />
       </label>
       {schemas.length > 1 && (
-        <select className={s.schemaSelect} value={current?.name} onChange={(e) => setSchemaName(e.target.value)} aria-label="Şema">
+        <select className={s.schemaSelect} value={current?.name} onChange={(e) => setSchemaName(e.target.value)} aria-label="Schema">
           {schemas.map((x) => (
             <option key={x.name} value={x.name}>
               {x.name} ({x.tables.length})
@@ -357,14 +372,14 @@ function TableList({
 
       <div className={s.tree}>
         <div className={s.section}>
-          Tablolar
+          Tables
           <span className={s.sectionActions}>
             {!connection.readOnly && (
-              <IconButton label="Yeni tablo" onPress={() => openCreate(connectionId, schema)}>
+              <IconButton label="New table" onPress={() => openCreate(connectionId, schema)}>
                 <PlusIcon size={14} />
               </IconButton>
             )}
-            <IconButton label="Listeyi yenile" onPress={onRefresh} isDisabled={loading}>
+            <IconButton label="Reload list" onPress={onRefresh} isDisabled={loading}>
               {loading ? <Spinner size={12} /> : <RefreshIcon size={13} />}
             </IconButton>
           </span>
@@ -372,17 +387,17 @@ function TableList({
         {tables.map(row)}
         {!loading && tables.length === 0 && (
           <div className={s.empty}>
-            {needle ? `"${filter}" ile eşleşen tablo yok.` : "Henüz tablo yok."}
+            {needle ? `No table matches "${filter}".` : "No tables yet."}
             {!needle && !connection.readOnly && (
               <Button variant="ghost" onPress={() => openCreate(connectionId, schema)}>
-                <PlusIcon size={14} /> İlk tabloyu oluştur
+                <PlusIcon size={14} /> Create the first table
               </Button>
             )}
           </div>
         )}
         {views.length > 0 && (
           <>
-            <div className={s.section}>Görünümler</div>
+            <div className={s.section}>Views</div>
             {views.map(row)}
           </>
         )}
@@ -420,17 +435,17 @@ function RenameDialog({ current, onClose, onSubmit }: { current: string; onClose
           >
             <div className={d.header}>
               <Heading slot="title" className={d.title}>
-                Yeniden adlandır
+                Rename table
               </Heading>
             </div>
             <div className={d.body}>
-              <Field label="Yeni ad" mono value={value} onChange={setValue} autoFocus />
+              <Field label="New name" mono value={value} onChange={setValue} autoFocus />
             </div>
             <div className={d.footer}>
               <div className={d.footerRight}>
-                <Button onPress={onClose}>Vazgeç</Button>
+                <Button onPress={onClose}>Cancel</Button>
                 <Button type="submit" variant="primary" isDisabled={!valid}>
-                  Devam
+                  Continue
                 </Button>
               </div>
             </div>

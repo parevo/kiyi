@@ -1,0 +1,13 @@
+[package]
+name = "kiyi-devbridge"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = "0.8.9"
+kiyi-core = { version = "0.1.0", path = "../kiyi-core" }
+serde = "1.0.229"
+serde_json = "1.0.151"
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros"] }
+tower-http = { version = "0.7.1", features = ["cors"] }

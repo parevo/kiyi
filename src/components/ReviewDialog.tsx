@@ -14,7 +14,7 @@ export interface ReviewRequest {
   /** Plain-language list of what will happen, shown instead of SQL. */
   summary: { text: string; danger?: boolean }[];
   statements: string[];
-  /** Label of the apply button, e.g. "Değişiklikleri uygula". */
+  /** Label of the apply button, e.g. "Apply changes". */
   action: string;
   /** Must be typed to enable the button on production when anything destructive is included. */
   confirmWord?: string;
@@ -85,7 +85,7 @@ export function ReviewDialog({
               </Heading>
               {request.subtitle && <p className={s.subtitle}>{request.subtitle}</p>}
             </div>
-            <IconButton label="Kapat" onPress={onClose} isDisabled={busy}>
+            <IconButton label="Close" onPress={onClose} isDisabled={busy}>
               <CloseIcon />
             </IconButton>
           </div>
@@ -101,18 +101,18 @@ export function ReviewDialog({
             {env === "production" && destructive > 0 && (
               <div className={`${s.notice} ${s.danger}`}>
                 <AlertIcon />
-                <span>Bu bir production bağlantısı. Silinen veri geri getirilemez.</span>
+                <span>This is a production connection. Deleted data can't be recovered.</span>
               </div>
             )}
             {request.nonTransactional && request.statements.length > 1 && (
               <div className={s.notice}>
                 <AlertIcon />
-                <span>Bu veritabanı yapı değişikliklerini geri alamaz. Bir adım hata verirse önceki adımlar uygulanmış kalır.</span>
+                <span>This database can't roll back structure changes. If a step fails, the steps before it stay applied.</span>
               </div>
             )}
 
             <button className={s.disclosure} onClick={() => setShowSql((v) => !v)} aria-expanded={showSql}>
-              {showSql ? "▾" : "▸"} Teknik ayrıntılar ({request.statements.length} SQL ifadesi)
+              {showSql ? "▾" : "▸"} Technical details ({request.statements.length} SQL {request.statements.length === 1 ? "statement" : "statements"})
             </button>
             {showSql && (
               <ol className={`${s.statements} selectable`}>
@@ -143,14 +143,14 @@ export function ReviewDialog({
             {error && failed !== null && !request.nonTransactional && (
               <div className={s.notice}>
                 <AlertIcon />
-                <span>Hiçbir değişiklik uygulanmadı, hepsi geri alındı.</span>
+                <span>Nothing was changed; everything was rolled back.</span>
               </div>
             )}
 
             {needsWord && (
-              <TextField className={s.confirmInput} value={typed} onChange={setTyped} aria-label="Onay">
+              <TextField className={s.confirmInput} value={typed} onChange={setTyped} aria-label="Confirmation">
                 <span>
-                  Devam etmek için <b>{request.confirmWord}</b> yaz
+                  Type <b>{request.confirmWord}</b> to continue
                 </span>
                 <Input className={`${ui.input} ${ui.mono}`} autoFocus spellCheck={false} />
               </TextField>
@@ -160,7 +160,7 @@ export function ReviewDialog({
           <div className={s.footer}>
             {showSql && (
               <Button variant="ghost" onPress={() => navigator.clipboard.writeText(script)}>
-                SQL'i kopyala
+                Copy SQL
               </Button>
             )}
             {showSql && onOpenInEditor && (
@@ -171,12 +171,12 @@ export function ReviewDialog({
                   onClose();
                 }}
               >
-                Editörde aç
+                Open in SQL editor
               </Button>
             )}
             <div className={s.footerRight}>
               <Button onPress={onClose} isDisabled={busy}>
-                Vazgeç
+                Cancel
               </Button>
               <Button
                 variant="primary"

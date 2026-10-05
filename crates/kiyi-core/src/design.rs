@@ -27,6 +27,9 @@ pub struct ColumnDesign {
     /// MySQL-only clauses that must survive a MODIFY, e.g. `ON UPDATE CURRENT_TIMESTAMP`.
     #[serde(default)]
     pub extra: Option<String>,
+    /// Allowed values when the column's type is an enum; informational, never diffed.
+    #[serde(default)]
+    pub enum_values: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,43 +120,43 @@ impl TableDesign {
 /// Problems the user must fix before any SQL is generated.
 pub fn validate(design: &TableDesign) -> Result<(), String> {
     if design.name.trim().is_empty() {
-        return Err("Tablo adı boş olamaz.".into());
+        return Err("The table needs a name.".into());
     }
     if design.columns.is_empty() {
-        return Err("Tabloda en az bir sütun olmalı.".into());
+        return Err("A table needs at least one column.".into());
     }
     let mut seen = HashSet::new();
     for c in &design.columns {
         if c.name.trim().is_empty() {
-            return Err("Sütun adı boş olamaz.".into());
+            return Err("Every column needs a name.".into());
         }
         if c.data_type.trim().is_empty() {
-            return Err(format!("\"{}\" sütununun tipi boş.", c.name));
+            return Err(format!("Column \"{}\" needs a type.", c.name));
         }
         if !seen.insert(c.name.as_str()) {
-            return Err(format!("\"{}\" adında birden fazla sütun var.", c.name));
+            return Err(format!("There is more than one column named \"{}\".", c.name));
         }
     }
     for i in &design.indexes {
         if i.name.trim().is_empty() {
-            return Err("Index adı boş olamaz.".into());
+            return Err("Every index needs a name.".into());
         }
         if i.columns.is_empty() {
-            return Err(format!("\"{}\" index'inde sütun yok.", i.name));
+            return Err(format!("Index \"{}\" has no columns.", i.name));
         }
         if let Some(missing) = i.columns.iter().find(|c| !seen.contains(c.as_str())) {
-            return Err(format!("\"{}\" index'i olmayan bir sütunu kullanıyor: {missing}", i.name));
+            return Err(format!("Index \"{}\" uses a column that does not exist: {missing}", i.name));
         }
     }
     for f in &design.foreign_keys {
         if f.name.trim().is_empty() || f.ref_table.trim().is_empty() {
-            return Err("Foreign key'in adı ve hedef tablosu olmalı.".into());
+            return Err("A relationship needs a name and a target table.".into());
         }
         if f.columns.is_empty() || f.columns.len() != f.ref_columns.len() {
-            return Err(format!("\"{}\" foreign key'inde sütun sayıları eşleşmiyor.", f.name));
+            return Err(format!("Relationship \"{}\" must link the same number of columns on both sides.", f.name));
         }
         if let Some(missing) = f.columns.iter().find(|c| !seen.contains(c.as_str())) {
-            return Err(format!("\"{}\" foreign key'i olmayan bir sütunu kullanıyor: {missing}", f.name));
+            return Err(format!("Relationship \"{}\" uses a column that does not exist: {missing}", f.name));
         }
     }
     Ok(())
@@ -436,6 +439,7 @@ mod tests {
             comment: None,
             generated: false,
             extra: None,
+            enum_values: vec![],
         }
     }
 
@@ -593,7 +597,7 @@ mod tests {
     fn validation_errors() {
         let mut d = base();
         d.columns[2].name = "email".into();
-        assert!(plan_alter(PG, None, &base(), &d).unwrap_err().contains("birden fazla"));
+        assert!(plan_alter(PG, None, &base(), &d).unwrap_err().contains("more than one"));
         let mut d = base();
         d.indexes[0].columns = vec!["nope".into()];
         assert!(plan_alter(PG, None, &base(), &d).is_err());

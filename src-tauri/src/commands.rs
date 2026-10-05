@@ -121,3 +121,25 @@ pub fn plan_table_action(
 pub async fn execute_script(ws: Ws<'_>, id: String, statements: Vec<String>, kind: ScriptKind) -> CmdResult<Vec<u64>> {
     Ok(ws.execute_script(&id, &statements, kind).await?)
 }
+
+#[tauri::command]
+pub fn ai_status() -> CmdResult<kiyi_core::ai::AiStatus> {
+    Ok(kiyi_core::ai::status()?)
+}
+
+#[tauri::command]
+pub fn set_ai_key(key: Option<String>) -> CmdResult<()> {
+    Ok(kiyi_core::ai::set_key(key.as_deref())?)
+}
+
+#[tauri::command]
+pub async fn ai_filters(
+    ws: Ws<'_>,
+    id: String,
+    schema: Option<String>,
+    table: String,
+    prompt: String,
+    today: String,
+) -> CmdResult<kiyi_core::ai::AiFilterResult> {
+    Ok(ws.ai_filters(&id, schema.as_deref(), &table, &prompt, &today).await?)
+}

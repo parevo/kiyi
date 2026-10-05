@@ -20,13 +20,13 @@ export const useToasts = create<ToastState>((set, get) => ({
   push(t) {
     const id = next++;
     set((s) => ({ toasts: [...s.toasts.slice(-3), { ...t, id }] }));
-    setTimeout(() => get().dismiss(id), t.tone === "error" ? 8000 : 3500);
+    setTimeout(() => get().dismiss(id), t.tone === "error" ? 8000 : t.action ? 6000 : 3500);
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
 
 export const toast = {
-  success: (text: string) => useToasts.getState().push({ text, tone: "success" }),
+  success: (text: string, action?: Toast["action"]) => useToasts.getState().push({ text, tone: "success", action }),
   error: (text: string) => useToasts.getState().push({ text, tone: "error" }),
   info: (text: string) => useToasts.getState().push({ text, tone: "info" }),
 };

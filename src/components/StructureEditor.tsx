@@ -1,5 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { errorMessage, ipc } from "../lib/ipc";
+import { isDestructive } from "../lib/highlight";
 import type {
   ColumnDesign,
   ConnectionConfig,
@@ -11,12 +12,19 @@ import type {
   TableDesign,
   TableDetails,
 } from "../lib/types";
-import { driverFor, friendlyType, useCatalog } from "../state/catalog";
+import { columnTypeLabel, driverFor, friendlyType, useCatalog } from "../state/catalog";
 import { useSettings } from "../state/settings";
-import { CloseIcon, PlusIcon } from "./icons";
+import { toast } from "../state/toasts";
+import { EditIcon, KeyIcon, LinkIcon, PlusIcon, TrashIcon } from "./icons";
 import type { ReviewRequest } from "./ReviewDialog";
+import { Sheet } from "./Sheet";
 import { Button, IconButton, Switch } from "./ui";
+import f from "./Form.module.css";
 import s from "./StructureEditor.module.css";
+
+const fmt = new Intl.NumberFormat("en-US");
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const sqlString = (v: string) => `'${v.replace(/'/g, "''")}'`;
 
 const blankColumn = (name = ""): ColumnDesign => ({
   original: null,
@@ -29,25 +37,15 @@ const blankColumn = (name = ""): ColumnDesign => ({
   comment: null,
   generated: false,
   extra: null,
+  enumValues: [],
 });
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const sqlString = (v: string) => `'${v.replace(/'/g, "''")}'`;
-
-function starterDesign(driver: DriverInfo | undefined): TableDesign {
-  const mysql = driver?.kind === "mysql";
-  const sql = (label: string, fallback: string) => driver?.types.find((t) => t.label === label)?.sql ?? fallback;
-  return {
-    name: "",
-    columns: [
-      { ...blankColumn("id"), dataType: sql("Büyük tam sayı", "bigint"), nullable: false, primaryKey: true, autoIncrement: true },
-      { ...blankColumn("created_at"), dataType: sql("Tarih ve saat", "timestamp"), nullable: false, default: mysql ? "CURRENT_TIMESTAMP" : "now()" },
-    ],
-    indexes: [],
-    foreignKeys: [],
-    primaryKeyName: null,
-  };
-}
+const ON_DELETE: { value: FkAction; label: string }[] = [
+  { value: "noAction", label: "Block the delete" },
+  { value: "cascade", label: "Delete this row too" },
+  { value: "setNull", label: "Clear this field" },
+];
+const onDeleteLabel = (a: FkAction) => ON_DELETE.find((o) => o.value === a)?.label ?? a;
 
 // ---- defaults in plain language
 
@@ -57,379 +55,364 @@ function defaultMode(c: ColumnDesign): DefaultMode {
   if (c.autoIncrement) return "auto";
   const d = c.default?.trim();
   if (!d) return "none";
-  if (/^(now\(\)|current_timestamp(\(\d*\))?)$/i.test(d)) return "now";
+  if (/^nextval\(/i.test(d)) return "auto";
+  if (/^(now\(\)|current_timestamp(\(\d*\))?|current_date)$/i.test(d)) return "now";
   if (/gen_random_uuid\(\)|^\(?uuid\(\)\)?$/i.test(d)) return "uuid";
-  if (/^'([^']|'')*'(::[\w\s]+)?$/.test(d) || /^-?\d+(\.\d+)?$/.test(d) || /^(true|false)$/i.test(d)) return "value";
+  if (/^'([^']|'')*'(::[\w\s"]+)?$/.test(d) || /^-?\d+(\.\d+)?$/.test(d) || /^(true|false)$/i.test(d)) return "value";
   return "custom";
 }
 
 function literalOf(d: string | null): string {
   if (!d) return "";
-  const m = /^'((?:[^']|'')*)'(::[\w\s]+)?$/.exec(d.trim());
+  const m = /^'((?:[^']|'')*)'(::[\w\s"]+)?$/.exec(d.trim());
   return m ? m[1].replace(/''/g, "'") : d.trim();
 }
 
-// ---- plain-language change summary
+export function describeDefault(c: ColumnDesign): string {
+  switch (defaultMode(c)) {
+    case "none":
+      return "";
+    case "auto":
+      return "Auto-increment";
+    case "now":
+      return /current_date/i.test(c.default ?? "") ? "Today" : "Current time";
+    case "uuid":
+      return "Random UUID";
+    case "value":
+      return literalOf(c.default);
+    default:
+      return c.default ?? "";
+  }
+}
 
-function summarise(original: TableDesign | null, draft: TableDesign, driver: DriverInfo | undefined) {
+// ---- plain-language summary of a design change
+
+function summarise(original: TableDesign | null, next: TableDesign, driver: DriverInfo | undefined) {
   const out: { text: string; danger?: boolean }[] = [];
   const ft = (t: string) => friendlyType(t, driver);
   if (!original) {
-    out.push({ text: `"${draft.name}" tablosu ${draft.columns.length} sütunla oluşturulacak` });
-    for (const c of draft.columns) out.push({ text: `${c.name}: ${ft(c.dataType)}${c.primaryKey ? ", anahtar" : ""}${!c.nullable ? ", zorunlu" : ""}` });
-    for (const f of draft.foreignKeys) out.push({ text: `${f.columns.join(", ")} → ${f.refTable} tablosuna bağlanacak` });
+    out.push({ text: `Create table “${next.name}” with ${next.columns.length} columns` });
     return out;
   }
-  if (draft.name !== original.name) out.push({ text: `Tablonun adı "${original.name}" → "${draft.name}" olacak` });
-  const byOriginal = new Map(draft.columns.filter((c) => c.original).map((c) => [c.original!, c]));
+  if (next.name !== original.name) out.push({ text: `Rename the table to “${next.name}”` });
+  const byOriginal = new Map(next.columns.filter((c) => c.original).map((c) => [c.original!, c]));
   for (const o of original.columns) {
     const c = byOriginal.get(o.name);
     if (!c) {
-      out.push({ text: `"${o.name}" sütunu ve içindeki tüm veriler silinecek`, danger: true });
+      out.push({ text: `Delete column “${o.name}” and all of its data`, danger: true });
       continue;
     }
-    if (c.name !== o.name) out.push({ text: `"${o.name}" sütununun adı "${c.name}" olacak` });
-    if (c.dataType !== o.dataType) out.push({ text: `"${c.name}" türü ${ft(o.dataType)} → ${ft(c.dataType)} olacak` });
-    if (c.nullable !== o.nullable) out.push({ text: c.nullable ? `"${c.name}" artık boş bırakılabilecek` : `"${c.name}" zorunlu olacak` });
-    if (c.default !== o.default || c.autoIncrement !== o.autoIncrement) out.push({ text: `"${c.name}" için varsayılan değer değişecek` });
-    if (c.primaryKey !== o.primaryKey) out.push({ text: c.primaryKey ? `"${c.name}" anahtar olacak` : `"${c.name}" artık anahtar olmayacak` });
-    if (c.comment !== o.comment) out.push({ text: `"${c.name}" açıklaması güncellenecek` });
+    if (c.name !== o.name) out.push({ text: `Rename “${o.name}” to “${c.name}”` });
+    if (c.dataType !== o.dataType) out.push({ text: `Change “${c.name}” from ${ft(o.dataType)} to ${ft(c.dataType)}; existing values are converted`, danger: true });
+    if (c.nullable !== o.nullable) out.push({ text: c.nullable ? `“${c.name}” becomes optional` : `“${c.name}” becomes required` });
+    if (c.default !== o.default || c.autoIncrement !== o.autoIncrement) out.push({ text: `Change the default for “${c.name}”` });
+    if (c.primaryKey !== o.primaryKey) out.push({ text: c.primaryKey ? `Make “${c.name}” the primary key` : `“${c.name}” is no longer the primary key` });
+    if (c.comment !== o.comment) out.push({ text: `Update the description of “${c.name}”` });
   }
-  for (const c of draft.columns.filter((c) => !c.original)) out.push({ text: `"${c.name}" sütunu eklenecek (${ft(c.dataType)})` });
-  const describeIndex = (i: IndexDesign) => (i.unique ? `${i.columns.join(", ")} benzersiz olacak` : `${i.columns.join(", ")} için arama hızlandırılacak`);
-  for (const i of draft.indexes) {
+  for (const c of next.columns.filter((c) => !c.original)) out.push({ text: `Add column “${c.name}” (${ft(c.dataType)})` });
+  for (const i of next.indexes) {
     const o = original.indexes.find((x) => x.name === i.original);
-    if (!o || !same(o, i)) out.push({ text: describeIndex(i) });
+    if (!o || !same(o, i)) out.push({ text: i.unique ? `Require unique values in ${i.columns.join(", ")}` : `Add an index on ${i.columns.join(", ")} for faster lookups` });
   }
   for (const o of original.indexes) {
-    if (!draft.indexes.some((i) => i.original === o.name && same(i, o))) {
-      if (!draft.indexes.some((i) => i.original === o.name)) out.push({ text: o.unique ? `${o.columns.join(", ")} artık benzersiz olmak zorunda değil` : `"${o.name}" index'i kaldırılacak` });
-    }
+    if (!next.indexes.some((i) => i.original === o.name)) out.push({ text: o.unique ? `Stop requiring unique ${o.columns.join(", ")}` : `Remove index “${o.name}”` });
   }
-  for (const f of draft.foreignKeys) {
-    const o = original.foreignKeys.find((x) => x.name === f.original);
-    if (!o || !same(o, f)) out.push({ text: `${f.columns.join(", ")} → ${f.refTable} bağlantısı ${o ? "güncellenecek" : "eklenecek"}` });
+  for (const k of next.foreignKeys) {
+    const o = original.foreignKeys.find((x) => x.name === k.original);
+    if (!o || !same(o, k)) out.push({ text: `Link ${k.columns.join(", ")} to ${k.refTable}` });
   }
   for (const o of original.foreignKeys) {
-    if (!draft.foreignKeys.some((f) => f.original === o.name)) out.push({ text: `${o.columns.join(", ")} → ${o.refTable} bağlantısı kaldırılacak` });
+    if (!next.foreignKeys.some((k) => k.original === o.name)) out.push({ text: `Remove the link from ${o.columns.join(", ")} to ${o.refTable}` });
   }
   return out;
 }
 
-export interface StructureHandle {
-  save(): void;
-  discard(): void;
-}
-
-export interface StructureStatus {
-  changes: number;
-}
-
-interface Props {
+/** Plans `next` against `original` and applies it, asking first when something is lost. */
+async function applyDesign({
+  connection,
+  schema,
+  original,
+  next,
+  driver,
+  onReview,
+  title,
+  done,
+}: {
   connection: ConnectionConfig;
   schema: string | null;
-  /** `null` while creating a new table. */
-  details: TableDetails | null;
-  snapshot: SchemaSnapshot | undefined;
-  active: boolean;
-  onStatus(status: StructureStatus): void;
-  onReview(req: ReviewRequest): void;
-  onApplied(name: string): void;
+  original: TableDesign | null;
+  next: TableDesign;
+  driver: DriverInfo | undefined;
+  onReview(r: ReviewRequest): void;
+  title: string;
+  done(): void | Promise<void>;
+}) {
+  const statements = await ipc.planTable(connection.id, schema, original, next);
+  if (!statements.length) return done();
+  const summary = summarise(original, next, driver);
+  const run = async () => {
+    await ipc.executeScript(connection.id, statements, "schema");
+    await done();
+  };
+  const risky = summary.some((x) => x.danger) || statements.some(isDestructive);
+  if (!risky && connection.env !== "production" && !useSettings.getState().developerMode) {
+    await run();
+    toast.success(summary.length === 1 ? `Done: ${summary[0].text}` : `Applied ${summary.length} changes`);
+    return;
+  }
+  onReview({
+    title,
+    subtitle: original?.name ?? next.name,
+    summary,
+    statements,
+    action: risky ? "Apply anyway" : "Apply",
+    confirmWord: original?.name,
+    nonTransactional: connection.kind === "mysql",
+    run,
+  });
 }
 
-export const StructureEditor = forwardRef<StructureHandle, Props>(function StructureEditor(
-  { connection, schema, details, snapshot, active, onStatus, onReview, onApplied },
-  ref,
-) {
-  const drivers = useCatalog((st) => st.drivers);
-  const driver = driverFor(connection, drivers);
+function tablesOf(snapshot: SchemaSnapshot | undefined) {
+  const out: { schema: string; name: string; columns: string[] }[] = [];
+  for (const sc of snapshot?.schemas ?? []) for (const t of sc.tables) if (t.kind === "table") out.push({ schema: sc.name, name: t.name, columns: t.columns.map((c) => c.name) });
+  return out;
+}
+
+// =====================================================================================
+// Structure of an existing table
+
+type SheetState = { kind: "column"; index: number | null } | { kind: "index" } | { kind: "link" } | { kind: "rename" } | null;
+
+export function StructureView({
+  connection,
+  details,
+  snapshot,
+  onReview,
+  onChanged,
+}: {
+  connection: ConnectionConfig;
+  details: TableDetails;
+  snapshot: SchemaSnapshot | undefined;
+  onReview(r: ReviewRequest): void;
+  /** Called after a change was applied; `name` is set when the table was renamed. */
+  onChanged(name?: string): void | Promise<void>;
+}) {
+  const driver = driverFor(connection, useCatalog((st) => st.drivers));
   const developerMode = useSettings((st) => st.developerMode);
-  const inspectorOpen = useSettings((st) => st.inspectorOpen);
+  const design = details.design;
+  const schema = details.schema;
+  const readOnly = connection.readOnly || details.isView;
+  const [section, setSection] = useState<"columns" | "indexes" | "links">("columns");
+  const [sheet, setSheet] = useState<SheetState>(null);
+  const tables = useMemo(() => tablesOf(snapshot), [snapshot]);
 
-  const original = details?.design ?? null;
-  const [draft, setDraft] = useState<TableDesign>(() => original ?? starterDesign(driver));
-  const [selected, setSelected] = useState<number | null>(original ? null : 0);
-  const [error, setError] = useState<string | null>(null);
-  const [advanced, setAdvanced] = useState(developerMode);
-
-  useEffect(() => {
-    setDraft(original ?? starterDesign(driver));
-    setSelected(original ? null : 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [original]);
-
-  const readOnly = connection.readOnly || !!details?.isView;
-  const creating = original === null;
-  const summary = useMemo(() => summarise(original, draft, driver), [original, draft, driver]);
-  const changes = creating ? 0 : summary.length;
-  useEffect(() => onStatus({ changes }), [changes, onStatus]);
-
-  const originalCols = useMemo(() => new Map((original?.columns ?? []).map((c) => [c.name, c])), [original]);
-  const removedCols = (original?.columns ?? []).filter((c) => !draft.columns.some((d) => d.original === c.name));
-  const colState = (c: ColumnDesign) => (c.original === null ? "new" : same(c, originalCols.get(c.original)) ? undefined : "changed");
-
-  const tables = useMemo(() => {
-    const out: { schema: string; name: string; columns: string[] }[] = [];
-    for (const sc of snapshot?.schemas ?? []) for (const t of sc.tables) out.push({ schema: sc.name, name: t.name, columns: t.columns.map((c) => c.name) });
-    return out;
-  }, [snapshot]);
-  const sameSchema = (refSchema: string | null) => refSchema === null || refSchema === (schema ?? snapshot?.defaultSchema);
-
-  // ---- mutations
-
-  const setCol = (i: number, patch: Partial<ColumnDesign>) =>
-    setDraft((d) => {
-      const columns = d.columns.map((c, j) => (j === i ? { ...c, ...patch } : c));
-      if (patch.name !== undefined) {
-        // Keep indexes and links pointing at a renamed column.
-        const from = d.columns[i].name;
-        const rename = (cols: string[]) => cols.map((c) => (c === from ? patch.name! : c));
-        return {
-          ...d,
-          columns,
-          indexes: d.indexes.map((x) => ({ ...x, columns: rename(x.columns) })),
-          foreignKeys: d.foreignKeys.map((f) => ({ ...f, columns: rename(f.columns) })),
-        };
-      }
-      return { ...d, columns };
+  const apply = (next: TableDesign, title: string) =>
+    applyDesign({ connection, schema, original: design, next, driver, onReview, title, done: () => onChanged(next.name) }).catch((e) => {
+      toast.error(errorMessage(e));
+      throw e;
     });
 
-  const removeCol = (i: number) => {
-    setDraft((d) => {
-      const name = d.columns[i].name;
-      return {
-        ...d,
-        columns: d.columns.filter((_, j) => j !== i),
-        indexes: d.indexes.map((x) => ({ ...x, columns: x.columns.filter((c) => c !== name) })).filter((x) => x.columns.length),
-        foreignKeys: d.foreignKeys.filter((f) => !f.columns.includes(name)),
-      };
-    });
-    setSelected(null);
-  };
-
-  const addCol = () => {
-    const text = driver?.types.find((t) => t.category === "text")?.sql ?? "text";
-    setDraft((d) => ({ ...d, columns: [...d.columns, { ...blankColumn(`yeni_sutun_${d.columns.length + 1}`), dataType: text }] }));
-    setSelected(draft.columns.length);
-  };
-
-  const isUnique = (name: string) => draft.indexes.some((x) => x.unique && x.columns.length === 1 && x.columns[0] === name);
-  const setUnique = (name: string, on: boolean) =>
-    setDraft((d) => ({
-      ...d,
-      indexes: on
-        ? [...d.indexes, { original: null, name: `${d.name || "tablo"}_${name}_key`, columns: [name], unique: true, isConstraint: false }]
-        : d.indexes.filter((x) => !(x.unique && x.columns.length === 1 && x.columns[0] === name)),
-    }));
-
-  const linkOf = (name: string) => draft.foreignKeys.find((f) => f.columns.length === 1 && f.columns[0] === name);
-  const setLink = (name: string, patch: Partial<ForeignKeyDesign> | null) =>
-    setDraft((d) => {
-      const existing = d.foreignKeys.find((f) => f.columns.length === 1 && f.columns[0] === name);
-      if (patch === null) return { ...d, foreignKeys: d.foreignKeys.filter((f) => f !== existing) };
-      if (existing) return { ...d, foreignKeys: d.foreignKeys.map((f) => (f === existing ? { ...f, ...patch } : f)) };
-      return {
-        ...d,
-        foreignKeys: [
-          ...d.foreignKeys,
-          { original: null, name: `${d.name || "tablo"}_${name}_fkey`, columns: [name], refSchema: null, refTable: "", refColumns: [], onDelete: "noAction", onUpdate: "noAction", ...patch },
-        ],
-      };
-    });
-
-  // ---- apply
-
-  const save = async () => {
-    if (readOnly || (!creating && changes === 0)) return;
-    setError(null);
-    try {
-      const statements = await ipc.planTable(connection.id, schema, original, draft);
-      if (!statements.length) return;
-      onReview({
-        title: creating ? "Tabloyu oluştur" : "Yapı değişikliklerini uygula",
-        subtitle: creating ? draft.name : original!.name,
-        summary,
-        statements,
-        action: creating ? "Oluştur" : "Uygula",
-        confirmWord: original?.name,
-        nonTransactional: driver?.kind === "mysql",
-        run: async () => {
-          await ipc.executeScript(connection.id, statements, "schema");
-          onApplied(draft.name);
-        },
-      });
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  const discard = () => {
-    setDraft(original ?? starterDesign(driver));
-    setSelected(null);
-  };
-  useImperativeHandle(ref, () => ({ save, discard }));
-
-  useEffect(() => {
-    if (!active) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        save();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
-  const col = selected !== null ? draft.columns[selected] : undefined;
+  const uniqueOf = (name: string) => design.indexes.some((x) => x.unique && x.columns.length === 1 && x.columns[0] === name);
+  const linkOf = (name: string) => design.foreignKeys.find((k) => k.columns.length === 1 && k.columns[0] === name);
 
   return (
-    <div className={s.layout}>
-      <div className={s.main}>
-        <input
-          className={s.title}
-          value={draft.name}
-          onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-          placeholder="Tablo adı"
-          disabled={readOnly}
-          autoFocus={creating}
-          spellCheck={false}
-          aria-label="Tablo adı"
-        />
-        {details?.isView && <p className={s.note}>Bu bir görünüm (view); yapısı buradan değiştirilemez.</p>}
-        {connection.readOnly && !details?.isView && <p className={s.note}>Bağlantı salt okunur; yapı değiştirilemez.</p>}
-        {error && (
-          <div className={s.error} role="alert">
-            {error}
-          </div>
-        )}
-
-        <h3 className={s.heading}>Sütunlar</h3>
-        <ul className={s.columns}>
-          {draft.columns.map((c, i) => {
-            const link = linkOf(c.name);
-            return (
-              <li key={i}>
-                <button className={s.column} data-selected={selected === i || undefined} data-state={colState(c)} onClick={() => setSelected(i)}>
-                  <span className={s.colName}>{c.name || "adsız"}</span>
-                  <span className={s.colType}>{friendlyType(c.dataType, driver)}</span>
-                  {developerMode && <span className={s.colRaw}>{c.dataType}</span>}
-                  <span className={s.badges}>
-                    {c.primaryKey && <span className={s.badge}>Anahtar</span>}
-                    {!c.nullable && !c.primaryKey && <span className={s.badge}>Zorunlu</span>}
-                    {isUnique(c.name) && <span className={s.badge}>Benzersiz</span>}
-                    {c.autoIncrement && <span className={s.badge}>Otomatik</span>}
-                    {link && <span className={`${s.badge} ${s.linkBadge}`}>→ {link.refTable || "?"}</span>}
-                    {c.generated && <span className={s.badge}>Hesaplanan</span>}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-          {removedCols.map((c) => (
-            <li key={`removed-${c.name}`} className={s.removedRow}>
-              <span className={s.colName}>{c.name}</span>
-              <span className={s.note}>silinecek</span>
-              <Button variant="ghost" onPress={() => setDraft((d) => ({ ...d, columns: [...d.columns, c] }))}>
-                Geri al
-              </Button>
-            </li>
-          ))}
-        </ul>
+    <div className={s.page}>
+      <div className={s.header}>
+        <div>
+          <h2 className={s.title}>{design.name}</h2>
+          <p className={s.meta}>
+            {design.columns.length} columns
+            {details.rowEstimate !== null && ` · ~${fmt.format(details.rowEstimate)} rows`}
+            {details.isView && " · view (read-only)"}
+          </p>
+        </div>
         {!readOnly && (
-          <Button variant="ghost" onPress={addCol}>
-            <PlusIcon size={14} /> Sütun ekle
-          </Button>
-        )}
-
-        <button className={s.disclosure} onClick={() => setAdvanced((v) => !v)} aria-expanded={advanced}>
-          {advanced ? "▾" : "▸"} Gelişmiş: index'ler ve çok sütunlu bağlantılar
-        </button>
-        {advanced && <Advanced draft={draft} setDraft={setDraft} readOnly={readOnly} tables={tables} sameSchema={sameSchema} />}
-
-        {creating && !readOnly && (
-          <div className={s.createBar}>
-            <Button variant="primary" onPress={save} isDisabled={!draft.name.trim()}>
-              Tabloyu oluştur <span className={s.kbd}>⌘S</span>
+          <div className={s.actions}>
+            <Button onPress={() => setSheet({ kind: "rename" })}>Rename table</Button>
+            <Button variant="primary" onPress={() => setSheet({ kind: "column", index: null })}>
+              <PlusIcon size={14} /> Add column
             </Button>
           </div>
         )}
       </div>
 
-      {inspectorOpen && (
-        <aside className={s.inspector}>
-          {col && selected !== null ? (
-            <ColumnForm
-              key={selected}
-              column={col}
-              driver={driver}
-              developerMode={developerMode}
-              readOnly={readOnly}
-              unique={isUnique(col.name)}
-              link={linkOf(col.name)}
-              tables={tables}
-              sameSchema={sameSchema}
-              onChange={(p) => setCol(selected, p)}
-              onUnique={(on) => setUnique(col.name, on)}
-              onLink={(p) => setLink(col.name, p)}
-              onRemove={() => removeCol(selected)}
-            />
-          ) : (
-            <div className={s.placeholder}>
-              <p>Ayarlarını görmek için bir sütun seç.</p>
-              {!creating && details && (
-                <dl className={s.facts}>
-                  <dt>Sütun</dt>
-                  <dd>{draft.columns.length}</dd>
-                  <dt>Bağlantı</dt>
-                  <dd>{draft.foreignKeys.length}</dd>
-                  <dt>Index</dt>
-                  <dd>{draft.indexes.length}</dd>
-                </dl>
+      <div className={s.tabs} role="tablist">
+        {(
+          [
+            ["columns", `Columns`, design.columns.length],
+            ["indexes", `Indexes`, design.indexes.length],
+            ["links", `Relationships`, design.foreignKeys.length],
+          ] as const
+        ).map(([id, label, n]) => (
+          <button key={id} role="tab" aria-selected={section === id} onClick={() => setSection(id)}>
+            {label} <span className={s.tabCount}>{n}</span>
+          </button>
+        ))}
+      </div>
+
+      {section === "columns" && (
+        <div className={s.table} role="table">
+          <div className={s.thead} role="row">
+            <span>Name</span>
+            <span>Type</span>
+            <span>Default</span>
+            <span>Rules</span>
+            <span />
+          </div>
+          {design.columns.map((c, i) => {
+            const link = linkOf(c.name);
+            const editableCol = !readOnly && !c.generated;
+            return (
+              <div key={c.name} className={s.tr} role="row" onClick={() => editableCol && setSheet({ kind: "column", index: i })} data-clickable={editableCol || undefined}>
+                <span className={s.name}>
+                  {c.primaryKey && <KeyIcon size={13} />}
+                  {c.name}
+                </span>
+                <span className={s.type}>
+                  {columnTypeLabel(c, driver)}
+                  {(developerMode || columnTypeLabel(c, driver) !== friendlyType(c.dataType, driver) || friendlyType(c.dataType, driver) === "Custom") && <span className={s.raw}>{c.dataType}</span>}
+                </span>
+                <span className={s.default}>{c.generated ? "Calculated" : describeDefault(c) || <span className={s.none}>—</span>}</span>
+                <span className={s.badges}>
+                  {c.primaryKey && <span className={s.badge}>Primary key</span>}
+                  {!c.nullable && !c.primaryKey && <span className={s.badge}>Required</span>}
+                  {uniqueOf(c.name) && <span className={s.badge}>Unique</span>}
+                  {link && (
+                    <span className={`${s.badge} ${s.linkBadge}`}>
+                      <LinkIcon size={11} /> {link.refTable}
+                    </span>
+                  )}
+                </span>
+                <span className={s.rowActions}>
+                  {editableCol && (
+                    <IconButton label={`Edit ${c.name}`} onPress={() => setSheet({ kind: "column", index: i })}>
+                      <EditIcon size={14} />
+                    </IconButton>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {section === "indexes" && (
+        <div className={s.list}>
+          <p className={s.explain}>Indexes make lookups on these columns faster. A unique index also stops duplicate values.</p>
+          {design.indexes.length === 0 && <p className={s.empty}>No indexes on this table yet.</p>}
+          {design.indexes.map((x) => (
+            <div key={x.name} className={s.item}>
+              <span className={s.itemMain}>
+                <span className={s.name}>{x.columns.join(", ")}</span>
+                {x.unique && <span className={s.badge}>Unique</span>}
+              </span>
+              <span className={s.itemMeta}>{x.name}</span>
+              {!readOnly && (
+                <IconButton label={`Remove index ${x.name}`} onPress={() => apply({ ...design, indexes: design.indexes.filter((y) => y !== x) }, "Remove index").catch(() => {})}>
+                  <TrashIcon size={14} />
+                </IconButton>
               )}
             </div>
+          ))}
+          {!readOnly && (
+            <Button variant="ghost" onPress={() => setSheet({ kind: "index" })}>
+              <PlusIcon size={14} /> Add index
+            </Button>
           )}
-        </aside>
+        </div>
       )}
+
+      {section === "links" && (
+        <div className={s.list}>
+          <p className={s.explain}>A relationship links a column to rows in another table, and keeps those links valid.</p>
+          {design.foreignKeys.length === 0 && <p className={s.empty}>This table doesn't link to other tables.</p>}
+          {design.foreignKeys.map((k) => (
+            <div key={k.name} className={s.item}>
+              <span className={s.itemMain}>
+                <span className={s.name}>{k.columns.join(", ")}</span>
+                <span className={s.arrow}>→</span>
+                <span className={s.name}>
+                  {k.refTable}.{k.refColumns.join(", ")}
+                </span>
+              </span>
+              <span className={s.itemMeta}>If the {k.refTable} row is deleted: {onDeleteLabel(k.onDelete).toLowerCase()}</span>
+              {!readOnly && (
+                <IconButton label="Remove relationship" onPress={() => apply({ ...design, foreignKeys: design.foreignKeys.filter((y) => y !== k) }, "Remove relationship").catch(() => {})}>
+                  <TrashIcon size={14} />
+                </IconButton>
+              )}
+            </div>
+          ))}
+          {!readOnly && tables.length > 0 && (
+            <Button variant="ghost" onPress={() => setSheet({ kind: "link" })}>
+              <PlusIcon size={14} /> Add relationship
+            </Button>
+          )}
+        </div>
+      )}
+
+      {sheet?.kind === "column" && (
+        <ColumnSheet
+          key={sheet.index ?? "new"}
+          design={design}
+          index={sheet.index}
+          driver={driver}
+          tables={tables}
+          schema={schema ?? snapshot?.defaultSchema ?? null}
+          developerMode={developerMode}
+          onClose={() => setSheet(null)}
+          onSave={(next, title) => apply(next, title).then(() => setSheet(null))}
+        />
+      )}
+      {sheet?.kind === "index" && <IndexSheet design={design} onClose={() => setSheet(null)} onSave={(next) => apply(next, "Add index").then(() => setSheet(null))} />}
+      {sheet?.kind === "link" && (
+        <LinkSheet design={design} tables={tables} schema={schema ?? snapshot?.defaultSchema ?? null} onClose={() => setSheet(null)} onSave={(next) => apply(next, "Add relationship").then(() => setSheet(null))} />
+      )}
+      {sheet?.kind === "rename" && <RenameSheet design={design} onClose={() => setSheet(null)} onSave={(next) => apply(next, "Rename table").then(() => setSheet(null))} />}
     </div>
   );
-});
+}
 
-function ColumnForm({
-  column: c,
+// ---- column sheet
+
+function ColumnSheet({
+  design,
+  index,
   driver,
-  developerMode,
-  readOnly,
-  unique,
-  link,
   tables,
-  sameSchema,
-  onChange,
-  onUnique,
-  onLink,
-  onRemove,
+  schema,
+  developerMode,
+  onClose,
+  onSave,
 }: {
-  column: ColumnDesign;
+  design: TableDesign;
+  index: number | null;
   driver: DriverInfo | undefined;
-  developerMode: boolean;
-  readOnly: boolean;
-  unique: boolean;
-  link: ForeignKeyDesign | undefined;
   tables: { schema: string; name: string; columns: string[] }[];
-  sameSchema(schema: string | null): boolean;
-  onChange(p: Partial<ColumnDesign>): void;
-  onUnique(on: boolean): void;
-  onLink(p: Partial<ForeignKeyDesign> | null): void;
-  onRemove(): void;
+  schema: string | null;
+  developerMode: boolean;
+  onClose(): void;
+  onSave(next: TableDesign, title: string): Promise<void>;
 }) {
-  const mysql = driver?.kind === "mysql";
+  const existing = index !== null ? design.columns[index] : null;
+  const textType = driver?.types.find((t) => t.category === "text")?.sql ?? "text";
+  const [col, setCol] = useState<ColumnDesign>(existing ?? { ...blankColumn(), dataType: textType });
+  const [unique, setUnique] = useState(existing ? design.indexes.some((x) => x.unique && x.columns.length === 1 && x.columns[0] === existing.name) : false);
+  const existingLink = existing ? design.foreignKeys.find((k) => k.columns.length === 1 && k.columns[0] === existing.name) : undefined;
+  const [link, setLink] = useState<{ table: string; schema: string | null; column: string; onDelete: FkAction } | null>(
+    existingLink ? { table: existingLink.refTable, schema: existingLink.refSchema, column: existingLink.refColumns[0], onDelete: existingLink.onDelete } : null,
+  );
+  const [literal, setLiteral] = useState(literalOf(existing?.default ?? null));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const types = driver?.types ?? [];
-  const known = types.some((t) => t.sql.toLowerCase() === c.dataType.toLowerCase());
-  const mode = defaultMode(c);
-  const [literal, setLiteral] = useState(literalOf(c.default));
-  const disabled = readOnly || c.generated;
-  const category = types.find((t) => t.sql === c.dataType)?.category;
+  const known = types.find((t) => t.sql.toLowerCase() === col.dataType.toLowerCase());
+  const category = known?.category;
   const numeric = category === "number" || category === "decimal" || category === "boolean";
+  const mode = defaultMode(col);
+  const mysql = driver?.kind === "mysql";
+  const target = link ? tables.find((t) => t.name === link.table && (link.schema ? t.schema === link.schema : t.schema === schema)) : undefined;
 
   const setMode = (m: DefaultMode) => {
     const patch: Partial<ColumnDesign> = { autoIncrement: m === "auto" };
@@ -437,221 +420,543 @@ function ColumnForm({
     if (m === "now") patch.default = mysql ? "CURRENT_TIMESTAMP" : "now()";
     if (m === "uuid") patch.default = mysql ? "(uuid())" : "gen_random_uuid()";
     if (m === "value") patch.default = literal === "" ? null : numeric ? literal : sqlString(literal);
-    if (m === "custom") patch.default = c.default ?? "";
-    onChange(patch);
+    if (m === "custom") patch.default = col.default ?? "";
+    setCol((c) => ({ ...c, ...patch }));
   };
 
-  const target = link ? tables.find((t) => t.name === link.refTable && (link.refSchema ? t.schema === link.refSchema : sameSchema(t.schema))) : undefined;
+  const build = (): TableDesign => {
+    const name = col.name.trim();
+    const columns = index === null ? [...design.columns, { ...col, name }] : design.columns.map((c, i) => (i === index ? { ...col, name } : c));
+    const from = existing?.name ?? name;
+    const rename = (cols: string[]) => cols.map((c) => (c === from ? name : c));
+    let indexes = design.indexes.map((x) => ({ ...x, columns: rename(x.columns) }));
+    const isUnique = (x: IndexDesign) => x.unique && x.columns.length === 1 && x.columns[0] === name;
+    if (unique && !indexes.some(isUnique)) indexes = [...indexes, { original: null, name: `${design.name}_${name}_key`, columns: [name], unique: true, isConstraint: false }];
+    if (!unique) indexes = indexes.filter((x) => !isUnique(x));
+    let foreignKeys = design.foreignKeys.map((k) => ({ ...k, columns: rename(k.columns) }));
+    const mine = (k: ForeignKeyDesign) => k.columns.length === 1 && k.columns[0] === name;
+    const current = foreignKeys.find(mine);
+    if (link) {
+      const fk: ForeignKeyDesign = {
+        original: current?.original ?? null,
+        name: current?.name ?? `${design.name}_${name}_fkey`,
+        columns: [name],
+        refSchema: link.schema,
+        refTable: link.table,
+        refColumns: [link.column],
+        onDelete: link.onDelete,
+        onUpdate: current?.onUpdate ?? "noAction",
+      };
+      foreignKeys = current ? foreignKeys.map((k) => (k === current ? fk : k)) : [...foreignKeys, fk];
+    } else foreignKeys = foreignKeys.filter((k) => !mine(k));
+    return { ...design, columns, indexes, foreignKeys };
+  };
+
+  const save = async (next: TableDesign, title: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(next, title);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className={s.form}>
-      <label className={s.field}>
-        <span>Ad</span>
-        <input className={s.input} value={c.name} onChange={(e) => onChange({ name: e.target.value })} disabled={readOnly} spellCheck={false} autoFocus={c.original === null} />
-      </label>
-
-      <label className={s.field}>
-        <span>Tür</span>
-        <select className={s.input} value={known ? types.find((t) => t.sql.toLowerCase() === c.dataType.toLowerCase())!.sql : "__current"} onChange={(e) => e.target.value !== "__current" && onChange({ dataType: e.target.value })} disabled={disabled}>
-          {!known && <option value="__current">{friendlyType(c.dataType, driver)} ({c.dataType})</option>}
-          {types.map((t) => (
-            <option key={t.sql} value={t.sql}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-        <small>{types.find((t) => t.sql === c.dataType)?.hint ?? (developerMode ? "" : "Veritabanındaki mevcut tür korunur.")}</small>
-      </label>
-      {developerMode && (
-        <label className={s.field}>
-          <span>SQL türü</span>
-          <input className={`${s.input} ${s.mono}`} value={c.dataType} onChange={(e) => onChange({ dataType: e.target.value })} disabled={disabled} spellCheck={false} />
+    <Sheet
+      isOpen
+      onClose={onClose}
+      title={existing ? `Edit column` : "Add column"}
+      subtitle={existing ? `${design.name}.${existing.name}` : `to ${design.name}`}
+      footer={
+        <>
+          {existing ? (
+            <Button
+              variant="ghost"
+              className={s.dangerText}
+              isDisabled={busy}
+              onPress={() =>
+                save(
+                  {
+                    ...design,
+                    columns: design.columns.filter((_, i) => i !== index),
+                    indexes: design.indexes.filter((x) => !x.columns.includes(existing.name)),
+                    foreignKeys: design.foreignKeys.filter((k) => !k.columns.includes(existing.name)),
+                  },
+                  "Delete column",
+                )
+              }
+            >
+              <TrashIcon size={14} /> Delete column
+            </Button>
+          ) : (
+            <span />
+          )}
+          <Button onPress={onClose}>Cancel</Button>
+          <Button variant="primary" isDisabled={busy || !col.name.trim() || !col.dataType.trim()} onPress={() => save(build(), existing ? "Save column" : "Add column")}>
+            {existing ? "Save" : "Add column"}
+          </Button>
+        </>
+      }
+    >
+      <div className={f.stack}>
+        {error && <div className={f.error} role="alert">{error}</div>}
+        <label className={f.field}>
+          <span className={f.label}>Name</span>
+          <input className={`${f.control} ${f.mono}`} value={col.name} onChange={(e) => setCol({ ...col, name: e.target.value })} placeholder="e.g. email" autoFocus spellCheck={false} />
         </label>
-      )}
 
-      <div className={s.switches}>
-        <Switch isSelected={!c.nullable} onChange={(v) => onChange({ nullable: !v })} isDisabled={disabled || c.primaryKey}>
-          Zorunlu alan
-        </Switch>
-        <Switch isSelected={unique} onChange={onUnique} isDisabled={readOnly}>
-          Benzersiz olsun
-        </Switch>
-        <Switch isSelected={c.primaryKey} onChange={(v) => onChange({ primaryKey: v, nullable: v ? false : c.nullable })} isDisabled={disabled}>
-          Anahtar (her satırı tanımlar)
+        <label className={f.field}>
+          <span className={f.label}>Type</span>
+          <select className={f.control} value={known?.sql ?? "__current"} onChange={(e) => e.target.value !== "__current" && setCol({ ...col, dataType: e.target.value })}>
+            {!known && <option value="__current">{col.dataType ? `${columnTypeLabel(col, driver)} (${col.dataType})` : "Choose a type"}</option>}
+            {types.map((t) => (
+              <option key={t.sql} value={t.sql}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          {known && <span className={f.help}>{known.hint}</span>}
+          {!known && col.enumValues.length > 0 && <span className={f.help}>Allowed values: {col.enumValues.join(", ")}</span>}
+        </label>
+        {developerMode && (
+          <label className={f.field}>
+            <span className={f.label}>
+              SQL type <span className={f.meta}>advanced</span>
+            </span>
+            <input className={`${f.control} ${f.mono}`} value={col.dataType} onChange={(e) => setCol({ ...col, dataType: e.target.value })} spellCheck={false} />
+          </label>
+        )}
+
+        <label className={f.field}>
+          <span className={f.label}>Default value</span>
+          <select className={f.control} value={mode} onChange={(e) => setMode(e.target.value as DefaultMode)}>
+            <option value="none">No default</option>
+            <option value="value">A fixed value</option>
+            {(category === "dateTime" || category === "date" || mode === "now") && <option value="now">The current time</option>}
+            {(category === "number" || mode === "auto") && <option value="auto">Auto-increment (1, 2, 3…)</option>}
+            {(category === "identifier" || mode === "uuid") && <option value="uuid">A random UUID</option>}
+            {(developerMode || mode === "custom") && <option value="custom">SQL expression</option>}
+          </select>
+          {mode === "value" && (
+            <input
+              className={f.control}
+              value={literal}
+              onChange={(e) => {
+                setLiteral(e.target.value);
+                setCol({ ...col, default: e.target.value === "" ? null : numeric ? e.target.value : sqlString(e.target.value) });
+              }}
+              placeholder="Value used when none is given"
+            />
+          )}
+          {mode === "custom" && <input className={`${f.control} ${f.mono}`} value={col.default ?? ""} onChange={(e) => setCol({ ...col, default: e.target.value || null })} spellCheck={false} />}
+        </label>
+
+        <div className={f.section}>
+          <h4 className={f.sectionTitle}>Rules</h4>
+          <div className={f.toggles}>
+            <Switch isSelected={!col.nullable} onChange={(v) => setCol({ ...col, nullable: !v })} isDisabled={col.primaryKey}>
+              Required
+            </Switch>
+            <p className={f.toggleHelp}>Every row must have a value.</p>
+            <Switch isSelected={unique} onChange={setUnique} isDisabled={col.primaryKey}>
+              Unique
+            </Switch>
+            <p className={f.toggleHelp}>No two rows can have the same value.</p>
+            <Switch isSelected={col.primaryKey} onChange={(v) => setCol({ ...col, primaryKey: v, nullable: v ? false : col.nullable })}>
+              Primary key
+            </Switch>
+            <p className={f.toggleHelp}>The value that identifies each row.</p>
+          </div>
+        </div>
+
+        <div className={f.section}>
+          <h4 className={f.sectionTitle}>Link to another table</h4>
+          <label className={f.field}>
+            <span className={f.label}>Links to</span>
+            <select
+              className={f.control}
+              value={link ? `${link.schema ?? ""}.${link.table}` : ""}
+              onChange={(e) => {
+                if (!e.target.value) return setLink(null);
+                const t = tables.find((t) => `${t.schema === schema ? "" : t.schema}.${t.name}` === e.target.value);
+                if (t) setLink({ table: t.name, schema: t.schema === schema ? null : t.schema, column: t.columns.includes("id") ? "id" : t.columns[0], onDelete: link?.onDelete ?? "noAction" });
+              }}
+            >
+              <option value="">Nothing</option>
+              {tables
+                .filter((t) => t.name !== design.name || t.schema !== schema)
+                .map((t) => (
+                  <option key={`${t.schema}.${t.name}`} value={`${t.schema === schema ? "" : t.schema}.${t.name}`}>
+                    {t.schema === schema ? t.name : `${t.schema}.${t.name}`}
+                  </option>
+                ))}
+            </select>
+            <span className={f.help}>Values in this column must be the ID of a row in that table.</span>
+          </label>
+          {link && target && (
+            <div className={f.row}>
+              <label className={f.field}>
+                <span className={f.label}>Matching column</span>
+                <select className={f.control} value={link.column} onChange={(e) => setLink({ ...link, column: e.target.value })}>
+                  {target.columns.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={f.field}>
+                <span className={f.label}>If that row is deleted</span>
+                <select className={f.control} value={link.onDelete} onChange={(e) => setLink({ ...link, onDelete: e.target.value as FkAction })}>
+                  {ON_DELETE.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
+
+        <label className={f.field}>
+          <span className={f.label}>
+            Description <span className={f.meta}>optional</span>
+          </span>
+          <textarea className={f.control} rows={2} value={col.comment ?? ""} onChange={(e) => setCol({ ...col, comment: e.target.value || null })} />
+        </label>
+      </div>
+    </Sheet>
+  );
+}
+
+// ---- index / relationship / rename sheets
+
+function IndexSheet({ design, onClose, onSave }: { design: TableDesign; onClose(): void; onSave(next: TableDesign): Promise<void> }) {
+  const [cols, setCols] = useState<string[]>([]);
+  const [unique, setUnique] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async () => {
+    try {
+      await onSave({ ...design, indexes: [...design.indexes, { original: null, name: `${design.name}_${cols.join("_")}_${unique ? "key" : "idx"}`, columns: cols, unique, isConstraint: false }] });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <Sheet
+      isOpen
+      onClose={onClose}
+      title="Add index"
+      subtitle={`on ${design.name}`}
+      footer={
+        <>
+          <span />
+          <Button onPress={onClose}>Cancel</Button>
+          <Button variant="primary" isDisabled={!cols.length} onPress={save}>
+            Add index
+          </Button>
+        </>
+      }
+    >
+      <div className={f.stack}>
+        {error && <div className={f.error}>{error}</div>}
+        <div className={f.field}>
+          <span className={f.label}>Columns</span>
+          <span className={f.help}>Pick them in the order you search by them most.</span>
+          <div className={s.checkList}>
+            {design.columns.map((c) => (
+              <label key={c.name}>
+                <input type="checkbox" checked={cols.includes(c.name)} onChange={(e) => setCols((cur) => (e.target.checked ? [...cur, c.name] : cur.filter((x) => x !== c.name)))} />
+                <span className={s.name}>{c.name}</span>
+                {cols.includes(c.name) && <span className={f.meta}>{cols.indexOf(c.name) + 1}</span>}
+              </label>
+            ))}
+          </div>
+        </div>
+        <Switch isSelected={unique} onChange={setUnique}>
+          Unique: no two rows can share these values
         </Switch>
       </div>
+    </Sheet>
+  );
+}
 
-      <label className={s.field}>
-        <span>Varsayılan değer</span>
-        <select className={s.input} value={mode} onChange={(e) => setMode(e.target.value as DefaultMode)} disabled={disabled}>
-          <option value="none">Yok</option>
-          <option value="value">Sabit bir değer</option>
-          {(category === "dateTime" || category === "date" || mode === "now") && <option value="now">Kayıt anındaki zaman</option>}
-          {(category === "number" || mode === "auto") && <option value="auto">Otomatik artan sayı</option>}
-          {(category === "identifier" || mode === "uuid") && <option value="uuid">Rastgele kimlik (UUID)</option>}
-          {(developerMode || mode === "custom") && <option value="custom">Özel SQL ifadesi</option>}
-        </select>
-      </label>
-      {mode === "value" && (
-        <input
-          className={s.input}
-          value={literal}
-          onChange={(e) => {
-            setLiteral(e.target.value);
-            onChange({ default: e.target.value === "" ? null : numeric ? e.target.value : sqlString(e.target.value) });
-          }}
-          placeholder="değer"
-          disabled={disabled}
-        />
-      )}
-      {mode === "custom" && (
-        <input className={`${s.input} ${s.mono}`} value={c.default ?? ""} onChange={(e) => onChange({ default: e.target.value || null })} disabled={disabled} spellCheck={false} />
-      )}
+function LinkSheet({
+  design,
+  tables,
+  schema,
+  onClose,
+  onSave,
+}: {
+  design: TableDesign;
+  tables: { schema: string; name: string; columns: string[] }[];
+  schema: string | null;
+  onClose(): void;
+  onSave(next: TableDesign): Promise<void>;
+}) {
+  const guess = design.columns.find((c) => /_id$/.test(c.name) && !c.primaryKey) ?? design.columns[0];
+  const [column, setColumn] = useState(guess?.name ?? "");
+  const guessTable = tables.find((t) => column.replace(/_id$/, "") === t.name.replace(/s$/, "")) ?? tables[0];
+  const [table, setTable] = useState(guessTable ? `${guessTable.schema}.${guessTable.name}` : "");
+  const target = tables.find((t) => `${t.schema}.${t.name}` === table);
+  const [refColumn, setRefColumn] = useState("");
+  const [onDelete, setOnDelete] = useState<FkAction>("noAction");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setRefColumn(target ? (target.columns.includes("id") ? "id" : target.columns[0]) : ""), [target]);
 
-      <div className={s.field}>
-        <span>Başka bir tabloya bağlı</span>
-        <select
-          className={s.input}
-          value={link ? `${link.refSchema ?? ""}.${link.refTable}` : ""}
-          disabled={readOnly}
-          onChange={(e) => {
-            if (!e.target.value) return onLink(null);
-            const t = tables.find((t) => `${sameSchema(t.schema) ? "" : t.schema}.${t.name}` === e.target.value);
-            if (t) onLink({ refSchema: sameSchema(t.schema) ? null : t.schema, refTable: t.name, refColumns: [t.columns.includes("id") ? "id" : t.columns[0]] });
-          }}
-        >
-          <option value="">Bağlı değil</option>
-          {tables.map((t) => (
-            <option key={`${t.schema}.${t.name}`} value={`${sameSchema(t.schema) ? "" : t.schema}.${t.name}`}>
-              {sameSchema(t.schema) ? t.name : `${t.schema}.${t.name}`}
-            </option>
-          ))}
-        </select>
-        {link && target && (
-          <>
-            <select className={s.input} value={link.refColumns[0] ?? ""} onChange={(e) => onLink({ refColumns: [e.target.value] })} disabled={readOnly} aria-label="Hedef sütun">
-              {target.columns.map((tc) => (
-                <option key={tc} value={tc}>
-                  {target.name}.{tc}
+  const save = async () => {
+    if (!target) return;
+    try {
+      await onSave({
+        ...design,
+        foreignKeys: [
+          ...design.foreignKeys,
+          { original: null, name: `${design.name}_${column}_fkey`, columns: [column], refSchema: target.schema === schema ? null : target.schema, refTable: target.name, refColumns: [refColumn], onDelete, onUpdate: "noAction" },
+        ],
+      });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Sheet
+      isOpen
+      onClose={onClose}
+      title="Add relationship"
+      subtitle={`from ${design.name}`}
+      footer={
+        <>
+          <span />
+          <Button onPress={onClose}>Cancel</Button>
+          <Button variant="primary" isDisabled={!target || !column} onPress={save}>
+            Add relationship
+          </Button>
+        </>
+      }
+    >
+      <div className={f.stack}>
+        {error && <div className={f.error}>{error}</div>}
+        <label className={f.field}>
+          <span className={f.label}>Column in {design.name}</span>
+          <select className={f.control} value={column} onChange={(e) => setColumn(e.target.value)}>
+            {design.columns.map((c) => (
+              <option key={c.name}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+        <div className={f.row}>
+          <label className={f.field}>
+            <span className={f.label}>Links to table</span>
+            <select className={f.control} value={table} onChange={(e) => setTable(e.target.value)}>
+              {tables.map((t) => (
+                <option key={`${t.schema}.${t.name}`} value={`${t.schema}.${t.name}`}>
+                  {t.schema === schema ? t.name : `${t.schema}.${t.name}`}
                 </option>
               ))}
             </select>
-            <label className={s.field}>
-              <span>Bağlı kayıt silinirse</span>
-              <select className={s.input} value={link.onDelete} onChange={(e) => onLink({ onDelete: e.target.value as FkAction })} disabled={readOnly}>
-                <option value="noAction">Silmeyi engelle</option>
-                <option value="cascade">Bu satır da silinsin</option>
-                <option value="setNull">Bu alan boşaltılsın</option>
-              </select>
-            </label>
-          </>
-        )}
-      </div>
-
-      <label className={s.field}>
-        <span>Açıklama</span>
-        <textarea className={s.input} rows={2} value={c.comment ?? ""} onChange={(e) => onChange({ comment: e.target.value || null })} disabled={readOnly} />
-      </label>
-
-      {!readOnly && (
-        <Button variant="ghost" className={s.remove} onPress={onRemove}>
-          Sütunu sil
-        </Button>
-      )}
-    </div>
-  );
-}
-
-/** Index and multi-column link editing for people who need it. */
-function Advanced({
-  draft,
-  setDraft,
-  readOnly,
-  tables,
-  sameSchema,
-}: {
-  draft: TableDesign;
-  setDraft: React.Dispatch<React.SetStateAction<TableDesign>>;
-  readOnly: boolean;
-  tables: { schema: string; name: string; columns: string[] }[];
-  sameSchema(schema: string | null): boolean;
-}) {
-  const names = draft.columns.map((c) => c.name);
-  const setIndex = (i: number, p: Partial<IndexDesign>) => setDraft((d) => ({ ...d, indexes: d.indexes.map((x, j) => (j === i ? { ...x, ...p } : x)) }));
-  const setFk = (i: number, p: Partial<ForeignKeyDesign>) => setDraft((d) => ({ ...d, foreignKeys: d.foreignKeys.map((x, j) => (j === i ? { ...x, ...p } : x)) }));
-  const refCols = (f: ForeignKeyDesign) => tables.find((t) => t.name === f.refTable && (f.refSchema ? t.schema === f.refSchema : sameSchema(t.schema)))?.columns ?? [];
-
-  return (
-    <div className={s.advanced}>
-      <h4 className={s.subheading}>Index'ler</h4>
-      {draft.indexes.length === 0 && <p className={s.note}>Index yok.</p>}
-      {draft.indexes.map((x, i) => (
-        <div key={i} className={s.line}>
-          <input className={`${s.input} ${s.mono}`} style={{ width: 220 }} value={x.name} onChange={(e) => setIndex(i, { name: e.target.value })} disabled={readOnly} spellCheck={false} />
-          <ColumnPicker all={names} value={x.columns} onChange={(columns) => setIndex(i, { columns })} disabled={readOnly} />
-          <label className={s.inline}>
-            <input type="checkbox" checked={x.unique} onChange={(e) => setIndex(i, { unique: e.target.checked })} disabled={readOnly} /> Benzersiz
           </label>
-          {!readOnly && (
-            <IconButton label="Index'i sil" onPress={() => setDraft((d) => ({ ...d, indexes: d.indexes.filter((_, j) => j !== i) }))}>
-              <CloseIcon size={13} />
-            </IconButton>
-          )}
+          <label className={f.field}>
+            <span className={f.label}>Column</span>
+            <select className={f.control} value={refColumn} onChange={(e) => setRefColumn(e.target.value)}>
+              {target?.columns.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
         </div>
-      ))}
-      {!readOnly && (
-        <Button
-          variant="ghost"
-          onPress={() =>
-            setDraft((d) => ({ ...d, indexes: [...d.indexes, { original: null, name: `${d.name || "tablo"}_${names[0] ?? "x"}_idx`, columns: names[0] ? [names[0]] : [], unique: false, isConstraint: false }] }))
-          }
-        >
-          <PlusIcon size={14} /> Index ekle
-        </Button>
-      )}
-
-      <h4 className={s.subheading}>Bağlantılar (foreign key)</h4>
-      {draft.foreignKeys.length === 0 && <p className={s.note}>Bağlantı yok.</p>}
-      {draft.foreignKeys.map((f, i) => (
-        <div key={i} className={s.line}>
-          <input className={`${s.input} ${s.mono}`} style={{ width: 200 }} value={f.name} onChange={(e) => setFk(i, { name: e.target.value })} disabled={readOnly} spellCheck={false} />
-          <ColumnPicker all={names} value={f.columns} onChange={(columns) => setFk(i, { columns })} disabled={readOnly} />
-          <span className={s.note}>→ {f.refTable}</span>
-          <ColumnPicker all={refCols(f)} value={f.refColumns} onChange={(refColumns) => setFk(i, { refColumns })} disabled={readOnly} />
-          {!readOnly && (
-            <IconButton label="Bağlantıyı sil" onPress={() => setDraft((d) => ({ ...d, foreignKeys: d.foreignKeys.filter((_, j) => j !== i) }))}>
-              <CloseIcon size={13} />
-            </IconButton>
-          )}
-        </div>
-      ))}
-    </div>
+        <label className={f.field}>
+          <span className={f.label}>If the linked row is deleted</span>
+          <select className={f.control} value={onDelete} onChange={(e) => setOnDelete(e.target.value as FkAction)}>
+            {ON_DELETE.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </Sheet>
   );
 }
 
-/** Ordered multi-column choice shown as removable chips plus an "add" dropdown. */
-function ColumnPicker({ all, value, onChange, disabled }: { all: string[]; value: string[]; onChange(v: string[]): void; disabled?: boolean }) {
-  const rest = all.filter((c) => !value.includes(c));
+function RenameSheet({ design, onClose, onSave }: { design: TableDesign; onClose(): void; onSave(next: TableDesign): Promise<void> }) {
+  const [name, setName] = useState(design.name);
+  const [error, setError] = useState<string | null>(null);
   return (
-    <span className={s.chips}>
-      {value.map((c) => (
-        <span key={c} className={s.chip}>
-          {c}
-          {!disabled && (
-            <button className={s.chipX} onClick={() => onChange(value.filter((x) => x !== c))} aria-label={`${c} çıkar`}>
-              ×
-            </button>
-          )}
-        </span>
-      ))}
-      {!disabled && rest.length > 0 && (
-        <select className={s.addChip} value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} aria-label="Sütun ekle">
-          <option value="">+</option>
-          {rest.map((c) => (
-            <option key={c}>{c}</option>
-          ))}
-        </select>
-      )}
-    </span>
+    <Sheet
+      isOpen
+      onClose={onClose}
+      title="Rename table"
+      width={420}
+      footer={
+        <>
+          <span />
+          <Button onPress={onClose}>Cancel</Button>
+          <Button variant="primary" isDisabled={!name.trim() || name.trim() === design.name} onPress={() => onSave({ ...design, name: name.trim() }).catch((e) => setError(errorMessage(e)))}>
+            Rename
+          </Button>
+        </>
+      }
+    >
+      <div className={f.stack}>
+        {error && <div className={f.error}>{error}</div>}
+        <label className={f.field}>
+          <span className={f.label}>New name</span>
+          <input className={`${f.control} ${f.mono}`} value={name} onChange={(e) => setName(e.target.value)} autoFocus spellCheck={false} />
+          <span className={f.help}>Queries and apps that use the old name will need to be updated.</span>
+        </label>
+      </div>
+    </Sheet>
+  );
+}
+
+// =====================================================================================
+// New table
+
+type DraftColumn = ColumnDesign & { unique?: boolean; linkTo?: string };
+
+export function CreateTable({
+  connection,
+  schema,
+  snapshot,
+  onCreated,
+  onReview,
+  review,
+}: {
+  connection: ConnectionConfig;
+  schema: string | null;
+  snapshot: SchemaSnapshot | undefined;
+  onCreated(name: string): void | Promise<void>;
+  onReview(r: ReviewRequest): void;
+  review: ReactNode;
+}) {
+  const driver = driverFor(connection, useCatalog((st) => st.drivers));
+  const mysql = driver?.kind === "mysql";
+  const sql = (label: string, fallback: string) => driver?.types.find((t) => t.label === label)?.sql ?? fallback;
+  const tables = useMemo(() => tablesOf(snapshot), [snapshot]);
+  const [name, setName] = useState("");
+  const [columns, setColumns] = useState<DraftColumn[]>(() => [
+    { ...blankColumn("id"), dataType: sql("Big integer", "bigint"), nullable: false, primaryKey: true, autoIncrement: true },
+    { ...blankColumn("name"), dataType: sql("Text", "text"), nullable: false },
+    { ...blankColumn("created_at"), dataType: sql("Date & time", "timestamp"), nullable: false, default: mysql ? "CURRENT_TIMESTAMP" : "now()" },
+  ]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const set = (i: number, patch: Partial<DraftColumn>) => setColumns((cur) => cur.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+
+  const create = async () => {
+    setBusy(true);
+    setError(null);
+    const table = name.trim();
+    const design: TableDesign = {
+      name: table,
+      columns: columns.map(({ unique: _u, linkTo: _l, ...c }) => ({ ...c, name: c.name.trim() })),
+      indexes: columns.filter((c) => c.unique && !c.primaryKey).map((c) => ({ original: null, name: `${table}_${c.name}_key`, columns: [c.name], unique: true, isConstraint: false })),
+      foreignKeys: columns
+        .filter((c) => c.linkTo)
+        .map((c) => {
+          const t = tables.find((t) => `${t.schema}.${t.name}` === c.linkTo)!;
+          return {
+            original: null,
+            name: `${table}_${c.name}_fkey`,
+            columns: [c.name],
+            refSchema: t.schema === schema ? null : t.schema,
+            refTable: t.name,
+            refColumns: [t.columns.includes("id") ? "id" : t.columns[0]],
+            onDelete: "noAction" as FkAction,
+            onUpdate: "noAction" as FkAction,
+          };
+        }),
+      primaryKeyName: null,
+    };
+    try {
+      await applyDesign({ connection, schema, original: null, next: design, driver, onReview, title: "Create table", done: () => onCreated(table) });
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={s.page}>
+      <div className={s.header}>
+        <div>
+          <h2 className={s.title}>New table</h2>
+          <p className={s.meta}>Name it, then list the columns each row should have.</p>
+        </div>
+      </div>
+      <div className={s.createForm}>
+        <label className={f.field}>
+          <span className={f.label}>Table name</span>
+          <input className={`${f.control} ${f.mono}`} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. customers" autoFocus spellCheck={false} style={{ maxWidth: 360 }} />
+        </label>
+
+        {error && <div className={f.error} role="alert">{error}</div>}
+
+        <div className={s.createGrid}>
+          <div className={s.createHead}>
+            <span>Column</span>
+            <span>Type</span>
+            <span>Default</span>
+            <span title="Every row must have a value">Required</span>
+            <span title="No duplicates">Unique</span>
+            <span title="Identifies each row">Key</span>
+            <span>Links to</span>
+            <span />
+          </div>
+          {columns.map((c, i) => {
+            const known = driver?.types.find((t) => t.sql === c.dataType);
+            return (
+              <div key={i} className={s.createRow}>
+                <input className={`${f.control} ${f.mono}`} value={c.name} onChange={(e) => set(i, { name: e.target.value })} placeholder="column_name" spellCheck={false} aria-label="Column name" />
+                <select className={f.control} value={known?.sql ?? c.dataType} onChange={(e) => set(i, { dataType: e.target.value })} aria-label="Type">
+                  {driver?.types.map((t) => (
+                    <option key={t.sql} value={t.sql}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+                <span className={s.defaultCell}>{describeDefault(c) || <span className={s.none}>—</span>}</span>
+                <input type="checkbox" checked={!c.nullable} disabled={c.primaryKey} onChange={(e) => set(i, { nullable: !e.target.checked })} aria-label="Required" />
+                <input type="checkbox" checked={!!c.unique} disabled={c.primaryKey} onChange={(e) => set(i, { unique: e.target.checked })} aria-label="Unique" />
+                <input
+                  type="radio"
+                  name="pk"
+                  checked={c.primaryKey}
+                  onChange={() => setColumns((cur) => cur.map((x, j) => ({ ...x, primaryKey: j === i, nullable: j === i ? false : x.nullable })))}
+                  aria-label="Primary key"
+                />
+                <select className={f.control} value={c.linkTo ?? ""} onChange={(e) => set(i, { linkTo: e.target.value || undefined })} aria-label="Links to">
+                  <option value="">—</option>
+                  {tables.map((t) => (
+                    <option key={`${t.schema}.${t.name}`} value={`${t.schema}.${t.name}`}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <IconButton label="Remove column" onPress={() => setColumns((cur) => cur.filter((_, j) => j !== i))}>
+                  <TrashIcon size={14} />
+                </IconButton>
+              </div>
+            );
+          })}
+        </div>
+        <div className={s.createActions}>
+          <Button variant="ghost" onPress={() => setColumns((cur) => [...cur, { ...blankColumn(`column_${cur.length + 1}`), dataType: sql("Text", "text") }])}>
+            <PlusIcon size={14} /> Add column
+          </Button>
+          <span className={s.spacer} />
+          <Button variant="primary" onPress={create} isDisabled={busy || !name.trim() || !columns.length}>
+            Create table
+          </Button>
+        </div>
+      </div>
+      {review}
+    </div>
   );
 }

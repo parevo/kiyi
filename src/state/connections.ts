@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { ConnectionConfig, SchemaSnapshot } from "../lib/types";
+import { useSettings } from "./settings";
 
 type Status = "idle" | "connecting" | "connected" | "error";
 
@@ -38,6 +39,9 @@ export const useConnections = create<ConnectionsState>((set, get) => {
     async load() {
       const connections = await ipc.listConnections();
       set({ connections, loaded: true });
+      // Pick up where the user left off.
+      const last = useSettings.getState().lastConnectionId;
+      if (!get().activeId && last && connections.some((c) => c.id === last)) get().activate(last);
     },
 
     async save(config, password) {
@@ -70,6 +74,7 @@ export const useConnections = create<ConnectionsState>((set, get) => {
 
     async activate(id) {
       set({ activeId: id });
+      useSettings.getState().set({ lastConnectionId: id });
       const current = get().live[id]?.status;
       if (current === "connected" || current === "connecting") return;
       patch(id, { status: "connecting", error: undefined });

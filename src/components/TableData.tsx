@@ -7,118 +7,105 @@ import {
   type GridCell,
   GridCellKind,
   type GridColumn,
-  GridColumnIcon,
   type GridSelection,
   type Item,
   type Rectangle,
+  type SpriteMap,
   type Theme,
 } from "@glideapps/glide-data-grid";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { errorMessage, ipc } from "../lib/ipc";
-import type { BrowseRequest, Cell, ChangeSet, ColumnMeta, ConnectionConfig, ErrorInfo, Filter, RowChange, TableDetails, ValueKind } from "../lib/types";
+import type { BrowseRequest, Cell, ColumnMeta, ConnectionConfig, ErrorInfo, Filter, ForeignKeyDesign, RowChange, Sort, TableDetails } from "../lib/types";
 import { driverFor, useCatalog } from "../state/catalog";
 import { useSettings } from "../state/settings";
-import { useTabs } from "../state/tabs";
 import { toast } from "../state/toasts";
 import { ContextMenu, type MenuEntry, type MenuState } from "./ContextMenu";
-import { FilterBar, type FilterState } from "./FilterBar";
-import { RecordPanel } from "./RecordPanel";
 import { useGridTheme } from "./gridTheme";
+import { RecordPanel } from "./RecordPanel";
 import type { ReviewRequest } from "./ReviewDialog";
 import s from "./TableView.module.css";
 
 const PAGE_SIZE = 300;
 const EXACT_COUNT_LIMIT = 5_000_000;
 
-const ICONS: Record<ValueKind, GridColumnIcon> = {
-  text: GridColumnIcon.HeaderString,
-  number: GridColumnIcon.HeaderNumber,
-  bool: GridColumnIcon.HeaderBoolean,
-  json: GridColumnIcon.HeaderCode,
-  temporal: GridColumnIcon.HeaderDate,
-  uuid: GridColumnIcon.HeaderRowID,
-  binary: GridColumnIcon.HeaderImage,
-  array: GridColumnIcon.HeaderArray,
-  other: GridColumnIcon.HeaderString,
-};
-
-/** Pending edits. `undefined` in an inserted row means "use the column default". */
-interface Edits {
-  updates: Map<number, Map<number, Cell>>;
-  inserts: (Cell | undefined)[][];
-  deletes: Set<number>;
+export interface TableQuery {
+  filters: Filter[];
+  rawWhere: string | null;
+  search: string | null;
+  sort: Sort | null;
+  /** Set when the current filters came from an AI request. */
+  ai: { prompt: string; explanation: string } | null;
 }
 
-const emptyEdits = (): Edits => ({ updates: new Map(), inserts: [], deletes: new Set() });
-const cloneEdits = (e: Edits): Edits => ({
-  updates: new Map([...e.updates].map(([r, m]) => [r, new Map(m)])),
-  inserts: e.inserts.map((r) => [...r]),
-  deletes: new Set(e.deletes),
-});
-
-export function countEdits(e: Edits) {
-  let n = e.inserts.length + e.deletes.size;
-  for (const [row] of e.updates) if (!e.deletes.has(row)) n++;
-  return n;
-}
+export const emptyQuery = (filters: Filter[] = []): TableQuery => ({ filters, rawWhere: null, search: null, sort: null, ai: null });
 
 export interface TableDataHandle {
-  save(): void;
-  undo(): void;
-  discard(): void;
   refresh(): void;
-  addRow(): void;
   deleteSelected(): void;
-  toggleFilters(): void;
+  duplicateSelected(): void;
+  save(): void;
+  discard(): void;
 }
 
 export interface TableDataStatus {
   loaded: number;
   total: number | null;
   totalIsEstimate: boolean;
+  /** Unsaved edits; only used on production connections, where edits are staged. */
   pending: number;
   selectedRows: number;
   loading: boolean;
-  filters: number;
-  showFilters: boolean;
   elapsedMs: number | null;
   sql: string | null;
 }
 
 interface Props {
-  tabId: string;
   connection: ConnectionConfig;
   details: TableDetails;
+  query: TableQuery;
   active: boolean;
+  onQuery(q: TableQuery): void;
   onStatus(status: TableDataStatus): void;
   onReview(req: ReviewRequest): void;
+  onInsert(prefill?: Record<string, Cell>): void;
+  onFollow(fk: ForeignKeyDesign, value: string): void;
   onEditStructure(): void;
 }
+
+/** Lucide's key and link glyphs as grid header sprites. */
+const sprite =
+  (paths: string): SpriteMap[string] =>
+  ({ fgColor }) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${fgColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const HEADER_ICONS: SpriteMap = {
+  key: sprite('<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/>'),
+  link: sprite('<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/>'),
+};
 
 function preview(value: string) {
   const flat = value.length > 400 ? value.slice(0, 400) + "…" : value;
   return flat.replace(/\r?\n/g, " ⏎ ");
 }
 
+type Updates = Map<number, Map<number, Cell>>;
+const cloneUpdates = (u: Updates): Updates => new Map([...u].map(([r, m]) => [r, new Map(m)]));
+
 export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
-  { tabId, connection, details, active, onStatus, onReview, onEditStructure },
+  { connection, details, query, active, onQuery, onStatus, onReview, onInsert, onFollow, onEditStructure },
   ref,
 ) {
   const theme = useGridTheme();
   const grid = useRef<DataEditorRef>(null);
-  const tab = useTabs((st) => st.tabs.find((t) => t.id === tabId));
-  const openTable = useTabs((st) => st.openTable);
   const inspectorOpen = useSettings((st) => st.inspectorOpen);
+  const developerMode = useSettings((st) => st.developerMode);
   const driver = driverFor(connection, useCatalog((st) => st.drivers));
 
   const design = details.design;
   const schema = details.schema;
   const pk = useMemo(() => design.columns.filter((c) => c.primaryKey).map((c) => c.name), [design]);
   const editable = !details.isView && !connection.readOnly && pk.length > 0;
-
-  const [filterState, setFilterState] = useState<FilterState>({ filters: tab?.initialFilters ?? [], rawWhere: null });
-  const [showFilters, setShowFilters] = useState(!!tab?.initialFilters?.length);
-  const [sort, setSort] = useState<{ column: string; descending: boolean } | null>(null);
+  // On production, edits wait for an explicit Save; elsewhere they save as you go.
+  const staged = connection.env === "production";
 
   const [columns, setColumns] = useState<ColumnMeta[]>([]);
   const rows = useRef<Cell[][]>([]);
@@ -131,58 +118,53 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
   const [elapsed, setElapsed] = useState<number | null>(null);
   const generation = useRef(0);
 
-  const edits = useRef<Edits>(emptyEdits());
-  const history = useRef<Edits[]>([]);
+  const updates = useRef<Updates>(new Map());
   const [version, setVersion] = useState(0);
-  const [selection, setSelection] = useState<GridSelection>({
-    columns: CompactSelection.empty(),
-    rows: CompactSelection.empty(),
-  });
+  const bump = () => setVersion((v) => v + 1);
+  const [selection, setSelection] = useState<GridSelection>({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [widths, setWidths] = useState<Record<string, number>>({});
 
   const designByName = useMemo(() => new Map(design.columns.map((c) => [c.name, c])), [design]);
   const fkByColumn = useMemo(() => {
-    const m = new Map<string, (typeof design.foreignKeys)[number]>();
+    const m = new Map<string, ForeignKeyDesign>();
     for (const fk of design.foreignKeys) if (fk.columns.length === 1) m.set(fk.columns[0], fk);
     return m;
   }, [design]);
+  const colIndex = (name: string) => columns.findIndex((c) => c.name === name);
 
   const request = useCallback(
     (offset: number): BrowseRequest => ({
       schema,
       table: design.name,
-      filters: filterState.filters,
-      rawWhere: filterState.rawWhere,
-      sort: sort ? [sort] : [],
+      filters: query.filters,
+      rawWhere: query.rawWhere,
+      search: query.search,
+      searchColumns: design.columns.filter((c) => !c.generated).map((c) => c.name),
+      sort: query.sort ? [query.sort] : [],
       tiebreak: pk,
       limit: PAGE_SIZE,
       offset,
     }),
-    [schema, design.name, filterState, sort, pk],
+    [schema, design, query, pk],
   );
-
-  const pending = countEdits(edits.current);
 
   // ---- loading
 
   const load = useCallback(
     async (reset: boolean) => {
       const gen = reset ? ++generation.current : generation.current;
-      const offset = reset ? 0 : rows.current.length;
       setLoading(true);
       if (reset) setError(null);
       const started = performance.now();
       try {
-        const page = await ipc.browseTable(connection.id, request(offset));
+        const page = await ipc.browseTable(connection.id, request(reset ? 0 : rows.current.length));
         if (gen !== generation.current) return;
         if (reset) {
           rows.current = page.rows;
           setColumns(page.columns);
           setLastSql(page.sql);
-        } else {
-          rows.current.push(...page.rows);
-        }
+        } else rows.current.push(...page.rows);
         setRowCount(rows.current.length);
         setExhausted(page.rows.length < PAGE_SIZE);
         setElapsed(performance.now() - started);
@@ -197,7 +179,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
 
   const loadCount = useCallback(async () => {
     const gen = generation.current;
-    const unfiltered = !filterState.filters.length && !filterState.rawWhere;
+    const unfiltered = !query.filters.length && !query.rawWhere && !query.search;
     if (unfiltered && details.rowEstimate !== null && details.rowEstimate > EXACT_COUNT_LIMIT) {
       setTotal({ n: details.rowEstimate, estimate: true });
       return;
@@ -209,90 +191,128 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     } catch {
       /* the page itself reports errors */
     }
-  }, [connection.id, request, filterState, details.rowEstimate]);
+  }, [connection.id, request, query, details.rowEstimate]);
 
   const reload = useCallback(() => {
     load(true);
     loadCount();
   }, [load, loadCount]);
 
-  // Reload whenever the query shape changes. Edits are tied to row positions, so they go too.
   useEffect(() => {
-    edits.current = emptyEdits();
-    history.current = [];
-    setVersion((v) => v + 1);
+    updates.current = new Map();
+    setSelection({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
+    bump();
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterState, sort, design]);
+  }, [query, design]);
 
-  const guardPending = (action: string) =>
-    countEdits(edits.current) === 0 || confirm(`Kaydedilmemiş ${countEdits(edits.current)} değişiklik var. ${action} için bunlar atılacak. Devam edilsin mi?`);
+  const pending = [...updates.current.values()].reduce((n, m) => n + m.size, 0);
 
-  // ---- edits
+  // ---- reading cells
 
-  const mutate = (fn: (e: Edits) => void) => {
-    history.current.push(cloneEdits(edits.current));
-    if (history.current.length > 200) history.current.shift();
-    fn(edits.current);
-    setVersion((v) => v + 1);
-  };
-
-  const baseRows = rowCount;
-  const totalRows = baseRows + edits.current.inserts.length;
-
-  const valueAt = (col: number, row: number): Cell | undefined => {
-    if (row >= baseRows) return edits.current.inserts[row - baseRows]?.[col];
-    const u = edits.current.updates.get(row);
+  const valueAt = (col: number, row: number): Cell => {
+    const u = updates.current.get(row);
     if (u?.has(col)) return u.get(col)!;
     return rows.current[row]?.[col] ?? null;
   };
-
-  const setValue = (col: number, row: number, value: Cell) =>
-    mutate((e) => {
-      if (row >= baseRows) {
-        e.inserts[row - baseRows][col] = value;
-        return;
-      }
-      const original = rows.current[row]?.[col] ?? null;
-      const u = e.updates.get(row) ?? new Map<number, Cell>();
-      if (value === original) u.delete(col);
-      else u.set(col, value);
-      if (u.size) e.updates.set(row, u);
-      else e.updates.delete(row);
-    });
-
+  const keyOf = (row: number) => pk.map((k) => ({ column: k, value: rows.current[row]?.[colIndex(k)] ?? null }));
   const columnWritable = (col: number) => {
     const d = designByName.get(columns[col]?.name ?? "");
     return editable && !!d && !d.generated;
   };
 
-  const addRow = () => {
-    if (!editable) return;
-    mutate((e) => e.inserts.push(columns.map(() => undefined)));
-    requestAnimationFrame(() => grid.current?.scrollTo(0, baseRows + edits.current.inserts.length - 1));
+  // ---- saving
+
+  const binaryColumns = () => columns.filter((c) => c.kind === "binary").map((c) => c.name);
+
+  const apply = async (changes: RowChange[]) => {
+    const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), changes });
+    await ipc.executeScript(connection.id, statements, "data");
+    return statements;
   };
 
-  const duplicateRows = (indices: number[]) =>
-    mutate((e) => {
-      for (const r of indices) {
-        e.inserts.push(
-          columns.map((c, i) => {
-            const d = designByName.get(c.name);
-            if (!d || d.autoIncrement || d.generated || (d.primaryKey && d.default)) return undefined;
-            return valueAt(i, r);
-          }),
-        );
-      }
-    });
+  const updatesToChanges = (u: Updates): RowChange[] =>
+    [...u].map(([row, cols]) => ({
+      type: "update",
+      key: keyOf(row),
+      values: [...cols].map(([c, value]) => ({ column: columns[c].name, value })),
+    }));
 
-  const deleteRows = (indices: number[]) =>
-    mutate((e) => {
-      const existing = indices.filter((r) => r < baseRows);
-      const inserted = new Set(indices.filter((r) => r >= baseRows).map((r) => r - baseRows));
-      const allDeleted = existing.length > 0 && existing.every((r) => e.deletes.has(r));
-      for (const r of existing) allDeleted ? e.deletes.delete(r) : e.deletes.add(r);
-      e.inserts = e.inserts.filter((_, i) => !inserted.has(i));
+  /** Writes pending edits. Live mode calls this after every edit; staged mode on Save. */
+  const commit = async () => {
+    const batch = updates.current;
+    if (!batch.size) return;
+    const changes = updatesToChanges(batch);
+    // What to write back if the user hits Undo.
+    const undo: RowChange[] = [...batch].map(([row, cols]) => ({
+      type: "update",
+      key: pk.map((k) => {
+        const c = colIndex(k);
+        return { column: k, value: cols.has(c) ? cols.get(c)! : (rows.current[row]?.[c] ?? null) };
+      }),
+      values: [...cols].map(([c]) => ({ column: columns[c].name, value: rows.current[row]?.[c] ?? null })),
+    }));
+    try {
+      await apply(changes);
+      for (const [row, cols] of batch) for (const [c, v] of cols) if (rows.current[row]) rows.current[row][c] = v;
+      updates.current = new Map();
+      bump();
+      const n = changes.length;
+      toast.success(n === 1 ? "Saved" : `Saved ${n} rows`, {
+        label: "Undo",
+        run: async () => {
+          try {
+            await apply(undo);
+            reload();
+          } catch (e) {
+            toast.error(`Couldn't undo: ${errorMessage(e)}`);
+          }
+        },
+      });
+    } catch (e) {
+      updates.current = new Map();
+      bump();
+      toast.error(`Not saved: ${errorMessage(e)}`);
+    }
+  };
+
+  const commitSoon = useRef<number | null>(null);
+  const setValue = (col: number, row: number, value: Cell) => {
+    const original = rows.current[row]?.[col] ?? null;
+    const u = cloneUpdates(updates.current);
+    const cols = u.get(row) ?? new Map<number, Cell>();
+    if (value === original) cols.delete(col);
+    else cols.set(col, value);
+    if (cols.size) u.set(row, cols);
+    else u.delete(row);
+    updates.current = u;
+    bump();
+    if (!staged) {
+      // Coalesce a paste across many cells into one save.
+      if (commitSoon.current) clearTimeout(commitSoon.current);
+      commitSoon.current = window.setTimeout(commit, 0);
+    }
+  };
+
+  const saveStaged = async () => {
+    if (!updates.current.size) return;
+    const changes = updatesToChanges(updates.current);
+    const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), changes });
+    onReview({
+      title: "Save changes",
+      subtitle: `${design.name} · production`,
+      summary: [{ text: `${changes.length} ${changes.length === 1 ? "row" : "rows"} will be updated` }],
+      statements,
+      action: "Save",
+      confirmWord: design.name,
+      run: async () => {
+        await ipc.executeScript(connection.id, statements, "data");
+        updates.current = new Map();
+        bump();
+        reload();
+      },
     });
+  };
 
   const selectedRows = (): number[] => {
     const out = selection.rows.toArray();
@@ -304,107 +324,67 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     return [];
   };
 
-  const undo = () => {
-    const previous = history.current.pop();
-    if (!previous) return;
-    edits.current = previous;
-    setVersion((v) => v + 1);
-  };
-
-  const discard = () => {
-    if (!countEdits(edits.current)) return;
-    history.current.push(cloneEdits(edits.current));
-    edits.current = emptyEdits();
-    setVersion((v) => v + 1);
-  };
-
-  // ---- save
-
-  const save = async () => {
-    const e = edits.current;
-    if (!countEdits(e)) return;
-    const index = (name: string) => columns.findIndex((c) => c.name === name);
-    const key = (row: number) => pk.map((k) => ({ column: k, value: rows.current[row]?.[index(k)] ?? null }));
-    const changes: RowChange[] = [];
-    for (const r of [...e.deletes].sort((a, b) => a - b)) changes.push({ type: "delete", key: key(r) });
-    for (const [r, cols] of [...e.updates].sort((a, b) => a[0] - b[0])) {
-      if (e.deletes.has(r)) continue;
-      changes.push({ type: "update", key: key(r), values: [...cols].map(([c, value]) => ({ column: columns[c].name, value })) });
-    }
-    for (const row of e.inserts) {
-      const values = row.flatMap((value, c) => (value === undefined ? [] : [{ column: columns[c].name, value }]));
-      changes.push({ type: "insert", values });
-    }
-    const set: ChangeSet = {
-      schema,
-      table: design.name,
-      binaryColumns: columns.filter((c) => c.kind === "binary").map((c) => c.name),
-      changes,
-    };
-    const counts = { update: 0, insert: 0, delete: 0 };
-    for (const c of changes) counts[c.type]++;
-    const summary = [
-      counts.update && { text: `${counts.update} satır güncellenecek` },
-      counts.insert && { text: `${counts.insert} yeni satır eklenecek` },
-      counts.delete && { text: `${counts.delete} satır silinecek`, danger: true },
-    ].filter(Boolean) as { text: string; danger?: boolean }[];
-
+  const deleteRows = async (indices: number[]) => {
+    if (!editable || !indices.length) return;
+    const changes: RowChange[] = indices.map((r) => ({ type: "delete", key: keyOf(r) }));
     try {
-      const statements = await ipc.planRowChanges(connection.id, set);
-      const run = async () => {
-        await ipc.executeScript(connection.id, statements, "data");
-        edits.current = emptyEdits();
-        history.current = [];
-        setVersion((v) => v + 1);
-        reload();
-      };
-      // Plain edits save straight away; deleting, or anything on production, asks first.
-      const ask = counts.delete > 0 || connection.env === "production" || useSettings.getState().developerMode;
-      if (!ask) {
-        try {
-          await run();
-          toast.success(changes.length === 1 ? "Değişiklik kaydedildi" : `${changes.length} değişiklik kaydedildi`);
-        } catch (err) {
-          toast.error(`Kaydedilemedi: ${errorMessage(err)}`);
-        }
-        return;
-      }
+      const statements = await ipc.planRowChanges(connection.id, { schema, table: design.name, binaryColumns: binaryColumns(), changes });
+      const n = indices.length;
       onReview({
-        title: "Değişiklikleri kaydet",
-        subtitle: `${design.name} · hepsi birlikte uygulanır ya da hiçbiri uygulanmaz`,
-        summary,
+        title: n === 1 ? "Delete row" : `Delete ${n} rows`,
+        subtitle: design.name,
+        summary: [{ text: `${n} ${n === 1 ? "row" : "rows"} will be permanently deleted from ${design.name}`, danger: true }],
         statements,
-        action: counts.delete > 0 ? "Kaydet ve sil" : "Kaydet",
+        action: n === 1 ? "Delete row" : `Delete ${n} rows`,
         confirmWord: design.name,
-        run,
+        run: async () => {
+          await ipc.executeScript(connection.id, statements, "data");
+          toast.success(n === 1 ? "Row deleted" : `${n} rows deleted`);
+          reload();
+        },
       });
-    } catch (err) {
-      toast.error(errorMessage(err));
+    } catch (e) {
+      toast.error(errorMessage(e));
     }
+  };
+
+  const duplicate = (row: number) => {
+    const prefill: Record<string, Cell> = {};
+    columns.forEach((c, i) => {
+      const d = designByName.get(c.name);
+      if (!d || d.autoIncrement || d.generated || (d.primaryKey && d.default)) return;
+      prefill[c.name] = valueAt(i, row);
+    });
+    onInsert(prefill);
   };
 
   useImperativeHandle(ref, () => ({
-    save,
-    undo,
-    discard,
-    refresh: () => guardPending("Yenilemek") && (discard(), reload()),
-    addRow,
+    refresh: () => {
+      if (updates.current.size && !confirm("Discard unsaved changes and reload?")) return;
+      updates.current = new Map();
+      reload();
+    },
     deleteSelected: () => deleteRows(selectedRows()),
-    toggleFilters: () => setShowFilters((v) => !v),
+    duplicateSelected: () => {
+      const r = selectedRows()[0];
+      if (r !== undefined) duplicate(r);
+    },
+    save: saveStaged,
+    discard: () => {
+      updates.current = new Map();
+      bump();
+    },
   }));
 
-  // Status for the toolbar / footer, which live in the parent. Only report real changes,
-  // otherwise the parent re-renders us, we report again, and the two loop forever.
-  const selectedCount = selectedRows().length;
+  // ---- status for the parent toolbar; only report real changes to avoid a render loop
+
   const status: TableDataStatus = {
-    loaded: baseRows,
+    loaded: rowCount,
     total: total?.n ?? null,
     totalIsEstimate: total?.estimate ?? false,
     pending,
-    selectedRows: selectedCount,
+    selectedRows: selection.rows.length,
     loading,
-    filters: filterState.filters.length + (filterState.rawWhere ? 1 : 0),
-    showFilters,
     elapsedMs: elapsed,
     sql: lastSql,
   };
@@ -416,29 +396,17 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     onStatus(status);
   });
 
-  // ---- keyboard (only for the visible tab)
-
   useEffect(() => {
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey) return;
-      const inText = (e.target as HTMLElement).closest("input, textarea, [contenteditable]");
       const k = e.key.toLowerCase();
-      if (k === "s") {
+      if (k === "s" && staged) {
         e.preventDefault();
-        save();
-      } else if (k === "z" && !e.shiftKey && !inText) {
-        e.preventDefault();
-        undo();
+        saveStaged();
       } else if (k === "r") {
         e.preventDefault();
-        if (guardPending("Yenilemek")) {
-          discard();
-          reload();
-        }
-      } else if (k === "f") {
-        e.preventDefault();
-        setShowFilters((v) => !v);
+        reload();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -447,78 +415,47 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
 
   // ---- grid
 
-  const css = useMemo(() => {
+  const colors = useMemo(() => {
     const v = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-    return { edit: v("--edit-bg"), insert: v("--insert-bg"), del: v("--delete-bg"), nul: v("--null"), faint: v("--text-faint") };
+    return { edit: v("--edit-bg"), nul: v("--null"), faint: v("--text-faint") };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme]);
+
+  const gridTheme = useMemo<Partial<Theme>>(() => ({ ...theme, bgIconHeader: "transparent", fgIconHeader: colors.faint }), [theme, colors]);
 
   const gridColumns = useMemo<GridColumn[]>(
     () =>
       columns.map((c, i) => {
         const d = designByName.get(c.name);
-        const arrow = sort?.column === c.name ? (sort.descending ? " ↓" : " ↑") : "";
-        const keyMark = d?.primaryKey ? " 🔑" : fkByColumn.has(c.name) ? " ↗" : "";
+        const arrow = query.sort?.column === c.name ? (query.sort.descending ? "  ↓" : "  ↑") : "";
         let width = widths[c.name];
         if (!width) {
-          let longest = c.name.length + 5;
+          let longest = c.name.length + 6;
           for (let r = 0; r < Math.min(rows.current.length, 60); r++) {
             const v = rows.current[r][i];
             longest = Math.max(longest, v === null ? 4 : Math.min(v.length, 60));
           }
-          width = Math.round(Math.min(380, Math.max(80, longest * 7.3 + 30)));
+          width = Math.round(Math.min(380, Math.max(90, longest * 7.3 + 30)));
         }
-        return { id: c.name, title: c.name + keyMark + arrow, icon: ICONS[c.kind], width };
+        return { id: c.name, title: c.name + arrow, icon: d?.primaryKey ? "key" : fkByColumn.has(c.name) ? "link" : undefined, width };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [columns, sort, widths, designByName, fkByColumn, rowCount > 0],
+    [columns, query.sort, widths, designByName, fkByColumn, rowCount > 0],
   );
 
   const getCellContent = useCallback(
     ([col, row]: Item): GridCell => {
       const meta = columns[col];
-      const inserted = row >= baseRows;
-      const deleted = !inserted && edits.current.deletes.has(row);
-      const edited = !inserted && !!edits.current.updates.get(row)?.has(col);
+      const edited = !!updates.current.get(row)?.has(col);
       const value = valueAt(col, row);
-      const writable = columnWritable(col) && !deleted;
+      const writable = columnWritable(col);
+      const over: Partial<Theme> = edited ? { bgCell: colors.edit } : {};
 
-      const bg = deleted ? css.del : inserted ? css.insert : edited ? css.edit : undefined;
-      const over: Partial<Theme> = bg ? { bgCell: bg } : {};
-      if (deleted) over.textDark = css.faint;
-
-      if (value === undefined) {
-        const d = designByName.get(meta?.name ?? "");
-        const label = d?.autoIncrement || d?.default || d?.generated ? "DEFAULT" : "NULL";
-        return {
-          kind: GridCellKind.Text,
-          data: "",
-          displayData: label,
-          allowOverlay: writable,
-          readonly: !writable,
-          themeOverride: { ...over, textDark: css.faint, baseFontStyle: "italic 12px" },
-        };
-      }
       if (meta?.kind === "bool") {
-        return {
-          kind: GridCellKind.Boolean,
-          data: value === null ? null : value === "true",
-          allowOverlay: false,
-          readonly: !writable,
-          copyData: value ?? "NULL",
-          themeOverride: over,
-        };
+        return { kind: GridCellKind.Boolean, data: value === null ? null : value === "true", allowOverlay: false, readonly: !writable, copyData: value ?? "NULL", themeOverride: over };
       }
       if (value === null) {
-        return {
-          kind: GridCellKind.Text,
-          data: "",
-          displayData: "NULL",
-          allowOverlay: writable,
-          readonly: !writable,
-          copyData: "NULL",
-          themeOverride: { ...over, textDark: deleted ? css.faint : css.nul, baseFontStyle: "italic 12px" },
-        };
+        return { kind: GridCellKind.Text, data: "", displayData: "NULL", allowOverlay: writable, readonly: !writable, copyData: "NULL", themeOverride: { ...over, textDark: colors.nul, baseFontStyle: "italic 12px" } };
       }
       return {
         kind: GridCellKind.Text,
@@ -531,83 +468,48 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
         themeOverride: over,
       };
     },
-    // `version` captures edit changes; the ref contents are read at draw time.
+    // `version` captures edits; the ref contents are read at draw time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [columns, baseRows, version, css, editable],
+    [columns, version, colors, editable],
   );
 
   const onCellEdited = ([col, row]: Item, cell: EditableGridCell) => {
-    if (cell.kind === GridCellKind.Boolean) {
-      setValue(col, row, cell.data === null || cell.data === undefined ? null : String(cell.data));
-    } else if (cell.kind === GridCellKind.Text) {
-      const before = valueAt(col, row);
-      // Opening a NULL/DEFAULT cell and closing it without typing isn't an edit.
-      if (cell.data === "" && (before === null || before === undefined)) return;
+    if (cell.kind === GridCellKind.Boolean) setValue(col, row, cell.data === null || cell.data === undefined ? null : String(cell.data));
+    else if (cell.kind === GridCellKind.Text) {
+      // Opening a NULL cell and closing it without typing isn't an edit.
+      if (cell.data === "" && valueAt(col, row) === null) return;
       setValue(col, row, cell.data);
     }
   };
 
-  const setNull = (cells: Item[]) => {
-    const targets = cells.filter(([c, r]) => columnWritable(c) && designByName.get(columns[c].name)?.nullable && !edits.current.deletes.has(r));
-    if (!targets.length) return;
-    mutate((e) => {
-      for (const [col, row] of targets) {
-        if (row >= baseRows) e.inserts[row - baseRows][col] = null;
-        else {
-          const u = e.updates.get(row) ?? new Map<number, Cell>();
-          if ((rows.current[row]?.[col] ?? null) === null) u.delete(col);
-          else u.set(col, null);
-          if (u.size) e.updates.set(row, u);
-          else e.updates.delete(row);
-        }
-      }
-    });
-  };
-
-  const rowJson = (row: number) =>
-    JSON.stringify(Object.fromEntries(columns.map((c, i) => [c.name, valueAt(i, row) ?? null])), null, 2);
-
   const filterBy = (column: string, value: Cell) => {
-    if (!guardPending("Filtrelemek")) return;
     const f: Filter = value === null ? { column, op: "isNull", value: "" } : { column, op: "eq", value };
-    setShowFilters(true);
-    setFilterState((st) => ({ ...st, filters: [...st.filters.filter((x) => x.column !== column), f] }));
+    onQuery({ ...query, ai: null, filters: [...query.filters.filter((x) => x.column !== column), f] });
   };
 
-  const followFk = (column: string, value: Cell) => {
-    const fk = fkByColumn.get(column);
-    if (!fk || value === null) return;
-    openTable(connection.id, fk.refSchema ?? schema, fk.refTable, "data", [{ column: fk.refColumns[0], op: "eq", value }]);
-  };
+  const rowJson = (row: number) => JSON.stringify(Object.fromEntries(columns.map((c, i) => [c.name, valueAt(i, row)])), null, 2);
 
   const onCellContextMenu = ([col, row]: Item, e: { bounds: Rectangle; localEventX: number; localEventY: number; preventDefault(): void }) => {
     e.preventDefault();
     if (row < 0 || col < 0) return;
     const meta = columns[col];
-    const value = valueAt(col, row) ?? null;
-    const rowsSel = selectedRows().includes(row) ? selectedRows() : [row];
+    const value = valueAt(col, row);
     const fk = fkByColumn.get(meta.name);
     const nullable = designByName.get(meta.name)?.nullable;
+    const rowsSel = selection.rows.hasIndex(row) ? selection.rows.toArray() : [row];
     const items: MenuEntry[] = [
-      { label: "Değeri kopyala", onSelect: () => navigator.clipboard.writeText(value ?? "NULL"), shortcut: "⌘C" },
-      { label: "Satırı JSON olarak kopyala", onSelect: () => navigator.clipboard.writeText(rowsSel.length > 1 ? `[${rowsSel.map(rowJson).join(",\n")}]` : rowJson(row)) },
+      { label: "Copy value", onSelect: () => navigator.clipboard.writeText(value ?? ""), shortcut: "⌘C" },
+      { label: "Copy row as JSON", onSelect: () => navigator.clipboard.writeText(rowsSel.length > 1 ? `[${rowsSel.map(rowJson).join(",\n")}]` : rowJson(row)) },
       "separator",
-      { label: value === null ? `${meta.name} NULL olanları göster` : `${meta.name} = bu değer olanları göster`, onSelect: () => filterBy(meta.name, value) },
+      { label: value === null ? `Show rows where ${meta.name} is empty` : `Show rows with this ${meta.name}`, onSelect: () => filterBy(meta.name, value) },
     ];
-    if (fk) {
-      items.push({ label: `${fk.refTable} kaydını aç`, onSelect: () => followFk(meta.name, value), disabled: value === null });
-    }
+    if (fk && value !== null) items.push({ label: `Open linked ${fk.refTable} row`, onSelect: () => onFollow(fk, value) });
     if (editable) {
-      const deleted = row < baseRows && edits.current.deletes.has(row);
       items.push(
         "separator",
-        { label: "NULL yap", onSelect: () => setNull([[col, row]]), disabled: !nullable || !columnWritable(col), shortcut: "⌫" },
-        { label: rowsSel.length > 1 ? `${rowsSel.length} satırı çoğalt` : "Satırı çoğalt", onSelect: () => duplicateRows(rowsSel) },
-        {
-          label: deleted ? "Silmeyi geri al" : rowsSel.length > 1 ? `${rowsSel.length} satırı sil` : "Satırı sil",
-          onSelect: () => deleteRows(rowsSel),
-          danger: !deleted,
-        },
+        { label: "Set to NULL", onSelect: () => setValue(col, row, null), disabled: !nullable || !columnWritable(col) || value === null },
+        { label: "Duplicate row", onSelect: () => duplicate(row) },
+        { label: rowsSel.length > 1 ? `Delete ${rowsSel.length} rows…` : "Delete row…", onSelect: () => deleteRows(rowsSel), danger: true },
       );
     }
     // Glide reports cell bounds in viewport coordinates.
@@ -616,31 +518,9 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
 
   const onHeaderClicked = (col: number) => {
     const name = columns[col]?.name;
-    if (!name || !guardPending("Sıralamak")) return;
-    setSort((cur) => (cur?.column !== name ? { column: name, descending: false } : cur.descending ? null : { column: name, descending: true }));
-  };
-
-  const onHeaderMenu = (col: number, bounds: Rectangle) => {
-    const name = columns[col]?.name;
     if (!name) return;
-    setMenu({
-      x: bounds.x,
-      y: bounds.y + bounds.height,
-      items: [
-        { label: "Artan sırala", onSelect: () => guardPending("Sıralamak") && setSort({ column: name, descending: false }) },
-        { label: "Azalan sırala", onSelect: () => guardPending("Sıralamak") && setSort({ column: name, descending: true }) },
-        { label: "Sıralamayı kaldır", onSelect: () => setSort(null), disabled: sort?.column !== name },
-        "separator",
-        {
-          label: "Bu sütuna göre filtrele",
-          onSelect: () => {
-            setShowFilters(true);
-            setFilterState((st) => ({ ...st, filters: [...st.filters, { column: name, op: "contains", value: "" }] }));
-          },
-        },
-        { label: "Sütun adını kopyala", onSelect: () => navigator.clipboard.writeText(name) },
-      ],
-    });
+    const cur = query.sort;
+    onQuery({ ...query, sort: cur?.column !== name ? { column: name, descending: false } : cur.descending ? null : { column: name, descending: true } });
   };
 
   const onDelete = (sel: GridSelection) => {
@@ -651,9 +531,8 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     }
     if (sel.current) {
       const { x, y, width, height } = sel.current.range;
-      const cells: Item[] = [];
-      for (let c = x; c < x + width; c++) for (let r = y; r < y + height; r++) cells.push([c, r]);
-      setNull(cells);
+      for (let c = x; c < x + width; c++)
+        for (let r = y; r < y + height; r++) if (columnWritable(c) && designByName.get(columns[c].name)?.nullable) setValue(c, r, null);
     }
     return false;
   };
@@ -662,87 +541,93 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     if (!loading && !exhausted && !error && range.y + range.height > rows.current.length - 60) load(false);
   };
 
-  const columnNames = useMemo(() => columns.map((c) => c.name), [columns]);
+  const currentRow = selection.current ? selection.current.cell[1] : selection.rows.length === 1 ? selection.rows.first()! : null;
 
   return (
     <div className={s.dataPane}>
-      {showFilters && (
-        <FilterBar
-          columns={columnNames.length ? columnNames : design.columns.map((c) => c.name)}
-          value={filterState}
-          kind={connection.kind}
-          onApply={(next) => guardPending("Filtrelemek") && setFilterState(next)}
-        />
-      )}
       {!editable && !details.isView && !connection.readOnly && (
-        <div className={s.banner}>Bu tablonun primary key'i yok, satırlar güvenle tanımlanamadığı için düzenleme kapalı.</div>
+        <div className={s.banner}>This table has no primary key, so rows can't be told apart safely. Editing is turned off.</div>
       )}
       <div className={s.split}>
-      <div className={s.gridHost}>
-        {error ? (
-          <div className={s.error} role="alert">
-            <b>Veri okunamadı</b>
-            <span className="selectable">{error.message}</span>
-          </div>
-        ) : columns.length > 0 ? (
-          <DataEditor
-            ref={grid}
-            columns={gridColumns}
-            rows={totalRows}
-            getCellContent={getCellContent}
-            onCellEdited={onCellEdited}
-            onCellContextMenu={onCellContextMenu}
-            onHeaderClicked={onHeaderClicked}
-            onHeaderContextMenu={(col, e) => {
-              e.preventDefault();
-              onHeaderMenu(col, e.bounds);
+        <div className={s.gridHost}>
+          {error ? (
+            <div className={s.error} role="alert">
+              <b>Couldn't load rows</b>
+              <span className="selectable">{error.message}</span>
+            </div>
+          ) : columns.length > 0 ? (
+            <>
+              <DataEditor
+                ref={grid}
+                columns={gridColumns}
+                rows={rowCount}
+                getCellContent={getCellContent}
+                onCellEdited={onCellEdited}
+                onCellContextMenu={onCellContextMenu}
+                onHeaderClicked={onHeaderClicked}
+                onDelete={onDelete}
+                onVisibleRegionChanged={onVisibleRegionChanged}
+                onColumnResize={(c, w) => setWidths((cur) => ({ ...cur, [c.id as string]: w }))}
+                gridSelection={selection}
+                onGridSelectionChange={setSelection}
+                getCellsForSelection
+                headerIcons={HEADER_ICONS}
+                rowMarkers="clickable-number"
+                rowSelectionMode="multi"
+                smoothScrollX
+                smoothScrollY
+                rowHeight={30}
+                headerHeight={34}
+                theme={gridTheme}
+                width="100%"
+                height="100%"
+                overscrollX={40}
+                keybindings={{ search: false, copy: true, paste: editable, selectAll: true, delete: editable }}
+                onPaste={editable}
+              />
+              {!loading && rowCount === 0 && (
+                <div className={s.emptyRows}>
+                  <b>No rows{query.filters.length || query.search || query.rawWhere ? " match" : " yet"}</b>
+                  {query.filters.length || query.search || query.rawWhere ? (
+                    <button className={s.linkButton} onClick={() => onQuery({ ...query, filters: [], search: null, rawWhere: null, ai: null })}>
+                      Clear filters
+                    </button>
+                  ) : (
+                    editable && (
+                      <button className={s.linkButton} onClick={() => onInsert()}>
+                        Insert the first row
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            loading && <div className={s.center}>Loading…</div>
+          )}
+        </div>
+        {inspectorOpen && columns.length > 0 && (
+          <RecordPanel
+            details={details}
+            driver={driver}
+            columns={columns}
+            row={currentRow}
+            rowCount={rowCount}
+            total={total?.n ?? null}
+            value={valueAt}
+            edited={(col, row) => !!updates.current.get(row)?.has(col)}
+            writable={columnWritable}
+            onChange={setValue}
+            onFollow={onFollow}
+            onMove={(row) => {
+              const col = selection.current?.cell[0] ?? 0;
+              setSelection({ columns: CompactSelection.empty(), rows: CompactSelection.empty(), current: { cell: [col, row], range: { x: col, y: row, width: 1, height: 1 }, rangeStack: [] } });
+              grid.current?.scrollTo(col, row);
             }}
-            onDelete={onDelete}
-            onVisibleRegionChanged={onVisibleRegionChanged}
-            onColumnResize={(col, w) => setWidths((cur) => ({ ...cur, [col.id as string]: w }))}
-            gridSelection={selection}
-            onGridSelectionChange={setSelection}
-            getCellsForSelection
-            rowMarkers="clickable-number"
-            rowSelectionMode="multi"
-            smoothScrollX
-            smoothScrollY
-            rowHeight={26}
-            headerHeight={30}
-            theme={theme}
-            width="100%"
-            height="100%"
-            overscrollX={40}
-            keybindings={{ search: false, copy: true, paste: editable, selectAll: true, delete: editable }}
-            onPaste={editable}
-            trailingRowOptions={editable ? { hint: "Satır ekle", sticky: false, tint: true } : undefined}
-            onRowAppended={editable ? () => addRow() : undefined}
+            onEditStructure={onEditStructure}
+            developerMode={developerMode}
           />
-        ) : (
-          loading && <div className={s.center}>Yükleniyor…</div>
         )}
-      </div>
-      {inspectorOpen && columns.length > 0 && (
-        <RecordPanel
-          details={details}
-          driver={driver}
-          columns={columns}
-          row={selection.current ? selection.current.cell[1] : null}
-          rowCount={totalRows}
-          total={total?.n ?? null}
-          value={valueAt}
-          edited={(col, row) => row >= baseRows || !!edits.current.updates.get(row)?.has(col)}
-          writable={(col, row) => columnWritable(col) && !(row < baseRows && edits.current.deletes.has(row))}
-          onChange={setValue}
-          onFollow={(fk, value) => openTable(connection.id, fk.refSchema ?? schema, fk.refTable, "data", [{ column: fk.refColumns[0], op: "eq", value }])}
-          onMove={(row) => {
-            const col = selection.current?.cell[0] ?? 0;
-            setSelection({ ...selection, current: { cell: [col, row], range: { x: col, y: row, width: 1, height: 1 }, rangeStack: [] } });
-            grid.current?.scrollTo(col, row);
-          }}
-          onEditStructure={onEditStructure}
-        />
-      )}
       </div>
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
     </div>

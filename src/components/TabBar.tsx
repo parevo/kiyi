@@ -6,7 +6,7 @@ import { CloseIcon, LockIcon, PlusIcon, Spinner } from "./icons";
 import { IconButton } from "./ui";
 import s from "./TabBar.module.css";
 
-const ENV_LABEL = { local: "Yerel", staging: "Test", production: "Canlı" } as const;
+const ENV_LABEL = { local: "Local", staging: "Staging", production: "Production" } as const;
 
 export function TabBar({ onNewTab }: { onNewTab(): void }) {
   const tabs = useTabs((st) => st.tabs);
@@ -44,7 +44,7 @@ export function TabBar({ onNewTab }: { onNewTab(): void }) {
                 <span className={s.tabDot} style={{ background: conn ? `var(--env-${conn.env})` : "var(--text-faint)" }} />
               )}
               <span className={s.title}>{t.title}</span>
-              <AriaButton aria-label={`${t.title} sekmesini kapat`} className={s.close} onPress={() => close(t.id)}>
+              <AriaButton aria-label={`Close ${t.title}`} className={s.close} onPress={() => close(t.id)}>
                 <CloseIcon size={12} />
               </AriaButton>
             </div>
@@ -52,14 +52,14 @@ export function TabBar({ onNewTab }: { onNewTab(): void }) {
         })}
       </div>
       {developerMode && (
-        <IconButton label="Yeni sorgu" shortcut="⌘T" onPress={onNewTab}>
+        <IconButton label="New query" shortcut="⌘T" onPress={onNewTab}>
           <PlusIcon />
         </IconButton>
       )}
       <div className={s.drag} data-tauri-drag-region />
       {active && (
         <div className={s.right} data-tauri-drag-region>
-          <span className={s.envBadge} title={active.readOnly ? "Salt okunur bağlantı" : undefined}>
+          <span className={s.envBadge} title={active.readOnly ? "Read-only connection" : undefined}>
             {active.readOnly && <LockIcon size={11} />}
             {ENV_LABEL[active.env]}
           </span>

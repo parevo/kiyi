@@ -66,7 +66,7 @@ impl PgDriver {
             .host(&config.host)
             .port(config.port)
             .username(&config.user)
-            .application_name("Kıyı")
+            .application_name("Kiyi")
             .ssl_mode(match config.ssl_mode {
                 SslMode::Disable => PgSslMode::Disable,
                 SslMode::Prefer => PgSslMode::Prefer,
@@ -111,7 +111,8 @@ const SCHEMA_SQL: &str = r#"
 SELECT n.nspname, c.relname,
        CASE WHEN c.relkind IN ('v', 'm') THEN 'VIEW' ELSE 'TABLE' END,
        a.attname, format_type(a.atttypid, a.atttypmod),
-       CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END
+       CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END,
+       CASE WHEN c.relkind IN ('r', 'p') THEN c.reltuples::bigint END
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
@@ -159,7 +160,7 @@ impl DbDriver for PgDriver {
         let oid = format!("{}::regclass", d.string(&d.table(schema, table)));
 
         let info = text_rows(&mut conn, &format!("SELECT c.reltuples::bigint, c.relkind, n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = {oid}")).await?;
-        let info = info.into_iter().next().ok_or_else(|| Error::Invalid(format!("{table} bulunamadı")))?;
+        let info = info.into_iter().next().ok_or_else(|| Error::Invalid(format!("Table {table} was not found")))?;
         let get = |row: &Vec<Cell>, i: usize| row.get(i).cloned().flatten();
         let row_estimate = get(&info, 0).and_then(|v| v.parse::<i64>().ok()).filter(|n| *n >= 0);
         let is_view = matches!(get(&info, 1).as_deref(), Some("v") | Some("m"));
@@ -175,7 +176,8 @@ impl DbDriver for PgDriver {
 
         let columns = text_rows(&mut conn, &format!(
             "SELECT a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, pg_get_expr(ad.adbin, ad.adrelid), \
-             a.attidentity <> '', col_description(a.attrelid, a.attnum), a.attgenerated <> '' \
+             a.attidentity <> '', col_description(a.attrelid, a.attnum), a.attgenerated <> '', \
+             (SELECT string_agg(e.enumlabel, chr(31) ORDER BY e.enumsortorder) FROM pg_enum e WHERE e.enumtypid = a.atttypid) \
              FROM pg_attribute a LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum \
              WHERE a.attrelid = {oid} AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
         )).await?;
@@ -196,6 +198,7 @@ impl DbDriver for PgDriver {
                     comment: get(r, 5),
                     generated,
                     extra: None,
+                    enum_values: get(r, 7).map(|s| split_list(&s)).unwrap_or_default(),
                 }
             })
             .collect();

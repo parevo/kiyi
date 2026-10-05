@@ -88,7 +88,7 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
     let kind = match url.scheme() {
         "postgres" | "postgresql" => DbKind::Postgres,
         "mysql" | "mariadb" => DbKind::Mysql,
-        other => return Err(Error::InvalidUrl(format!("desteklenmeyen şema: {other}"))),
+        other => return Err(Error::InvalidUrl(format!("unsupported scheme: {other}"))),
     };
     let host = url
         .host_str()

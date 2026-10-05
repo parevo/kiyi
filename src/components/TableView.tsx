@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage, ipc } from "../lib/ipc";
-import type { TableDetails } from "../lib/types";
+import type { Cell, ForeignKeyDesign, TableDetails } from "../lib/types";
 import { useConnections } from "../state/connections";
-import { type Tab, tableKey, useTabs } from "../state/tabs";
 import { useSettings } from "../state/settings";
-import { PanelIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner } from "./icons";
+import { type Tab, tableKey, useTabs } from "../state/tabs";
+import { toast } from "../state/toasts";
+import { CopyIcon, PanelIcon, PlusIcon, RefreshIcon, Spinner, TrashIcon } from "./icons";
+import { InsertRowSheet } from "./InsertRowSheet";
+import { ActiveFilters, AiKeyDialog, FilterButton, SearchBar, SortButton } from "./QueryControls";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
-import { StructureEditor, type StructureHandle } from "./StructureEditor";
-import { TableData, type TableDataHandle, type TableDataStatus } from "./TableData";
+import { CreateTable, StructureView } from "./StructureEditor";
+import { emptyQuery, TableData, type TableDataHandle, type TableDataStatus, type TableQuery } from "./TableData";
 import { Button, IconButton } from "./ui";
 import s from "./TableView.module.css";
 
-const fmt = new Intl.NumberFormat("tr-TR");
-const compact = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
+const fmt = new Intl.NumberFormat("en-US");
+const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+const today = () => new Date().toISOString().slice(0, 10);
 
 /** A table tab (data + structure) or a "new table" tab. */
 export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolean; onOpenSql(sql: string): void }) {
@@ -20,23 +24,24 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   const snapshot = useConnections((st) => (tab.connectionId ? st.live[tab.connectionId]?.schema : undefined));
   const refreshSchema = useConnections((st) => st.refreshSchema);
   const patchTab = useTabs((st) => st.patch);
+  const openTable = useTabs((st) => st.openTable);
   const developerMode = useSettings((st) => st.developerMode);
   const inspectorOpen = useSettings((st) => st.inspectorOpen);
   const setSettings = useSettings((st) => st.set);
 
   const creating = tab.kind === "create";
-  const view = creating ? "structure" : (tab.view ?? "data");
+  const view = tab.view ?? "data";
   const schema = tab.schema ?? null;
 
   const [details, setDetails] = useState<TableDetails | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState<TableQuery>(() => emptyQuery(tab.initialFilters ?? []));
+  const [status, setStatus] = useState<TableDataStatus | null>(null);
   const [review, setReview] = useState<ReviewRequest | null>(null);
-  const [dataStatus, setDataStatus] = useState<TableDataStatus | null>(null);
-  const [structChanges, setStructChanges] = useState(0);
-  const [visitedStructure, setVisitedStructure] = useState(view === "structure");
+  const [insert, setInsert] = useState<{ prefill?: Record<string, Cell> } | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [aiSetup, setAiSetup] = useState<string | null>(null);
   const data = useRef<TableDataHandle>(null);
-  const onStructStatus = useCallback((st: { changes: number }) => setStructChanges(st.changes), []);
-  const structure = useRef<StructureHandle>(null);
 
   const loadDetails = useCallback(async () => {
     if (creating || !tab.connectionId || !tab.tableName) return;
@@ -52,177 +57,196 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
     loadDetails();
   }, [loadDetails]);
 
-  useEffect(() => {
-    if (view === "structure") setVisitedStructure(true);
-  }, [view]);
-
-  const dirty = (dataStatus?.pending ?? 0) > 0 || structChanges > 0;
+  const dirty = (status?.pending ?? 0) > 0;
   useEffect(() => {
     if (!!tab.dirty !== dirty) patchTab(tab.id, { dirty });
   }, [dirty, tab.dirty, tab.id, patchTab]);
 
-  const onApplied = async (name: string) => {
-    if (!tab.connectionId) return;
-    await refreshSchema(tab.connectionId);
-    if (creating || name !== tab.tableName) {
-      patchTab(tab.id, {
-        kind: "table",
-        table: tableKey(tab.connectionId, schema, name),
-        tableName: name,
-        title: name,
-        view: creating ? "data" : view,
-      });
-    } else {
-      await loadDetails();
+  if (!connection) return null;
+
+  if (creating) {
+    return (
+      <CreateTable
+        connection={connection}
+        schema={schema}
+        snapshot={snapshot}
+        onCreated={async (name) => {
+          await refreshSchema(connection.id);
+          patchTab(tab.id, { kind: "table", table: tableKey(connection.id, schema, name), tableName: name, title: name, view: "data" });
+        }}
+        onReview={setReview}
+        review={<ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} onOpenInEditor={onOpenSql} />}
+      />
+    );
+  }
+
+  const setView = (v: "data" | "structure") => patchTab(tab.id, { view: v });
+  const editable = !!details && !details.isView && !connection.readOnly;
+
+  const ask = async (prompt: string) => {
+    if (!details) return;
+    const ai = await ipc.aiStatus().catch(() => null);
+    if (!ai?.configured) return setAiSetup(prompt);
+    setAsking(true);
+    try {
+      const r = await ipc.aiFilters(connection.id, schema, details.design.name, prompt, today());
+      setQuery({ filters: r.filters, sort: r.sort[0] ?? null, rawWhere: r.condition, search: null, ai: { prompt, explanation: r.explanation } });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setAsking(false);
     }
   };
 
-  if (!connection) return null;
+  const follow = (fk: ForeignKeyDesign, value: string) =>
+    openTable(connection.id, fk.refSchema ?? schema, fk.refTable, "data", [{ column: fk.refColumns[0], op: "eq", value }]);
 
-  const setView = (v: "data" | "structure") => patchTab(tab.id, { view: v });
-  const loaded = dataStatus?.loaded ?? 0;
-  const total = dataStatus?.total;
+  const loaded = status?.loaded ?? 0;
+  const total = status?.total;
 
   return (
     <div className={s.view}>
       <div className={s.toolbar}>
-        {!creating && (
-          <div className={s.toggle} role="group" aria-label="Görünüm">
-            <button aria-pressed={view === "data"} onClick={() => setView("data")}>
-              Veri
-            </button>
-            <button aria-pressed={view === "structure"} onClick={() => setView("structure")}>
-              Yapı
-            </button>
-          </div>
-        )}
+        <div className={s.toggle} role="group" aria-label="View">
+          <button aria-pressed={view === "data"} onClick={() => setView("data")}>
+            Data
+          </button>
+          <button aria-pressed={view === "structure"} onClick={() => setView("structure")}>
+            Structure
+          </button>
+        </div>
 
-        {view === "data" && dataStatus && (
+        {view === "data" && details && (
           <>
-            <span className={s.sep} />
-            <Button variant="ghost" onPress={() => data.current?.toggleFilters()}>
-              <SearchIcon size={14} /> Filtre
-              {dataStatus.filters > 0 && <span className={s.badge}>{dataStatus.filters}</span>}
-            </Button>
-            <IconButton label="Yenile" shortcut="⌘R" onPress={() => data.current?.refresh()}>
-              {dataStatus.loading ? <Spinner size={13} /> : <RefreshIcon size={14} />}
-            </IconButton>
-            {!connection.readOnly && !details?.isView && (
+            <SearchBar query={query} onQuery={setQuery} onAsk={ask} asking={asking} />
+            <FilterButton columns={details.design.columns} query={query} onQuery={setQuery} />
+            <SortButton columns={details.design.columns} query={query} onQuery={setQuery} />
+            <span className={s.spacer} />
+            {(status?.selectedRows ?? 0) > 0 && editable && (
               <>
-                <span className={s.sep} />
-                <Button variant="ghost" onPress={() => data.current?.addRow()}>
-                  <PlusIcon size={14} /> Satır
-                </Button>
-                {dataStatus.selectedRows > 0 && (
-                  <Button variant="ghost" onPress={() => data.current?.deleteSelected()}>
-                    {dataStatus.selectedRows} satırı sil
+                {status!.selectedRows === 1 && (
+                  <Button variant="ghost" onPress={() => data.current?.duplicateSelected()}>
+                    <CopyIcon size={14} /> Duplicate
                   </Button>
                 )}
+                <Button variant="ghost" className={s.danger} onPress={() => data.current?.deleteSelected()}>
+                  <TrashIcon size={14} /> Delete {status!.selectedRows > 1 ? `${status!.selectedRows} rows` : "row"}
+                </Button>
               </>
             )}
+            {dirty && (
+              <>
+                <span className={s.pending}>{status!.pending} unsaved</span>
+                <Button variant="ghost" onPress={() => data.current?.discard()}>
+                  Discard
+                </Button>
+                <Button variant="primary" onPress={() => data.current?.save()}>
+                  Save <span className={s.kbd}>⌘S</span>
+                </Button>
+              </>
+            )}
+            {editable && !dirty && (
+              <Button variant="primary" onPress={() => setInsert({})}>
+                <PlusIcon size={14} /> Insert row
+              </Button>
+            )}
+            <IconButton label="Reload" shortcut="⌘R" onPress={() => data.current?.refresh()}>
+              {status?.loading ? <Spinner size={13} /> : <RefreshIcon size={15} />}
+            </IconButton>
           </>
         )}
-
-        <span className={s.spacer} />
-
-        {view === "data" && (dataStatus?.pending ?? 0) > 0 && (
-          <>
-            <span className={s.pending}>{dataStatus!.pending} değişiklik</span>
-            <Button variant="ghost" onPress={() => data.current?.discard()}>
-              Geri al
-            </Button>
-            <Button variant="primary" onPress={() => data.current?.save()}>
-              Kaydet <span className={s.kbd}>⌘S</span>
-            </Button>
-          </>
+        {view === "data" && (
+          <IconButton label={inspectorOpen ? "Hide details panel" : "Show details panel"} shortcut="⌘I" onPress={() => setSettings({ inspectorOpen: !inspectorOpen })}>
+            <PanelIcon size={16} />
+          </IconButton>
         )}
-        {view === "structure" && !creating && structChanges > 0 && (
-          <>
-            <span className={s.pending}>{structChanges} değişiklik</span>
-            <Button variant="ghost" onPress={() => structure.current?.discard()}>
-              Geri al
-            </Button>
-            <Button variant="primary" onPress={() => structure.current?.save()}>
-              Uygula <span className={s.kbd}>⌘S</span>
-            </Button>
-          </>
-        )}
-        <span className={s.sep} />
-        <IconButton
-          label={inspectorOpen ? "Detay panelini gizle" : "Detay panelini göster"}
-          shortcut="⌘I"
-          onPress={() => setSettings({ inspectorOpen: !inspectorOpen })}
-        >
-          <PanelIcon size={15} />
-        </IconButton>
       </div>
+
+      {view === "data" && <ActiveFilters query={query} onQuery={setQuery} />}
 
       <div className={s.body}>
         {loadError && (
           <div className={s.error} role="alert">
-            <b>Tablo bilgisi okunamadı</b>
+            <b>Couldn't read this table</b>
             <span className="selectable">{loadError}</span>
           </div>
         )}
-        {!creating && !details && !loadError && <div className={s.center}>Yükleniyor…</div>}
-
+        {!details && !loadError && <div className={s.center}>Loading…</div>}
         {details && (
           <div style={{ display: view === "data" ? "contents" : "none" }}>
             <TableData
               ref={data}
-              tabId={tab.id}
               connection={connection}
               details={details}
+              query={query}
               active={active && view === "data"}
-              onStatus={setDataStatus}
+              onQuery={setQuery}
+              onStatus={setStatus}
               onReview={setReview}
+              onInsert={(prefill) => setInsert({ prefill })}
+              onFollow={follow}
               onEditStructure={() => setView("structure")}
             />
           </div>
         )}
-        {(creating || (details && visitedStructure)) && (
-          <div style={{ display: view === "structure" ? "contents" : "none" }}>
-            <StructureEditor
-              ref={structure}
-              connection={connection}
-              schema={schema}
-              details={details}
-              snapshot={snapshot}
-              active={active && view === "structure"}
-              onStatus={onStructStatus}
-              onReview={setReview}
-              onApplied={onApplied}
-            />
-          </div>
+        {details && view === "structure" && (
+          <StructureView
+            connection={connection}
+            details={details}
+            snapshot={snapshot}
+            onReview={setReview}
+            onChanged={async (name) => {
+              await refreshSchema(connection.id);
+              if (name && name !== details.design.name) {
+                patchTab(tab.id, { table: tableKey(connection.id, schema, name), tableName: name, title: name });
+              } else await loadDetails();
+            }}
+          />
         )}
       </div>
 
-      {view === "data" && dataStatus && (
+      {view === "data" && status && (
         <div className={s.status}>
           <span>
-            {fmt.format(loaded)}
-            {total !== null && total !== undefined && total !== loaded && (
-              <span className={s.faint}> / {dataStatus.totalIsEstimate ? `~${compact.format(total)}` : fmt.format(total)}</span>
-            )}{" "}
-            satır
+            {total !== null && total !== undefined && total > loaded ? (
+              <>
+                Showing {fmt.format(loaded)} of {status.totalIsEstimate ? `~${compact.format(total)}` : fmt.format(total)} rows
+              </>
+            ) : (
+              <>{fmt.format(loaded)} {loaded === 1 ? "row" : "rows"}</>
+            )}
           </span>
-          {dataStatus.elapsedMs !== null && <span className={s.faint}>{Math.round(dataStatus.elapsedMs)} ms</span>}
-          {connection.readOnly && <span className={s.faint}>salt okunur</span>}
+          {status.elapsedMs !== null && <span className={s.faint}>{Math.round(status.elapsedMs)} ms</span>}
+          {connection.readOnly && <span className={s.faint}>Read-only connection</span>}
+          {connection.env === "production" && !connection.readOnly && <span className={s.faint}>Production: changes wait for Save</span>}
           <span className={s.spacer} />
-          {developerMode && dataStatus.sql && (
-            <button className={s.link} onClick={() => onOpenSql(dataStatus.sql!)} title="Bu sorguyu editörde aç">
+          {developerMode && status.sql && (
+            <button className={s.link} onClick={() => onOpenSql(status.sql!)} title="Open this query in the SQL editor">
               SQL
             </button>
           )}
         </div>
       )}
 
-      <ReviewDialog
-        request={review}
-        kind={connection.kind}
-        env={connection.env}
-        onClose={() => setReview(null)}
-        onOpenInEditor={onOpenSql}
+      {details && (
+        <InsertRowSheet
+          isOpen={insert !== null}
+          connection={connection}
+          details={details}
+          prefill={insert?.prefill}
+          onClose={() => setInsert(null)}
+          onInserted={() => data.current?.refresh()}
+        />
+      )}
+      <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} onOpenInEditor={onOpenSql} />
+      <AiKeyDialog
+        isOpen={aiSetup !== null}
+        onClose={() => setAiSetup(null)}
+        onSaved={() => {
+          const prompt = aiSetup;
+          setAiSetup(null);
+          if (prompt) setTimeout(() => ask(prompt), 0);
+        }}
       />
     </div>
   );
