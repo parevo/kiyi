@@ -1,15 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- macOS icon grid: an 824px rounded square centred on a 1024 canvas, with the standard drop shadow. -->
   <defs>
-    <clipPath id="shape"><rect x="64" y="64" width="896" height="896" rx="200"/></clipPath>
-    <linearGradient id="night" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1A1E23"/>
-      <stop offset="1" stop-color="#0E1013"/>
-    </linearGradient>
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur in="SourceAlpha" stdDeviation="14"/><feOffset dy="12"/><feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBF6EC"/><stop offset="1" stop-color="#EADCC0"/></linearGradient>
+    <radialGradient id="water" cx="0.42" cy="0.35" r="0.75"><stop offset="0" stop-color="#8FE3D8"/><stop offset="0.6" stop-color="#3FAA9F"/><stop offset="1" stop-color="#25827A"/></radialGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2C9187"/><stop offset="1" stop-color="#17615B"/></linearGradient>
+    <linearGradient id="deep" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1D6F68"/><stop offset="1" stop-color="#0F4844"/></linearGradient>
+    <linearGradient id="round" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#000" stop-opacity="0.28"/><stop offset="0.3" stop-color="#000" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.10"/><stop offset="0.7" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.32"/></linearGradient>
+    <clipPath id="body"><path d="M262 366 V706 A250 78 0 0 0 762 706 V366 Z"/></clipPath>
+    <filter id="soft"><feGaussianBlur stdDeviation="16"/></filter>
   </defs>
-  <g clip-path="url(#shape)">
-    <rect x="64" y="64" width="896" height="896" fill="url(#night)"/>
-    <circle cx="690" cy="330" r="68" fill="#EDE8DC"/>
-    <path d="M64 590 C 300 530 520 650 960 550 L960 616 C 520 716 300 596 64 656 Z" fill="#4FB3A9"/>
-    <path d="M64 656 C 300 596 520 716 960 616 L960 960 L64 960 Z" fill="#D8B878"/>
+  <g filter="url(#drop)"><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/></g>
+  <g clip-path="url(#sq)">
+    <ellipse cx="512" cy="798" rx="262" ry="32" fill="#7A5A28" opacity="0.35" filter="url(#soft)"/>
+    <g clip-path="url(#body)">
+      <rect x="250" y="356" width="524" height="440" fill="url(#sea)"/>
+      <path d="M262 600 A250 78 0 0 0 762 600 V820 H262 Z" fill="url(#deep)"/>
+      <path d="M262 484 A250 78 0 0 0 762 484" fill="none" stroke="#F4FBF8" stroke-opacity="0.9" stroke-width="13"/>
+      <path d="M262 600 A250 78 0 0 0 762 600" fill="none" stroke="#F4FBF8" stroke-opacity="0.55" stroke-width="11"/>
+      <rect x="250" y="356" width="524" height="440" fill="url(#round)"/>
+    </g>
+    <ellipse cx="512" cy="366" rx="250" ry="78" fill="url(#water)"/>
+    <ellipse cx="512" cy="366" rx="248" ry="76" fill="none" stroke="#D9F7F2" stroke-width="5"/>
+    <path d="M316 371 C 370 341 424 393 478 362 C 532 334 586 388 640 357 C 672 340 704 356 716 365" fill="none" stroke="#F4FBF8" stroke-width="10" stroke-linecap="round" opacity="0.9"/>
   </g>
 </svg>
