@@ -1,8 +1,11 @@
 import { useRef, useState } from "react";
+import { ipc } from "../lib/ipc";
+import { splitStatements } from "../lib/sql";
 import { useConnections } from "../state/connections";
 import { type Tab, useTabs } from "../state/tabs";
 import { QueryEditor, type RunRequest } from "./QueryEditor";
 import { ResultPane } from "./ResultPane";
+import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import s from "../App.module.css";
 
 function useSplit(key: string, initial: number) {
@@ -31,12 +34,37 @@ export function QueryPane({ tab }: { tab: Tab }) {
   const [split, setSplit] = useSplit("kiyi.editorSplit", 0.42);
   const [dragging, setDragging] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const [review, setReview] = useState<ReviewRequest | null>(null);
 
   if (!connection) return null;
 
   const run = async ({ sql, offset }: RunRequest) => {
     const conns = useConnections.getState();
     if (conns.live[connection.id]?.status !== "connected") await conns.activate(connection.id);
+    // On production, SQL that changes anything is reviewed first, like edits made in the grid.
+    if (connection.env === "production" && !connection.readOnly) {
+      const check = await ipc.checkSql(connection.id, sql).catch(() => ({ writes: true, destructive: 0 }));
+      if (check.writes) {
+        setReview({
+          title: "Run this on production?",
+          subtitle: connection.name,
+          summary: [
+            check.destructive > 0
+              ? { text: `${check.destructive === 1 ? "A statement deletes or overwrites" : `${check.destructive} statements delete or overwrite`} data. This can't be undone.`, danger: true }
+              : { text: "This changes data, structure or settings on a production database." },
+          ],
+          statements: splitStatements(sql, connection.kind === "mysql").map((st) => st.text.replace(/;\s*$/, "")),
+          action: "Run on production",
+          confirmWord: connection.database ?? connection.name,
+          destructive: check.destructive,
+          showSql: true,
+          run: async () => {
+            await execute(tab.id, sql, offset);
+          },
+        });
+        return;
+      }
+    }
     execute(tab.id, sql, offset);
   };
 
@@ -74,6 +102,7 @@ export function QueryPane({ tab }: { tab: Tab }) {
       <div className={s.results}>
         <ResultPane run={tab.run} onCancel={() => cancel(tab.id)} />
       </div>
+      <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} />
     </div>
   );
 }

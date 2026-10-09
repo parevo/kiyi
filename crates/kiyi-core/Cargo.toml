@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 async-trait = "0.1.92"
 csv = "1.4.0"
+encoding_rs = "0.8.35"
+encoding_rs_io = "0.1.7"
 futures = "0.3.34"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 percent-encoding = "2.3.2"
@@ -25,3 +27,4 @@ uuid = { version = "1.27.0", features = ["v4", "serde"] }
 
 [dev-dependencies]
 axum = "0.8.9"
+encoding_rs = "0.8.35"

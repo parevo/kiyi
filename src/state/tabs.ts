@@ -20,6 +20,8 @@ export interface RunState {
   elapsedMs: number | null;
   startedAt: number;
   cancelled: boolean;
+  /** The results hit the row limit; the rest wasn't fetched. */
+  truncated: boolean;
   error: ErrorInfo | null;
 }
 
@@ -65,6 +67,18 @@ interface TabsState {
 let seq = 0;
 const newId = () => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
+/** Query tabs (their SQL, not results) survive restarts, so nothing typed is lost. */
+const SAVED_KEY = "kiyi.queryTabs";
+
+function savedQueryTabs(): Tab[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SAVED_KEY) ?? "[]") as Pick<Tab, "id" | "title" | "connectionId" | "sql">[];
+    return saved.filter((t) => t && typeof t.sql === "string").map((t) => ({ ...t, kind: "query", run: null }));
+  } catch {
+    return [];
+  }
+}
+
 export const useTabs = create<TabsState>((set, get) => {
   const update = (id: string, fn: (t: Tab) => Partial<Tab>) =>
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...fn(t) } : t)) }));
@@ -72,7 +86,7 @@ export const useTabs = create<TabsState>((set, get) => {
     update(id, (t) => (t.run && t.run.queryId === queryId ? { run: { ...t.run, ...fn(t.run) } } : {}));
 
   return {
-    tabs: [],
+    tabs: savedQueryTabs(),
     activeId: null,
 
     open(init) {
@@ -145,6 +159,7 @@ export const useTabs = create<TabsState>((set, get) => {
           elapsedMs: null,
           startedAt: performance.now(),
           cancelled: false,
+          truncated: false,
           error: null,
         },
       }));
@@ -196,6 +211,7 @@ export const useTabs = create<TabsState>((set, get) => {
                 status: r.error ? "error" : "done",
                 elapsedMs: event.elapsedMs,
                 cancelled: event.cancelled,
+                truncated: event.truncated,
                 rowCount: r.sets.reduce((n, s) => n + s.rows.length, 0),
               }));
               break;
@@ -215,3 +231,23 @@ export const useTabs = create<TabsState>((set, get) => {
 });
 
 export const useActiveTab = () => useTabs((s) => s.tabs.find((t) => t.id === s.activeId) ?? null);
+
+// Save query tabs shortly after they change (typing included), and right away when the window goes.
+function saveQueryTabs() {
+  const queries = useTabs
+    .getState()
+    .tabs.filter((t) => t.kind === "query")
+    .map(({ id, title, connectionId, sql }) => ({ id, title, connectionId, sql }));
+  try {
+    localStorage.setItem(SAVED_KEY, JSON.stringify(queries));
+  } catch {
+    /* storage unavailable; tabs just won't be restored */
+  }
+}
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+useTabs.subscribe((state, prev) => {
+  if (state.tabs === prev.tabs) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveQueryTabs, 400);
+});
+window.addEventListener("pagehide", saveQueryTabs);

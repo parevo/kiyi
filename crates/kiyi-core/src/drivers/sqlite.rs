@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteQueryResult, SqliteRow, SqliteTypeInfo};
-use sqlx::{Column, Decode, Row, Sqlite, TypeInfo, ValueRef};
+use sqlx::{ConnectOptions, Column, Decode, Row, Sqlite, TypeInfo, ValueRef};
 
 use super::engine;
 use super::postgres::split_list;
@@ -73,6 +73,8 @@ impl SqliteDriver {
     pub async fn connect(config: &ConnectionConfig) -> Result<Self> {
         let path = config.database.as_deref().filter(|p| !p.is_empty()).ok_or_else(|| Error::Invalid("Choose a database file.".into()))?;
         let options = SqliteConnectOptions::new()
+            // Values are inlined into SQL text, so sqlx must never log statements (slow ones included).
+            .disable_statement_logging()
             .filename(path)
             .create_if_missing(!config.read_only)
             .read_only(config.read_only)
@@ -206,6 +208,35 @@ impl DbDriver for SqliteDriver {
     async fn fetch(&self, sql: &str) -> Result<(Vec<ColumnMeta>, Vec<Vec<Cell>>)> {
         let mut conn = self.pool.acquire().await?;
         fetch_all(&mut conn, sql).await
+    }
+
+    async fn execute_stream(&self, next: &mut (dyn FnMut() -> Option<Result<String>> + Send)) -> Result<u64> {
+        let mut conn = self.pool.acquire().await?;
+        sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("BEGIN")).await?;
+        let mut total = 0u64;
+        let mut index = 0usize;
+        let outcome: Result<u64> = loop {
+            let sql = match next() {
+                None => break Ok(total),
+                Some(Err(e)) => break Err(e),
+                Some(Ok(sql)) => sql,
+            };
+            match sqlx::Executor::execute(&mut *conn, sqlx::raw_sql(&sql)).await {
+                Ok(r) => total += r.rows_affected(),
+                Err(e) => break Err(crate::error::Error::Script { index, source: Box::new(e.into()) }),
+            }
+            index += 1;
+        };
+        match outcome {
+            Ok(n) => {
+                sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("COMMIT")).await?;
+                Ok(n)
+            }
+            Err(e) => {
+                let _ = sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("ROLLBACK")).await;
+                Err(e)
+            }
+        }
     }
 
     async fn execute_script(&self, statements: &[String], transactional: bool, expect_single_row: bool) -> Result<Vec<u64>> {

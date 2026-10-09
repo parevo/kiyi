@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod logging;
 mod updater;
 
 use std::sync::Arc;
@@ -9,13 +10,13 @@ use kiyi_core::workspace::Workspace;
 use tauri::Manager;
 
 fn main() {
-    tracing_subscriber::fmt::init();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let log = logging::init(&app.path().app_log_dir()?, &app.package_info().version.to_string());
+            app.manage(logging::LogFile(log));
             let config_dir = app.path().app_config_dir()?;
             app.manage(Arc::new(Workspace::new(&config_dir)?));
             app.manage(updater::PendingUpdate::default());
@@ -49,6 +50,10 @@ fn main() {
             commands::set_active_ai,
             commands::ai_models,
             commands::discover_local,
+            commands::ssh_config_hosts,
+            commands::check_sql,
+            commands::log_ui_error,
+            commands::diagnostics,
             commands::export_table,
             commands::csv_preview,
             commands::import_csv,

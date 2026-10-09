@@ -114,6 +114,24 @@ function About() {
           ]}
         />
         <p className={f.help}>Kiyi checks for updates in the background and asks before restarting. Beta gets new features first.</p>
+        <div className={f.field}>
+          <span className={f.label}>Something not working?</span>
+          <div>
+            <Button
+              onPress={async () => {
+                try {
+                  await navigator.clipboard.writeText(await ipc.diagnostics());
+                  toast.success("Diagnostics copied. Paste them into your bug report.");
+                } catch (e) {
+                  toast.error(errorMessage(e));
+                }
+              }}
+            >
+              Copy diagnostics
+            </Button>
+          </div>
+          <span className={f.help}>Your Kiyi version, system and recent log, kept only on this computer. Passwords and keys are never logged.</span>
+        </div>
       </div>
     </section>
   );
@@ -346,17 +364,24 @@ function ProviderForm({
         <div className={f.field}>
           <span className={f.label}>Model</span>
           <div className={f.withAction}>
-            <input className={`${f.control} ${f.mono}`} list="ai-models" value={p.model} onChange={(e) => setP({ ...p, model: e.target.value })} placeholder={models.length ? "Choose or type a model" : "Test the connection to list models"} spellCheck={false} />
+            {/* A <datalist> filters by the current value, so once a model is filled in it only offers that one. */}
+            {models.length ? (
+              <select className={`${f.control} ${f.mono}`} value={p.model} onChange={(e) => setP({ ...p, model: e.target.value })}>
+                {!models.includes(p.model) && <option value={p.model}>{p.model || "Choose a model"}</option>}
+                {models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input className={`${f.control} ${f.mono}`} value={p.model} onChange={(e) => setP({ ...p, model: e.target.value })} placeholder="Test the connection to list models" spellCheck={false} />
+            )}
             <Button onPress={runTest} isDisabled={test.state === "busy" || !p.baseUrl}>
               {test.state === "busy" && <Spinner />}
               Test connection
             </Button>
           </div>
-          <datalist id="ai-models">
-            {models.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
           {test.state === "ok" && <span className={s.testOk}>{test.message}</span>}
           {test.state === "error" && <span className={f.error}>{test.message}</span>}
         </div>

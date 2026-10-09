@@ -10,6 +10,16 @@ import s from "./ImportSheet.module.css";
 const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /** Maps a CSV file's columns onto a table and imports it in one transaction. */
+/** Encodings spreadsheet apps save CSV in. Values are what the core reports. */
+const ENCODINGS: [string, string][] = [
+  ["UTF-8", "UTF-8"],
+  ["windows-1254", "Turkish (Windows-1254)"],
+  ["windows-1252", "Western European (Windows-1252)"],
+  ["windows-1250", "Central European (Windows-1250)"],
+  ["windows-1251", "Cyrillic (Windows-1251)"],
+  ["UTF-16LE", "UTF-16"],
+];
+
 export function ImportSheet({
   path,
   connection,
@@ -27,15 +37,18 @@ export function ImportSheet({
   const [mapping, setMapping] = useState<(string | null)[]>([]);
   const [hasHeader, setHasHeader] = useState(true);
   const [emptyAsNull, setEmptyAsNull] = useState(true);
+  /** `null` = as detected. */
+  const [encoding, setEncoding] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const columns = details.design.columns.filter((c) => !c.generated);
 
+  useEffect(() => setEncoding(null), [path]);
   useEffect(() => {
     if (!path) return;
     setPreview(null);
     setError(null);
-    ipc.csvPreview(path).then(
+    ipc.csvPreview(path, encoding).then(
       (p) => {
         setPreview(p);
         // Match by name, ignoring case, spaces and underscores.
@@ -44,7 +57,7 @@ export function ImportSheet({
       (e) => setError(errorMessage(e)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path]);
+  }, [path, encoding]);
 
   const mapped = mapping.filter(Boolean).length;
   const rows = preview ? preview.total + (hasHeader ? 0 : 1) : 0;
@@ -55,7 +68,7 @@ export function ImportSheet({
     setBusy(true);
     setError(null);
     try {
-      const n = await ipc.importCsv(connection.id, path, { schema: details.schema, table: details.design.name, mapping, hasHeader, emptyAsNull });
+      const n = await ipc.importCsv(connection.id, path, { schema: details.schema, table: details.design.name, mapping, hasHeader, emptyAsNull, encoding: preview?.encoding ?? null });
       toast.success(`Imported ${n.toLocaleString("en-US")} rows into ${details.design.name}`);
       onImported();
       onClose();
@@ -110,6 +123,19 @@ export function ImportSheet({
                 </div>
               ))}
             </div>
+            <label className={f.field}>
+              <span className={f.label}>Text encoding</span>
+              <select className={f.control} value={preview.encoding} onChange={(e) => setEncoding(e.target.value)}>
+                {!ENCODINGS.some(([v]) => v === preview.encoding) && <option value={preview.encoding}>{preview.encoding}</option>}
+                {ENCODINGS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                    {value === preview.encoding && !encoding ? " (detected)" : ""}
+                  </option>
+                ))}
+              </select>
+              <span className={f.help}>If letters like ş, ğ or é look wrong in the examples, pick the encoding the file was saved with.</span>
+            </label>
             <div className={f.toggles}>
               <Switch isSelected={hasHeader} onChange={setHasHeader}>
                 The first row has column names

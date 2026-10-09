@@ -36,7 +36,32 @@ pub enum SslMode {
     Disable,
     Prefer,
     Require,
+    /// The certificate must chain to a trusted CA, whatever host name it was issued for.
+    /// Used under the hood for "Verify" through a tunnel, where the client connects to
+    /// 127.0.0.1 and the server's name can't match.
+    VerifyCa,
     VerifyFull,
+}
+
+/// How Kiyi signs in to the database.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "method", rename_all = "camelCase")]
+pub enum DbAuth {
+    /// A password stored in the keychain (or none).
+    #[default]
+    Password,
+    /// Amazon RDS / Aurora IAM authentication: a short-lived token from the AWS CLI.
+    #[serde(rename_all = "camelCase")]
+    AwsIam { region: Option<String>, profile: Option<String> },
+}
+
+/// An SSH server to hop through before the bastion (`ProxyJump`). Signs in like the bastion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JumpHost {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,10 +80,30 @@ pub enum SshAuth {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum TunnelConfig {
     #[serde(rename_all = "camelCase")]
-    Ssh { host: String, port: u16, user: String, auth: SshAuth },
+    Ssh {
+        host: String,
+        port: u16,
+        user: String,
+        auth: SshAuth,
+        #[serde(default)]
+        jump: Option<JumpHost>,
+    },
     /// AWS Systems Manager port forwarding through an EC2 instance.
     #[serde(rename_all = "camelCase")]
     Ssm { target: String, region: Option<String>, profile: Option<String> },
+    /// `kubectl port-forward` to a service or pod; the database port is the one inside the cluster.
+    #[serde(rename_all = "camelCase")]
+    Kubernetes { target: String, namespace: Option<String>, context: Option<String> },
+    /// Google Cloud SQL through the Cloud SQL Auth Proxy (`project:region:instance`).
+    #[serde(rename_all = "camelCase")]
+    CloudSql { instance: String },
+}
+
+impl TunnelConfig {
+    /// Tunnels that pick the database themselves, so the host field doesn't apply.
+    pub fn ignores_host(&self) -> bool {
+        matches!(self, TunnelConfig::Kubernetes { .. } | TunnelConfig::CloudSql { .. })
+    }
 }
 
 /// Everything about a connection except the password, which lives in the OS keychain.
@@ -80,6 +125,19 @@ pub struct ConnectionConfig {
     pub driver: Option<String>,
     #[serde(default)]
     pub tunnel: Option<TunnelConfig>,
+    /// A CA certificate (PEM) to trust for SSL, e.g. the Amazon RDS bundle.
+    #[serde(default)]
+    pub ssl_root_cert: Option<String>,
+    #[serde(default)]
+    pub auth: DbAuth,
+}
+
+impl ConnectionConfig {
+    /// A Unix domain socket instead of TCP: the host is a path such as `/tmp` or `/var/run/mysqld/mysqld.sock`.
+    pub fn socket_path(&self) -> Option<&str> {
+        let h = self.host.trim();
+        h.starts_with('/').then_some(h)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,7 +157,7 @@ pub fn guess_env(host: &str) -> EnvTag {
     // Look at whole name parts, so "postgres" isn't mistaken for "stg".
     let parts: Vec<&str> = h.split(['.', '-', '_']).collect();
     let has = |words: &[&str]| parts.iter().any(|p| words.iter().any(|w| p == w || (w.len() > 3 && p.starts_with(w))));
-    if h == "localhost" || h == "127.0.0.1" || h == "::1" || h.ends_with(".local") || h == "host.docker.internal" || !h.contains('.') {
+    if h.starts_with('/') || h == "localhost" || h == "127.0.0.1" || h == "::1" || h.ends_with(".local") || h == "host.docker.internal" || !h.contains('.') {
         EnvTag::Local
     } else if has(&["staging", "stage", "stg", "dev", "develop", "test", "qa", "uat", "sandbox"]) {
         EnvTag::Staging
@@ -128,6 +186,8 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
                 read_only: false,
                 driver: Some("sqlite".into()),
                 tunnel: None,
+                ssl_root_cert: None,
+                auth: DbAuth::Password,
             },
             password: None,
         });
@@ -142,12 +202,11 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
         "mysql" | "mariadb" => DbKind::Mysql,
         other => return Err(Error::InvalidUrl(format!("unsupported scheme: {other}"))),
     };
-    let host = url
-        .host_str()
-        .filter(|h| !h.is_empty())
-        .unwrap_or("localhost")
-        .trim_matches(|c| c == '[' || c == ']')
-        .to_string();
+    // libpq-style `?host=/tmp` (or MySQL's `?socket=`) points at a Unix socket.
+    let socket = url.query_pairs().find(|(k, v)| (k == "host" || k == "socket") && v.starts_with('/')).map(|(_, v)| v.into_owned());
+    let host = socket.unwrap_or_else(|| {
+        url.host_str().filter(|h| !h.is_empty()).unwrap_or("localhost").trim_matches(|c| c == '[' || c == ']').to_string()
+    });
     let database = Some(decode(url.path().trim_start_matches('/'))).filter(|d| !d.is_empty());
 
     let mut ssl_mode = if guess_env(&host) == EnvTag::Local { SslMode::Disable } else { SslMode::Prefer };
@@ -157,6 +216,7 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
                 "disable" | "disabled" => SslMode::Disable,
                 "require" | "required" => SslMode::Require,
                 "verify-full" | "verify_identity" | "verify-identity" => SslMode::VerifyFull,
+                "verify-ca" | "verify_ca" => SslMode::VerifyCa,
                 _ => SslMode::Prefer,
             };
         }
@@ -181,6 +241,8 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
             read_only: env == EnvTag::Production,
             driver: Some(driver.to_string()),
             tunnel: None,
+            ssl_root_cert: url.query_pairs().find(|(k, _)| k == "sslrootcert" || k == "ssl-ca").map(|(_, v)| v.into_owned()),
+            auth: DbAuth::Password,
         },
         password: url.password().map(decode),
     })
@@ -189,6 +251,17 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_socket_and_ca_urls() {
+        let p = parse_url("postgres:///shop?host=/var/run/postgresql").unwrap();
+        assert_eq!(p.config.host, "/var/run/postgresql");
+        assert_eq!(p.config.socket_path(), Some("/var/run/postgresql"));
+        assert_eq!(p.config.env, EnvTag::Local);
+        let p = parse_url("postgres://u@db.prod.example.com/shop?sslmode=verify-ca&sslrootcert=/certs/ca.pem").unwrap();
+        assert_eq!(p.config.ssl_mode, SslMode::VerifyCa);
+        assert_eq!(p.config.ssl_root_cert.as_deref(), Some("/certs/ca.pem"));
+    }
 
     #[test]
     fn parses_postgres_url() {

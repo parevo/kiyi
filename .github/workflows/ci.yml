@@ -26,6 +26,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm test
       - run: pnpm vite build
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -45,6 +46,20 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm vite build
       - run: cargo check -p kiyi
+
+  audit:
+    # Known vulnerabilities in dependencies. Accepted ones are listed, with reasons, in .cargo/audit.toml.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm audit --prod --audit-level high
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
 
   live-db:
     # Driver and tunnel tests against real PostgreSQL, MySQL and an SSH bastion (Linux runners have Docker).

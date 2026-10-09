@@ -80,3 +80,25 @@ async fn unreachable_server_gives_a_clear_error() {
     let err = ai::list_models(&provider, None).await.unwrap_err().to_string();
     assert!(err.contains("Couldn't reach Ollama"), "{err}");
 }
+
+#[tokio::test]
+async fn retries_after_a_rate_limit() {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let app = Router::new()
+        .route(
+            "/v1/models",
+            get(|State(hits): State<Arc<AtomicUsize>>| async move {
+                if hits.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return (StatusCode::TOO_MANY_REQUESTS, [("retry-after", "0")], Json(json!({ "error": { "message": "slow down" } })));
+                }
+                (StatusCode::OK, [("retry-after", "0")], Json(json!({ "data": [{ "id": "m" }] })))
+            }),
+        )
+        .with_state(hits.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base_url = format!("http://{}/v1", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let provider = AiProvider { id: "t".into(), name: "Local".into(), kind: ProviderKind::OpenAi, base_url, model: "m".into(), preset: Some("custom".into()) };
+    assert_eq!(ai::list_models(&provider, None).await.unwrap(), ["m"]);
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
+}

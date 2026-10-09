@@ -113,7 +113,12 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
             ) : (
               <span>{run.error ? "Error" : "Done"}</span>
             )}
-            {run.statements > 1 && <span className={s.faint}>{run.statements} ifade</span>}
+            {run.truncated && (
+              <span className={s.truncated} title="Kiyi keeps at most 100,000 rows in the editor so the app stays responsive.">
+                First {fmt.format(shownRows)} rows only. Add a LIMIT, or export to get everything.
+              </span>
+            )}
+            {run.statements > 1 && <span className={s.faint}>{run.statements} statements</span>}
             <span className={s.spacer} />
             <span className={s.faint}>{duration(elapsed)}</span>
           </>

@@ -1,0 +1,9 @@
+# `cargo audit` settings. Every ignored advisory needs a reason here.
+[advisories]
+ignore = [
+    # rsa: Marvin attack (timing side channel), no fixed release yet. It targets RSA decryption
+    # observed many times over a network. Kiyi only signs once per SSH login with the user's own
+    # key (russh), and MySQL's sha2 auth encrypts with the server's public key, so there is no
+    # repeated private-key operation for an attacker to time. Revisit when rsa 0.10 ships.
+    "RUSTSEC-2023-0071",
+]

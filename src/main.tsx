@@ -7,6 +7,7 @@ import "./styles/global.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // In a plain browser during development, talk to kiyi-devbridge instead of Tauri.
 if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
@@ -15,6 +16,8 @@ if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );

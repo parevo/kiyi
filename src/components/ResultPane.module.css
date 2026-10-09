@@ -111,3 +111,5 @@
   font-size: var(--text-xs);
 }
 .cancel[data-hovered] { background: var(--bg-hover); }
+
+.truncated { color: var(--env-staging); }

@@ -39,6 +39,8 @@ async fn sqlite_create_edit_browse_and_alter() {
         read_only: false,
         driver: Some("sqlite".into()),
         tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
     };
     let db = drivers::open(&config, None).await.unwrap();
     let d = db.dialect();
@@ -116,4 +118,202 @@ async fn sqlite_create_edit_browse_and_alter() {
 
     db.close().await;
     let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn editor_results_stop_at_the_row_limit() {
+    use kiyi_core::types::QueryEvent;
+    use kiyi_core::workspace::{Workspace, MAX_RESULT_ROWS};
+    use std::sync::{Arc, Mutex};
+
+    let dir = std::env::temp_dir().join(format!("kiyi-limit-{}", std::process::id()));
+    let ws = Workspace::new(&dir).unwrap();
+    let db = dir.join("limit.db");
+    let config = ConnectionConfig {
+        id: String::new(),
+        name: "limit".into(),
+        kind: DbKind::Sqlite,
+        host: String::new(),
+        port: 0,
+        user: String::new(),
+        database: Some(db.to_string_lossy().into_owned()),
+        ssl_mode: SslMode::Disable,
+        env: EnvTag::Local,
+        read_only: false,
+        driver: Some("sqlite".into()),
+        tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
+    };
+    // No password, so nothing is written to the keychain.
+    let saved = ws.save(config, None, None).unwrap();
+    ws.connect(&saved.id).await.unwrap();
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let tx = Mutex::new(Some(tx));
+    let sink = {
+        let events = events.clone();
+        Arc::new(move |e: QueryEvent| {
+            let done = matches!(e, QueryEvent::Done { .. });
+            events.lock().unwrap().push(e);
+            if done {
+                tx.lock().unwrap().take().map(|t| t.send(()));
+            }
+        })
+    };
+    let sql = format!("WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < {}) SELECT x FROM c", MAX_RESULT_ROWS * 3);
+    ws.run(&saved.id, "q".into(), sql, sink).unwrap();
+    rx.await.unwrap();
+
+    let events = std::mem::take(&mut *events.lock().unwrap());
+    let rows: usize = events.iter().map(|e| if let QueryEvent::Rows { rows } = e { rows.len() } else { 0 }).sum();
+    assert_eq!(rows, MAX_RESULT_ROWS);
+    assert!(!events.iter().any(|e| matches!(e, QueryEvent::Error { .. })));
+    assert!(matches!(events.last(), Some(QueryEvent::Done { truncated: true, cancelled: false, .. })));
+
+    ws.disconnect(&saved.id).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn read_only_connections_refuse_changes() {
+    use kiyi_core::workspace::{ScriptKind, Workspace};
+    use std::sync::Arc;
+
+    let dir = std::env::temp_dir().join(format!("kiyi-ro-{}", std::process::id()));
+    let ws = Workspace::new(&dir).unwrap();
+    let db = dir.join("ro.db");
+    std::fs::create_dir_all(&dir).unwrap();
+    {
+        // Create the file with a table first; read-only can't create it.
+        let rw = ConnectionConfig {
+            id: "rw".into(),
+            name: "rw".into(),
+            kind: DbKind::Sqlite,
+            host: String::new(),
+            port: 0,
+            user: String::new(),
+            database: Some(db.to_string_lossy().into_owned()),
+            ssl_mode: SslMode::Disable,
+            env: EnvTag::Local,
+            read_only: false,
+            driver: Some("sqlite".into()),
+            tunnel: None,
+            ssl_root_cert: None,
+            auth: Default::default(),
+        };
+        let d = drivers::open(&rw, None).await.unwrap();
+        d.execute_script(&["CREATE TABLE t (id INTEGER PRIMARY KEY, comment TEXT)".into()], true, false).await.unwrap();
+        d.close().await;
+    }
+    let config = ConnectionConfig {
+        id: String::new(),
+        name: "ro".into(),
+        kind: DbKind::Sqlite,
+        host: String::new(),
+        port: 0,
+        user: String::new(),
+        database: Some(db.to_string_lossy().into_owned()),
+        ssl_mode: SslMode::Disable,
+        env: EnvTag::Production,
+        read_only: true,
+        driver: Some("sqlite".into()),
+        tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
+    };
+    let saved = ws.save(config, None, None).unwrap();
+    ws.connect(&saved.id).await.unwrap();
+    let sink = Arc::new(|_| {});
+
+    let refused = ws.run(&saved.id, "a".into(), "DELETE FROM t".into(), sink.clone()).unwrap_err();
+    assert!(refused.to_string().contains("read-only"), "{refused}");
+    assert!(ws.run(&saved.id, "b".into(), "SELECT comment FROM t".into(), sink).is_ok(), "reading a column named comment is fine");
+    assert!(ws.execute_script(&saved.id, &["DELETE FROM t".into()], ScriptKind::Data).await.is_err());
+    assert!(ws.check_sql(&saved.id, "drop table t").unwrap().destructive == 1);
+
+    ws.disconnect(&saved.id).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn imports_excel_csv_in_batches_and_all_or_nothing() {
+    use kiyi_core::transfer::{self, ImportPlan};
+
+    let dir = std::env::temp_dir().join(format!("kiyi-import-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = ConnectionConfig {
+        id: "imp".into(),
+        name: "imp".into(),
+        kind: DbKind::Sqlite,
+        host: String::new(),
+        port: 0,
+        user: String::new(),
+        database: Some(dir.join("imp.db").to_string_lossy().into_owned()),
+        ssl_mode: SslMode::Disable,
+        env: EnvTag::Local,
+        read_only: false,
+        driver: Some("sqlite".into()),
+        tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
+    };
+    let db = drivers::open(&config, None).await.unwrap();
+    db.execute_script(&["CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL, city TEXT)".into()], true, false).await.unwrap();
+
+    // What Turkish Excel writes: Windows-1254, semicolons, and the Turkish letters only near the end,
+    // well past any "look at the first bit" heuristic.
+    let mut text = String::from("Ad;Şehir\n");
+    for i in 0..1_200 {
+        text.push_str(&format!("Person {i};Ankara\n"));
+    }
+    text.push_str("Ayşe Yılmaz;İstanbul\nĞökçe Işık;Muğla\n");
+    let (bytes, _, lossy) = encoding_rs::WINDOWS_1254.encode(&text);
+    assert!(!lossy);
+    let path = dir.join("excel.csv");
+    std::fs::write(&path, &bytes).unwrap();
+
+    let preview = transfer::preview(&path, None).unwrap();
+    assert_eq!(preview.encoding, "windows-1254");
+    assert_eq!(preview.headers, ["Ad", "Şehir"]);
+    assert_eq!(preview.total, 1_202);
+
+    let plan = ImportPlan {
+        schema: None,
+        table: "people".into(),
+        mapping: vec![Some("name".into()), Some("city".into())],
+        has_header: true,
+        empty_as_null: true,
+        encoding: None,
+    };
+    assert_eq!(transfer::import(&*db, &path, &plan).await.unwrap(), 1_202);
+    let (_, rows) = db.fetch("SELECT name, city FROM people ORDER BY id DESC LIMIT 2").await.unwrap();
+    assert_eq!(rows[0], vec![Some("Ğökçe Işık".into()), Some("Muğla".into())]);
+    assert_eq!(rows[1], vec![Some("Ayşe Yılmaz".into()), Some("İstanbul".into())]);
+
+    // A bad row in the third batch: nothing from the file may stay.
+    let mut text = String::from("name,city\n");
+    for i in 0..1_100 {
+        text.push_str(&format!("Again {i},Izmir\n"));
+    }
+    text.push_str(",Nowhere\n"); // empty name → NULL → NOT NULL fails
+    let bad = dir.join("bad.csv");
+    std::fs::write(&bad, text).unwrap();
+    assert_eq!(transfer::preview(&bad, None).unwrap().encoding, "UTF-8");
+    let err = transfer::import(&*db, &bad, &plan).await.unwrap_err().to_string();
+    assert!(err.contains("Nothing was imported") && err.contains("1001"), "{err}");
+    let (_, rows) = db.fetch("SELECT count(*) FROM people").await.unwrap();
+    assert_eq!(rows[0][0].as_deref(), Some("1202"));
+
+    // Western Excel (Windows-1252) stays Western.
+    let (bytes, _, _) = encoding_rs::WINDOWS_1252.encode("name,city\nRenée,Zürich\n");
+    let west = dir.join("west.csv");
+    std::fs::write(&west, &bytes).unwrap();
+    let preview = transfer::preview(&west, None).unwrap();
+    assert_eq!(preview.encoding, "windows-1252");
+    assert_eq!(preview.rows[0], ["Renée", "Zürich"]);
+
+    db.close().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

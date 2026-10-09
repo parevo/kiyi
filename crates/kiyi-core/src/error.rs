@@ -87,6 +87,9 @@ pub fn explain_connect_error(err: &Error) -> String {
                 std::io::ErrorKind::ConnectionRefused => {
                     "Connection refused. Check the host and port, and that the server is running.".into()
                 }
+                std::io::ErrorKind::NotFound => {
+                    "No database socket at that path. Check the folder (PostgreSQL often uses /tmp or /var/run/postgresql) and that the server runs on this computer.".into()
+                }
                 std::io::ErrorKind::TimedOut => "The server did not respond. A firewall or security group may be blocking it.".into(),
                 _ if text.contains("lookup") || text.contains("nodename") => {
                     "The host name could not be resolved. Check the address.".into()

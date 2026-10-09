@@ -80,6 +80,11 @@ pub async fn run_query(
 }
 
 #[tauri::command]
+pub fn check_sql(ws: Ws<'_>, id: String, sql: String) -> CmdResult<kiyi_core::dml::ScriptCheck> {
+    Ok(ws.check_sql(&id, &sql)?)
+}
+
+#[tauri::command]
 pub async fn cancel_query(ws: Ws<'_>, query_id: String) -> CmdResult<()> {
     ws.cancel(&query_id).await;
     Ok(())
@@ -162,6 +167,22 @@ pub async fn ai_models(ws: Ws<'_>, provider: kiyi_core::ai::AiProvider, key: Opt
     Ok(ws.ai_models(&provider, key.as_deref()).await?)
 }
 
+/// Errors the interface caught (render failures, unhandled rejections), for the log file.
+#[tauri::command]
+pub fn log_ui_error(message: String) {
+    tracing::error!(target: "ui", "{message}");
+}
+
+#[tauri::command]
+pub fn diagnostics(app: tauri::AppHandle, log: State<'_, crate::logging::LogFile>) -> String {
+    crate::logging::diagnostics(&log.0, &app.package_info().version.to_string())
+}
+
+#[tauri::command]
+pub fn ssh_config_hosts() -> Vec<kiyi_core::ssh_config::SshHost> {
+    kiyi_core::ssh_config::hosts()
+}
+
 #[tauri::command]
 pub async fn discover_local() -> Vec<kiyi_core::discover::LocalDatabase> {
     kiyi_core::discover::local_databases().await
@@ -185,8 +206,8 @@ pub async fn export_table(ws: Ws<'_>, id: String, request: BrowseRequest, format
 }
 
 #[tauri::command]
-pub fn csv_preview(path: String) -> CmdResult<kiyi_core::transfer::CsvPreview> {
-    Ok(kiyi_core::transfer::preview(std::path::Path::new(&path))?)
+pub fn csv_preview(path: String, encoding: Option<String>) -> CmdResult<kiyi_core::transfer::CsvPreview> {
+    Ok(kiyi_core::transfer::preview(std::path::Path::new(&path), encoding.as_deref())?)
 }
 
 #[tauri::command]

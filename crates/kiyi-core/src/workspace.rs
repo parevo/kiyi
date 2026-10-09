@@ -1,13 +1,13 @@
 //! The app-facing API: saved connections, live pools and running queries.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::config::ConnectionConfig;
+use crate::config::{ConnectionConfig, DbAuth, SslMode};
 use crate::design::{self, TableAction, TableDesign, TableDetails};
 use crate::dml::{self, BrowseRequest, ChangeSet};
 use crate::drivers::{self, DbDriver};
@@ -21,6 +21,9 @@ fn tunnel_account(connection_id: &str) -> String {
 }
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
+/// Rows a SQL-editor run keeps across all its result sets. Beyond this the window would run
+/// out of memory; the query is stopped on the server and the user is told to add a LIMIT or export.
+pub const MAX_RESULT_ROWS: usize = 100_000;
 /// After asking the server to cancel, give it this long before dropping the task.
 const CANCEL_GRACE: Duration = Duration::from_secs(3);
 
@@ -79,9 +82,24 @@ struct Running {
 struct Live {
     driver: Arc<dyn DbDriver>,
     _tunnel: Option<crate::tunnel::Tunnel>,
+    /// Renews the IAM token before it expires; stops with the connection.
+    _refresh: Option<AbortOnDrop>,
 }
 
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// RDS IAM tokens last 15 minutes; new pool connections need a valid one.
+const IAM_REFRESH: Duration = Duration::from_secs(10 * 60);
+const RDS_CA_URL: &str = "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem";
+
 pub struct Workspace {
+    dir: PathBuf,
     store: Mutex<ConnectionStore>,
     ai: Mutex<crate::ai::AiStore>,
     known_hosts: crate::tunnel::KnownHosts,
@@ -92,6 +110,7 @@ pub struct Workspace {
 impl Workspace {
     pub fn new(config_dir: &Path) -> Result<Self> {
         Ok(Self {
+            dir: config_dir.to_path_buf(),
             store: Mutex::new(ConnectionStore::load(config_dir.join("connections.json"))?),
             ai: Mutex::new(crate::ai::AiStore::load(config_dir.join("ai.json"))?),
             known_hosts: crate::tunnel::KnownHosts::load(config_dir.join("known_hosts.json")),
@@ -152,7 +171,62 @@ impl Workspace {
         let mut local = config.clone();
         local.host = "127.0.0.1".into();
         local.port = t.local_port;
+        // Through a tunnel the client talks to 127.0.0.1, which no certificate names. Still insist
+        // the certificate chains to a trusted CA; the tunnel itself pins where it leads.
+        if local.ssl_mode == SslMode::VerifyFull {
+            local.ssl_mode = SslMode::VerifyCa;
+        }
+        if matches!(tunnel, crate::config::TunnelConfig::CloudSql { .. }) {
+            // The proxy already encrypts and authenticates; the database sees a plain local connection.
+            local.ssl_mode = SslMode::Disable;
+        }
         Ok((local, Some(t)))
+    }
+
+    /// Fills in what a connection needs beyond its saved settings: an IAM token as the password,
+    /// and the Amazon RDS certificate bundle when verifying an RDS server. Returns notes for the test report.
+    async fn prepare(&self, config: &ConnectionConfig, password: Option<String>) -> Result<(ConnectionConfig, Option<String>, Vec<String>)> {
+        let mut config = config.clone();
+        let mut notes = Vec::new();
+        let password = match &config.auth {
+            DbAuth::Password => password,
+            DbAuth::AwsIam { region, profile } => {
+                // RDS only accepts IAM tokens over SSL.
+                if matches!(config.ssl_mode, SslMode::Disable | SslMode::Prefer) {
+                    config.ssl_mode = SslMode::Require;
+                }
+                let token = crate::tunnel::rds_auth_token(&config.host, config.port, &config.user, region.as_deref(), profile.as_deref()).await?;
+                notes.push("Got an IAM sign-in token from the AWS CLI".to_string());
+                Some(token)
+            }
+        };
+        let verifying = matches!(config.ssl_mode, SslMode::VerifyCa | SslMode::VerifyFull);
+        let no_cert = config.ssl_root_cert.as_deref().is_none_or(|c| c.trim().is_empty());
+        if verifying && no_cert && crate::tunnel::rds_region(&config.host).is_some() {
+            config.ssl_root_cert = Some(self.rds_ca_bundle().await?.to_string_lossy().into_owned());
+            notes.push("Using the Amazon RDS certificate bundle".to_string());
+        }
+        Ok((config, password, notes))
+    }
+
+    /// Amazon's RDS CA bundle, downloaded once and kept next to the settings.
+    async fn rds_ca_bundle(&self) -> Result<PathBuf> {
+        let path = self.dir.join("rds-global-bundle.pem");
+        if path.is_file() {
+            return Ok(path);
+        }
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let fail = |e: &dyn std::fmt::Display| Error::Invalid(format!("Couldn't download the Amazon RDS certificate bundle ({e}). Choose it as the CA certificate instead: {RDS_CA_URL}"));
+        let response = reqwest::Client::builder().timeout(Duration::from_secs(20)).build().map_err(|e| fail(&e))?.get(RDS_CA_URL).send().await.map_err(|e| fail(&e))?;
+        let pem = response.error_for_status().map_err(|e| fail(&e))?.bytes().await.map_err(|e| fail(&e))?;
+        if !pem.starts_with(b"-----BEGIN CERTIFICATE-----") {
+            return Err(fail(&"unexpected content"));
+        }
+        std::fs::create_dir_all(&self.dir)?;
+        let tmp = path.with_extension("pem.tmp");
+        std::fs::write(&tmp, &pem)?;
+        std::fs::rename(&tmp, &path)?;
+        Ok(path)
     }
 
     /// Lets the user accept an SSH server's new identity after it legitimately changed.
@@ -174,10 +248,25 @@ impl Workspace {
         };
         let target = match config.kind {
             crate::config::DbKind::Sqlite => config.database.clone().unwrap_or_default(),
-            _ => format!("{}:{}", config.host, config.port),
+            _ if config.socket_path().is_some() => format!("the socket in {}", config.host),
+            _ => match &config.tunnel {
+                Some(crate::config::TunnelConfig::CloudSql { instance }) => instance.clone(),
+                Some(crate::config::TunnelConfig::Kubernetes { target, .. }) => format!("{target} port {}", config.port),
+                _ => format!("{}:{}", config.host, config.port),
+            },
         };
         let mut steps = Vec::new();
 
+        let (config, password) = match self.prepare(&config, password).await {
+            Ok((config, password, notes)) => {
+                steps.extend(notes.into_iter().map(|label| TestStep { label, ok: true, detail: None }));
+                (config, password)
+            }
+            Err(e) => {
+                steps.push(TestStep { label: "Couldn't prepare the sign-in".into(), ok: false, detail: Some(e.to_string()) });
+                return TestReport { ok: false, steps, server_version: None };
+            }
+        };
         let (config, _tunnel) = match self.open_tunnel(&config, tunnel_secret.as_deref()).await {
             Ok((local, tunnel)) => {
                 for step in tunnel.as_ref().map(|t| t.steps.clone()).unwrap_or_default() {
@@ -219,13 +308,30 @@ impl Workspace {
         if let Ok(driver) = self.driver(id) {
             return Ok(ConnectInfo { server_version: driver.server_version().await? });
         }
-        let config = self.config(id)?;
+        let saved = self.config(id)?;
         let password = secrets::get_password(id)?;
         let tunnel_secret = secrets::get_secret(&tunnel_account(id))?;
+        let (config, password, _) = self.prepare(&saved, password).await?;
         let (config, tunnel) = self.open_tunnel(&config, tunnel_secret.as_deref()).await?;
         let driver = Self::open_driver(&config, password.as_deref()).await.map_err(|e| Error::Invalid(explain_connect_error(&e)))?;
         let server_version = driver.server_version().await?;
-        self.live.write().unwrap().insert(id.to_string(), Live { driver, _tunnel: tunnel });
+        let refresh = match &saved.auth {
+            DbAuth::Password => None,
+            DbAuth::AwsIam { region, profile } => {
+                let (driver, region, profile) = (Arc::downgrade(&driver), region.clone(), profile.clone());
+                Some(AbortOnDrop(tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(IAM_REFRESH).await;
+                        let Some(driver) = driver.upgrade() else { break };
+                        match crate::tunnel::rds_auth_token(&saved.host, saved.port, &saved.user, region.as_deref(), profile.as_deref()).await {
+                            Ok(token) => driver.set_password(&token),
+                            Err(e) => tracing::warn!("couldn't renew the IAM token: {e}"),
+                        }
+                    }
+                })))
+            }
+        };
+        self.live.write().unwrap().insert(id.to_string(), Live { driver, _tunnel: tunnel, _refresh: refresh });
         Ok(ConnectInfo { server_version })
     }
 
@@ -248,8 +354,30 @@ impl Workspace {
     }
 
     /// Starts `sql` in the background; events stream into `sink` and always end with `Done`.
+    /// What `sql` would do on this connection, so the UI can ask before changing production data.
+    pub fn check_sql(&self, id: &str, sql: &str) -> Result<dml::ScriptCheck> {
+        Ok(dml::check_script(self.driver(id)?.dialect(), sql))
+    }
+
+    fn is_read_only(&self, id: &str) -> bool {
+        self.config(id).map(|c| c.read_only).unwrap_or(false)
+    }
+
+    /// Read-only is enforced here as well as in the database session, which a `SET` could undo.
+    fn ensure_writable(&self, id: &str) -> Result<()> {
+        if self.is_read_only(id) {
+            return Err(Error::Invalid("This connection is read-only, so nothing was changed. Turn off Read-only in the connection settings to make changes.".into()));
+        }
+        Ok(())
+    }
+
     pub fn run(&self, conn_id: &str, query_id: String, sql: String, sink: Arc<Sink<'static>>) -> Result<()> {
         let driver = self.driver(conn_id)?;
+        if self.is_read_only(conn_id) && dml::check_script(driver.dialect(), &sql).writes {
+            return Err(Error::Invalid(
+                "This connection is read-only, so this SQL didn't run: it changes data, structure or session settings. Turn off Read-only in the connection settings to make changes.".into(),
+            ));
+        }
         let session_id = Arc::new(Mutex::new(None));
         let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let running = self.running.clone();
@@ -259,18 +387,48 @@ impl Workspace {
         let mut registry = self.running.lock().unwrap();
         let task = {
             let (session_id, cancelled, query_id, sink) = (session_id.clone(), cancelled.clone(), query_id.clone(), sink.clone());
+            let truncated = Arc::new(std::sync::atomic::AtomicBool::new(false));
             tokio::spawn(async move {
+                use std::sync::atomic::Ordering::SeqCst;
                 let started = Instant::now();
-                let on_session = move |id: u64| *session_id.lock().unwrap() = Some(id);
-                let result = driver.execute(&sql, &on_session, &*sink).await;
-                let was_cancelled = cancelled.load(std::sync::atomic::Ordering::SeqCst);
+                let on_session = {
+                    let session_id = session_id.clone();
+                    move |id: u64| *session_id.lock().unwrap() = Some(id)
+                };
+                let seen = std::sync::atomic::AtomicUsize::new(0);
+                let capped = |event: QueryEvent| match event {
+                    QueryEvent::Rows { mut rows } => {
+                        if truncated.load(SeqCst) {
+                            return;
+                        }
+                        let before = seen.fetch_add(rows.len(), SeqCst);
+                        if before + rows.len() > MAX_RESULT_ROWS {
+                            rows.truncate(MAX_RESULT_ROWS.saturating_sub(before));
+                            truncated.store(true, SeqCst);
+                            // Stop the server from producing rows nobody will see.
+                            let (driver, session_id) = (driver.clone(), *session_id.lock().unwrap());
+                            tokio::spawn(async move {
+                                if let Some(id) = session_id {
+                                    let _ = driver.cancel(id).await;
+                                }
+                            });
+                        }
+                        if !rows.is_empty() {
+                            sink(QueryEvent::Rows { rows });
+                        }
+                    }
+                    other => sink(other),
+                };
+                let result = driver.execute(&sql, &on_session, &capped).await;
+                let was_cancelled = cancelled.load(SeqCst);
+                let was_truncated = truncated.load(SeqCst);
                 if let Err(e) = result {
-                    if !(was_cancelled && is_cancel_error(&e)) {
+                    if !((was_cancelled || was_truncated) && is_cancel_error(&e)) {
                         sink(QueryEvent::Error { error: ErrorInfo::from(&e) });
                     }
                 }
                 running.lock().unwrap().remove(&query_id);
-                sink(QueryEvent::Done { elapsed_ms: started.elapsed().as_millis() as u64, cancelled: was_cancelled });
+                sink(QueryEvent::Done { elapsed_ms: started.elapsed().as_millis() as u64, cancelled: was_cancelled, truncated: was_truncated });
             })
         };
         registry.insert(
@@ -301,7 +459,7 @@ impl Workspace {
             let stuck = running.lock().unwrap().remove(&query_id);
             if let Some(r) = stuck {
                 abort.abort();
-                (r.sink)(QueryEvent::Done { elapsed_ms: r.started.elapsed().as_millis() as u64, cancelled: true });
+                (r.sink)(QueryEvent::Done { elapsed_ms: r.started.elapsed().as_millis() as u64, cancelled: true, truncated: false });
             }
         });
     }
@@ -373,6 +531,7 @@ impl Workspace {
     }
 
     pub async fn execute_script(&self, id: &str, statements: &[String], kind: ScriptKind) -> Result<Vec<u64>> {
+        self.ensure_writable(id)?;
         let driver = self.driver(id)?;
         match kind {
             ScriptKind::Data => driver.execute_script(statements, true, true).await,
@@ -388,9 +547,8 @@ impl Workspace {
     }
 
     pub async fn import_csv(&self, id: &str, path: &Path, plan: &crate::transfer::ImportPlan) -> Result<u64> {
+        self.ensure_writable(id)?;
         let driver = self.driver(id)?;
-        let (statements, count) = crate::transfer::plan_import(driver.dialect(), path, plan)?;
-        driver.execute_script(&statements, true, false).await?;
-        Ok(count)
+        crate::transfer::import(&*driver, path, plan).await
     }
 }

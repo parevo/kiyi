@@ -107,7 +107,8 @@ pub fn presets() -> Vec<ProviderPreset> {
         p("openai", "OpenAI", OpenAi, "https://api.openai.com/v1", "", true, false, Some("https://platform.openai.com/api-keys"), Some("OPENAI_API_KEY"), "GPT models"),
         p("gemini", "Google Gemini", OpenAi, "https://generativelanguage.googleapis.com/v1beta/openai", "", true, false, Some("https://aistudio.google.com/apikey"), Some("GEMINI_API_KEY"), "Gemini models"),
         p("openrouter", "OpenRouter", OpenAi, "https://openrouter.ai/api/v1", "", true, false, Some("https://openrouter.ai/keys"), Some("OPENROUTER_API_KEY"), "Hundreds of models with one key"),
-        p("groq", "Groq", OpenAi, "https://api.groq.com/openai/v1", "", true, false, Some("https://console.groq.com/keys"), Some("GROQ_API_KEY"), "Very fast open models"),
+        p("xai", "xAI Grok", OpenAi, "https://api.x.ai/v1", "", true, false, Some("https://console.x.ai"), Some("XAI_API_KEY"), "Grok models"),
+        p("groq", "Groq", OpenAi, "https://api.groq.com/openai/v1", "", true, false, Some("https://console.groq.com/keys"), Some("GROQ_API_KEY"), "Very fast open models (not Grok)"),
         p("mistral", "Mistral", OpenAi, "https://api.mistral.ai/v1", "", true, false, Some("https://console.mistral.ai/api-keys"), Some("MISTRAL_API_KEY"), "Mistral models"),
         p("ollama", "Ollama", OpenAi, "http://localhost:11434/v1", "", false, true, None, None, "Models running on this Mac"),
         p("lmstudio", "LM Studio", OpenAi, "http://localhost:1234/v1", "", false, true, None, None, "Models running on this Mac"),
@@ -267,18 +268,42 @@ fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder().timeout(Duration::from_secs(90)).build().map_err(|e| Error::Invalid(e.to_string()))
 }
 
+/// Retries after a rate limit or a brief server hiccup: twice, honoring `retry-after` up to 8 s.
+const RETRIES: u32 = 2;
+
 async fn send(req: reqwest::RequestBuilder, who: &str) -> Result<Value> {
-    let response = req.send().await.map_err(|e| {
-        Error::Invalid(if e.is_connect() { format!("Couldn't reach {who}. Is the address right and the server running?") } else { format!("{who}: {e}") })
-    })?;
+    let mut attempt = 0;
+    let response = loop {
+        // JSON and empty bodies always clone; a body that can't would only lose the retry.
+        let Some(this) = req.try_clone() else { return Err(Error::Invalid(format!("{who}: the request couldn't be sent."))) };
+        let response = this.send().await.map_err(|e| {
+            Error::Invalid(if e.is_connect() { format!("Couldn't reach {who}. Is the address right and the server running?") } else { format!("{who}: {e}") })
+        })?;
+        let retryable = matches!(response.status().as_u16(), 429 | 500 | 502 | 503 | 529);
+        if !retryable || attempt == RETRIES {
+            break response;
+        }
+        let wait = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .map(|secs| Duration::from_secs_f64(secs.clamp(0.0, 8.0)))
+            .unwrap_or(Duration::from_millis(1_000 * 2u64.pow(attempt)));
+        tracing::info!("{who} answered {}; retrying in {:?}", response.status(), wait);
+        tokio::time::sleep(wait).await;
+        attempt += 1;
+    };
     let status = response.status();
     let body: Value = response.json().await.unwrap_or(Value::Null);
     if status.is_success() {
         return Ok(body);
     }
-    let message = body["error"]["message"].as_str().or_else(|| body["error"].as_str()).or_else(|| body["message"].as_str()).unwrap_or("").to_string();
+    let message = body["error"]["message"].as_str().or_else(|| body["error"].as_str()).or_else(|| body["message"].as_str()).or_else(|| body["detail"].as_str()).unwrap_or("").to_string();
     Err(Error::Invalid(match status.as_u16() {
         401 | 403 => format!("{who} rejected the API key."),
+        // xAI and Gemini answer a bad key with 400 rather than 401.
+        400 if message.to_ascii_lowercase().contains("api key") => format!("{who} rejected the API key. {message}"),
         404 if message.is_empty() => format!("{who}: not found. Check the base URL and model."),
         429 => format!("{who} is rate limiting requests. Try again in a moment."),
         _ => format!("{who} returned {status}: {message}"),
@@ -299,18 +324,33 @@ fn bearer(req: reqwest::RequestBuilder, key: Option<&str>) -> reqwest::RequestBu
 /// Model ids the provider offers; also serves as the connection test.
 pub async fn list_models(p: &AiProvider, key: Option<&str>) -> Result<Vec<String>> {
     let http = client()?;
+    // The form tests the URL as typed, before `upsert` normalizes it.
+    let base = p.base_url.trim().trim_end_matches('/');
     let body = match p.kind {
-        ProviderKind::Anthropic => send(anthropic(http.get(format!("{}/v1/models?limit=100", p.base_url)), key), &p.name).await?,
-        ProviderKind::OpenAi => send(bearer(http.get(format!("{}/models", p.base_url)), key), &p.name).await?,
+        ProviderKind::Anthropic => send(anthropic(http.get(format!("{base}/v1/models?limit=100")), key), &p.name).await?,
+        ProviderKind::OpenAi => send(bearer(http.get(format!("{base}/models")), key), &p.name).await?,
     };
     let mut ids: Vec<String> = body["data"]
         .as_array()
         .or_else(|| body["models"].as_array())
         .map(|items| items.iter().filter_map(|m| m["id"].as_str().or_else(|| m["name"].as_str())).map(|s| s.trim_start_matches("models/").to_string()).collect())
         .unwrap_or_default();
+    // OpenRouter lists models without checking the key, so check it separately.
+    if p.preset.as_deref() == Some("openrouter") || base.contains("openrouter.ai") {
+        send(bearer(http.get(format!("{base}/key")), key), &p.name).await?;
+    }
+    // Filters need a chat model; image, video, audio and embedding models would only fail later.
+    ids.retain(|id| !is_non_chat_model(id));
     ids.sort();
     ids.dedup();
     Ok(ids)
+}
+
+fn is_non_chat_model(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    ["embed", "tts", "whisper", "dall-e", "imagine", "image", "video", "audio", "transcri", "moderation", "realtime", "rerank", "speech"]
+        .iter()
+        .any(|w| id.contains(w))
 }
 
 /// Asks for a JSON object matching `schema` and returns it as text.
@@ -395,7 +435,7 @@ const OPS: &[&str] =
     &["eq", "ne", "lt", "gt", "le", "ge", "contains", "notContains", "startsWith", "endsWith", "isNull", "notNull", "in"];
 
 fn system_prompt(d: Dialect) -> String {
-    let engine = if d.is_mysql() { "MySQL" } else { "PostgreSQL" };
+    let engine = if d.is_mysql() { "MySQL" } else if d.is_sqlite() { "SQLite" } else { "PostgreSQL" };
     format!(
         "You turn a person's request about one database table into filters for a data browser. \
          The person may not know SQL and may write in any language.\n\n\
@@ -490,13 +530,50 @@ pub async fn filters_from_prompt(
     today: &str,
 ) -> Result<AiFilterResult> {
     let columns: Vec<String> = details.design.columns.iter().map(|c| c.name.clone()).collect();
+    let enums: Enums = details.design.columns.iter().filter(|c| !c.enum_values.is_empty()).map(|c| (c.name.clone(), c.enum_values.clone())).collect();
     let user = format!("{}\nToday is {today}.\n\nRequest: {prompt}", describe_table(details));
     let text = complete_json(p, key, &system_prompt(d), &user, &output_schema(&columns)).await?;
-    parse_result(d, &columns, &text)
+    parse_result(d, &columns, &enums, &text)
+}
+
+/// Enum columns and their allowed values.
+type Enums = std::collections::HashMap<String, Vec<String>>;
+
+/// Models sometimes invent enum values ("cancelled" when the type only has pending/paid/shipped),
+/// which Postgres rejects outright. A "not equal" to a value that can't occur matches every row,
+/// so it's dropped; asking for a value that can't occur is explained instead of failing in SQL.
+fn check_enum_values(filters: Vec<Filter>, enums: &Enums) -> Result<Vec<Filter>> {
+    use dml::FilterOp::*;
+    let mut kept = Vec::with_capacity(filters.len());
+    for mut f in filters {
+        let Some(allowed) = enums.get(&f.column) else {
+            kept.push(f);
+            continue;
+        };
+        let known = |v: &str| allowed.iter().any(|a| a == v.trim());
+        let no_such = |v: &str| {
+            Error::Invalid(format!("{} has no value \"{}\". It can be: {}.", f.column, v.trim(), allowed.join(", ")))
+        };
+        match f.op {
+            Eq if !known(&f.value) => return Err(no_such(&f.value)),
+            Ne if !known(&f.value) => continue,
+            In => {
+                let values: Vec<&str> = f.value.split(',').map(str::trim).filter(|v| !v.is_empty()).collect();
+                let valid: Vec<&str> = values.iter().copied().filter(|v| known(v)).collect();
+                if valid.is_empty() {
+                    return Err(no_such(values.first().copied().unwrap_or_default()));
+                }
+                f.value = valid.join(",");
+                kept.push(f);
+            }
+            _ => kept.push(f),
+        }
+    }
+    Ok(kept)
 }
 
 /// Parses and checks the model's answer: columns must exist and any condition must be one expression.
-fn parse_result(d: Dialect, columns: &[String], text: &str) -> Result<AiFilterResult> {
+fn parse_result(d: Dialect, columns: &[String], enums: &Enums, text: &str) -> Result<AiFilterResult> {
     let raw: Raw = serde_json::from_str(text).map_err(|e| Error::Invalid(format!("The AI answer was not understood: {e}")))?;
     let known = |c: &str| columns.iter().any(|x| x == c);
     if let Some(bad) = raw.filters.iter().map(|f| f.column.as_str()).chain(raw.sort.iter().map(|s| s.column.as_str())).find(|c| !known(c)) {
@@ -506,7 +583,8 @@ fn parse_result(d: Dialect, columns: &[String], text: &str) -> Result<AiFilterRe
     if let Some(c) = &condition {
         dml::validate_condition(d, c).map_err(|e| Error::Invalid(format!("The AI wrote a condition Kiyi can't run safely. {e}")))?;
     }
-    Ok(AiFilterResult { filters: raw.filters, sort: raw.sort, condition, explanation: raw.explanation })
+    let filters = check_enum_values(raw.filters, enums)?;
+    Ok(AiFilterResult { filters, sort: raw.sort, condition, explanation: raw.explanation })
 }
 
 #[cfg(test)]
@@ -522,7 +600,7 @@ mod tests {
     #[test]
     fn parses_a_good_answer_even_in_fences() {
         let text = "```json\n{\"filters\":[{\"column\":\"status\",\"op\":\"eq\",\"value\":\"paid\"}],\"sort\":[{\"column\":\"total\",\"descending\":true}],\"condition\":\"total > 100\",\"explanation\":\"Paid orders over 100\"}\n```";
-        let r = parse_result(Dialect::POSTGRES, &cols(), strip_fences(text)).unwrap();
+        let r = parse_result(Dialect::POSTGRES, &cols(), &Enums::new(), strip_fences(text)).unwrap();
         assert_eq!(r.filters[0].value, "paid");
         assert_eq!(r.condition.as_deref(), Some("total > 100"));
         assert!(r.sort[0].descending);
@@ -531,9 +609,33 @@ mod tests {
     #[test]
     fn rejects_unknown_columns_and_unsafe_conditions() {
         let unknown = r#"{"filters":[{"column":"price","op":"gt","value":"1"}],"sort":[],"condition":"","explanation":""}"#;
-        assert!(parse_result(Dialect::POSTGRES, &cols(), unknown).is_err());
+        assert!(parse_result(Dialect::POSTGRES, &cols(), &Enums::new(), unknown).is_err());
         let unsafe_ = r#"{"filters":[],"sort":[],"condition":"1=1; DROP TABLE orders","explanation":""}"#;
-        assert!(parse_result(Dialect::POSTGRES, &cols(), unsafe_).is_err());
+        assert!(parse_result(Dialect::POSTGRES, &cols(), &Enums::new(), unsafe_).is_err());
+    }
+
+    #[test]
+    fn invented_enum_values_are_handled() {
+        let enums: Enums = [("status".to_string(), vec!["pending".into(), "paid".into(), "shipped".into()])].into();
+        let answer = |f: &str| format!(r#"{{"filters":[{f}],"sort":[],"condition":"","explanation":""}}"#);
+        let ne = parse_result(Dialect::POSTGRES, &cols(), &enums, &answer(r#"{"column":"status","op":"ne","value":"cancelled"}"#)).unwrap();
+        assert!(ne.filters.is_empty(), "nothing is cancelled, so every row qualifies");
+        let eq = parse_result(Dialect::POSTGRES, &cols(), &enums, &answer(r#"{"column":"status","op":"eq","value":"cancelled"}"#)).unwrap_err();
+        assert!(eq.to_string().contains("pending, paid, shipped"), "{eq}");
+        let in_ = parse_result(Dialect::POSTGRES, &cols(), &enums, &answer(r#"{"column":"status","op":"in","value":"paid, refunded"}"#)).unwrap();
+        assert_eq!(in_.filters[0].value, "paid");
+        let ok = parse_result(Dialect::POSTGRES, &cols(), &enums, &answer(r#"{"column":"status","op":"eq","value":"paid"}"#)).unwrap();
+        assert_eq!(ok.filters.len(), 1);
+    }
+
+    #[test]
+    fn hides_models_that_cannot_chat() {
+        for id in ["grok-imagine-video-1.5", "text-embedding-3-small", "gpt-4o-mini-tts", "whisper-1", "dall-e-3", "omni-moderation-latest"] {
+            assert!(is_non_chat_model(id), "{id}");
+        }
+        for id in ["grok-4.7", "gpt-5", "claude-opus-5-5", "llama-3.3-70b-versatile", "mistral-large-latest", "gemini-2.5-pro"] {
+            assert!(!is_non_chat_model(id), "{id}");
+        }
     }
 
     #[test]

@@ -173,6 +173,7 @@ export function Welcome({ onConnect }: { onConnect(init: ConnectInit): void }) {
                   </span>
                   <span className={s.foundAddr}>
                     {db.host}:{db.port}
+                    {db.container && ` · Docker: ${db.container}`}
                   </span>
                 </span>
                 <Button variant="primary" onPress={() => onConnect({ driver, host: db.host, port: db.port })}>

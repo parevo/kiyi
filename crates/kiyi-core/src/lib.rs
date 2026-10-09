@@ -11,6 +11,7 @@ pub mod dml;
 pub mod drivers;
 pub mod error;
 pub mod secrets;
+pub mod ssh_config;
 pub mod store;
 pub mod transfer;
 pub mod tunnel;

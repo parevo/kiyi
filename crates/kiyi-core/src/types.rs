@@ -42,7 +42,8 @@ pub enum QueryEvent {
     StatementDone { rows_affected: u64 },
     /// The whole run finished.
     #[serde(rename_all = "camelCase")]
-    Done { elapsed_ms: u64, cancelled: bool },
+    /// `truncated`: the results reached the row limit, so the rest wasn't fetched.
+    Done { elapsed_ms: u64, cancelled: bool, truncated: bool },
     Error { error: ErrorInfo },
 }
 

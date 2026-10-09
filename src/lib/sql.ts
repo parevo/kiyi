@@ -35,9 +35,11 @@ export function splitStatements(sql: string, mysql = false): StatementRange[] {
       const end = sql.indexOf("*/", i + 2);
       i = end === -1 ? n : end + 2;
     } else if (c === "'" || c === '"' || c === "`") {
+      // Backslash escapes only in MySQL strings and Postgres E'…' strings; standard SQL strings treat it as a character.
+      const escapes = c !== '"' && (mysql || (c === "'" && /(^|[^A-Za-z0-9_])[Ee]$/.test(sql.slice(Math.max(0, i - 2), i))));
       i++;
       while (i < n) {
-        if (sql[i] === "\\" && c !== '"') i += 2;
+        if (sql[i] === "\\" && escapes) i += 2;
         else if (sql[i] === c && sql[i + 1] === c) i += 2;
         else if (sql[i] === c) { i++; break; }
         else i++;

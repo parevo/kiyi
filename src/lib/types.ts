@@ -2,7 +2,7 @@
 
 export type DbKind = "postgres" | "mysql" | "sqlite";
 export type EnvTag = "local" | "staging" | "production";
-export type SslMode = "disable" | "prefer" | "require" | "verify-full";
+export type SslMode = "disable" | "prefer" | "require" | "verify-ca" | "verify-full";
 
 export interface ConnectionConfig {
   id: string;
@@ -17,13 +17,26 @@ export interface ConnectionConfig {
   readOnly: boolean;
   driver?: string | null;
   tunnel?: TunnelConfig | null;
+  /** CA certificate (PEM) to trust for SSL. */
+  sslRootCert?: string | null;
+  auth?: DbAuth;
 }
+
+export type DbAuth = { method: "password" } | { method: "awsIam"; region: string | null; profile: string | null };
 
 export type SshAuth = { method: "agent" } | { method: "key"; path: string } | { method: "password" };
 
+export interface JumpHost {
+  host: string;
+  port: number;
+  user: string;
+}
+
 export type TunnelConfig =
-  | { type: "ssh"; host: string; port: number; user: string; auth: SshAuth }
-  | { type: "ssm"; target: string; region: string | null; profile: string | null };
+  | { type: "ssh"; host: string; port: number; user: string; auth: SshAuth; jump?: JumpHost | null }
+  | { type: "ssm"; target: string; region: string | null; profile: string | null }
+  | { type: "kubernetes"; target: string; namespace: string | null; context: string | null }
+  | { type: "cloudSql"; instance: string };
 
 export interface ParsedUrl {
   config: ConnectionConfig;
@@ -63,7 +76,7 @@ export type QueryEvent =
   | { type: "columns"; columns: ColumnMeta[] }
   | { type: "rows"; rows: Cell[][] }
   | { type: "statementDone"; rowsAffected: number }
-  | { type: "done"; elapsedMs: number; cancelled: boolean }
+  | { type: "done"; elapsedMs: number; cancelled: boolean; truncated: boolean }
   | { type: "error"; error: ErrorInfo };
 
 export interface ColumnInfo {
@@ -225,6 +238,8 @@ export interface CsvPreview {
   headers: string[];
   rows: string[][];
   total: number;
+  /** Text encoding the file was read with, e.g. "UTF-8" or "windows-1254". */
+  encoding: string;
 }
 
 export interface ImportPlan {
@@ -233,6 +248,7 @@ export interface ImportPlan {
   mapping: (string | null)[];
   hasHeader: boolean;
   emptyAsNull: boolean;
+  encoding?: string | null;
 }
 
 // ---- catalog
@@ -306,6 +322,17 @@ export interface LocalDatabase {
   host: string;
   port: number;
   version: string | null;
+  container: string | null;
+}
+
+/** A host from ~/.ssh/config. */
+export interface SshHost {
+  alias: string;
+  host: string;
+  port: number;
+  user: string | null;
+  identityFile: string | null;
+  jump: JumpHost | null;
 }
 
 export interface AiFilterResult {

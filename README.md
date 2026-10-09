@@ -31,9 +31,9 @@
 Most database tools are built for people who already think in SQL. Kiyi is built for everyone else, and stays out of the way of the people who do.
 
 - **Edit like a spreadsheet.** Change a cell and it's saved, with Undo right there. Insert rows with a form that shows what's required and what each default will be.
-- **Ask AI.** Type "pro customers in Germany who spent over 1k" and get filters you can see, tweak and remove. Bring any provider: Anthropic, OpenAI, Gemini, OpenRouter, Groq, Mistral, or a local model with Ollama or LM Studio. Only the table's structure is sent, never your rows.
+- **Ask AI.** Type "pro customers in Germany who spent over 1k" and get filters you can see, tweak and remove. Bring any provider: Anthropic, OpenAI, Gemini, xAI Grok, OpenRouter, Groq, Mistral, or a local model with Ollama or LM Studio. Only the table's structure is sent, never your rows.
 - **Design tables without DDL.** Types in plain terms ("Money / exact number"), required and unique rules, defaults, relationships and indexes. Kiyi writes the right `ALTER` statements for your database, in the right order.
-- **Reach private databases.** SSH tunnels through a bastion (password, key file or ssh-agent) and AWS SSM port forwarding to RDS, with every step of the connection test explained.
+- **Reach private databases.** SSH tunnels through a bastion (password, key file or ssh-agent, hosts picked from `~/.ssh/config`, jump hosts), AWS SSM port forwarding, Kubernetes `port-forward` and the Cloud SQL Auth Proxy, with every step of the connection test explained. Sign in to RDS with IAM, verify SSL against your own CA (the Amazon RDS bundle is fetched for you), or connect over a Unix socket. Databases running locally or in Docker are found automatically.
 - **Safe on production.** Production connections are read-only by default, edits wait for an explicit Save, and destructive changes are explained in plain language before they run.
 - **Import and export.** Any view to CSV or JSON; CSV in with column matching, in one all-or-nothing transaction.
 - **Developer mode.** The SQL behind every action, raw column types, and a SQL editor with schema-aware autocomplete.
@@ -112,6 +112,8 @@ To try an SSH tunnel, use host `127.0.0.1`, port `52222`, user and password `kiy
 cargo test --workspace                           # unit tests
 KIYI_LIVE=1 cargo test -p kiyi-core --test live  # drivers, tunnels, import/export against the Docker databases
 pnpm typecheck
+pnpm test                                        # interface logic (Vitest)
+cargo audit                                      # known vulnerabilities; accepted ones are explained in .cargo/audit.toml
 ```
 
 Live tests use a separate `kiyi_test` database, so editing `shop` in the app never breaks them.
@@ -128,9 +130,15 @@ node dev/flows.mjs /tmp/flows             # end-to-end flows against the real da
 node dev/marketing.mjs site/assets/shots  # website screenshots, dark and light
 ```
 
+To try the live AI test (it spends a few tokens): `XAI_API_KEY=… KIYI_LIVE=1 cargo test -p kiyi-core --test ai_live -- --nocapture`.
+
 ### AI providers
 
 Providers are managed in **Settings → AI**. Kiyi speaks the Anthropic Messages API and any OpenAI-compatible `/chat/completions` endpoint. Keys are stored in the keychain; without one, the provider's environment variable is used (for example `ANTHROPIC_API_KEY`). Whatever the model returns is validated as a single read-only condition before it runs.
+
+### Troubleshooting
+
+Kiyi writes a log to `~/Library/Logs/com.parevo.kiyi/kiyi.log` on macOS and `%LOCALAPPDATA%\com.parevo.kiyi\logs\kiyi.log` on Windows. **Settings → About & updates → Copy diagnostics** copies the version, platform and recent log for a bug report. SQL text, passwords and keys are never logged.
 
 ## Releases
 

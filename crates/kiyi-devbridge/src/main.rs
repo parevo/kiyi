@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
@@ -98,6 +98,13 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
             ws.ai_models(&arg(a, "provider")?, key.as_deref()).await.map(ok).unwrap_or_else(fail)
         }
         "discover_local" => ok(kiyi_core::discover::local_databases().await),
+        "ssh_config_hosts" => ok(kiyi_core::ssh_config::hosts()),
+        "log_ui_error" => {
+            eprintln!("ui error: {}", arg::<String>(a, "message")?);
+            ok(())
+        }
+        "diagnostics" => ok("Kiyi (devbridge)\nLogs go to the terminal running kiyi-devbridge."),
+        "check_sql" => ws.check_sql(&id()?, &arg::<String>(a, "sql")?).map(ok).unwrap_or_else(fail),
         "ai_filters" => {
             let schema: Option<String> = arg(a, "schema")?;
             ws.ai_filters(&id()?, schema.as_deref(), &arg::<String>(a, "table")?, &arg::<String>(a, "prompt")?, &arg::<String>(a, "today")?)
@@ -110,7 +117,10 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
             .await
             .map(ok)
             .unwrap_or_else(fail),
-        "csv_preview" => kiyi_core::transfer::preview(std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
+        "csv_preview" => {
+            let encoding: Option<String> = arg(a, "encoding")?;
+            kiyi_core::transfer::preview(std::path::Path::new(&arg::<String>(a, "path")?), encoding.as_deref()).map(ok).unwrap_or_else(fail)
+        }
         "import_csv" => ws.import_csv(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), &arg(a, "plan")?).await.map(ok).unwrap_or_else(fail),
         "cancel_query" => {
             ws.cancel(&arg::<String>(a, "queryId")?).await;
@@ -143,7 +153,13 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
 async fn main() {
     let dir = std::env::temp_dir().join("kiyi-devbridge");
     let ws: Ws = Arc::new(Workspace::new(&dir).expect("workspace"));
-    let app = Router::new().route("/invoke/{cmd}", post(invoke)).layer(CorsLayer::permissive()).with_state(ws);
+    // Only the Vite dev server may call in. Any other page open in the browser could otherwise run
+    // SQL on every saved connection. Requests must be JSON, which forces a CORS preflight.
+    let cors = CorsLayer::new()
+        .allow_origin(["http://localhost:1420".parse::<HeaderValue>().unwrap(), "http://127.0.0.1:1420".parse().unwrap()])
+        .allow_methods([Method::POST])
+        .allow_headers([header::CONTENT_TYPE]);
+    let app = Router::new().route("/invoke/{cmd}", post(invoke)).layer(cors).with_state(ws);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:1421").await.expect("port 1421");
     println!("kiyi-devbridge on http://127.0.0.1:1421 (config in {})", dir.display());
     axum::serve(listener, app).await.unwrap();

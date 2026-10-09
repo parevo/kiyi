@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgQueryResult, PgRow, PgSslMode, PgTypeInfo};
-use sqlx::{Column, Executor, Row, TypeInfo, ValueRef};
+use sqlx::{ConnectOptions, Column, Executor, Row, TypeInfo, ValueRef};
 
 use super::engine;
 use super::DbDriver;
@@ -63,6 +63,8 @@ fn cell(row: &PgRow, i: usize, kind: ValueKind) -> Cell {
 impl PgDriver {
     pub async fn connect(config: &ConnectionConfig, password: Option<&str>) -> Result<Self> {
         let mut options = PgConnectOptions::new()
+            // Values are inlined into SQL text, so sqlx must never log statements (slow ones included).
+            .disable_statement_logging()
             .host(&config.host)
             .port(config.port)
             .username(&config.user)
@@ -71,8 +73,17 @@ impl PgDriver {
                 SslMode::Disable => PgSslMode::Disable,
                 SslMode::Prefer => PgSslMode::Prefer,
                 SslMode::Require => PgSslMode::Require,
+                SslMode::VerifyCa => PgSslMode::VerifyCa,
                 SslMode::VerifyFull => PgSslMode::VerifyFull,
             });
+        if let Some(dir) = config.socket_path() {
+            // libpq takes the socket's directory; accept the full `.s.PGSQL.5432` path too.
+            let dir = dir.rsplit_once("/.s.PGSQL.").map_or(dir, |(d, _)| d);
+            options = options.socket(dir);
+        }
+        if let Some(cert) = config.ssl_root_cert.as_deref().filter(|c| !c.trim().is_empty()) {
+            options = options.ssl_root_cert(cert.trim());
+        }
         if let Some(p) = password {
             options = options.password(p);
         }
@@ -81,7 +92,19 @@ impl PgDriver {
         }
 
         let read_only = config.read_only;
-        let pool = PgPoolOptions::new()
+        let pool = match Self::pool(options.clone(), read_only).await {
+            // Without a database name Postgres picks one named after the user, which often
+            // doesn't exist (RDS, Supabase…). Every server has `postgres`.
+            Err(sqlx::Error::Database(e)) if config.database.is_none() && e.code().as_deref() == Some("3D000") => {
+                Self::pool(options.database("postgres"), read_only).await?
+            }
+            other => other?,
+        };
+        Ok(Self { pool })
+    }
+
+    async fn pool(options: PgConnectOptions, read_only: bool) -> std::result::Result<sqlx::PgPool, sqlx::Error> {
+        PgPoolOptions::new()
             .max_connections(4)
             .min_connections(0)
             .acquire_timeout(Duration::from_secs(15))
@@ -97,8 +120,7 @@ impl PgDriver {
                 })
             })
             .connect_with(options)
-            .await?;
-        Ok(Self { pool })
+            .await
     }
 
     async fn scalar(&self, sql: &str) -> Result<String> {
@@ -125,6 +147,11 @@ ORDER BY n.nspname, c.relname, a.attnum
 
 #[async_trait]
 impl DbDriver for PgDriver {
+    fn set_password(&self, password: &str) {
+        let options = self.pool.connect_options().as_ref().clone().password(password);
+        self.pool.set_connect_options(options);
+    }
+
     async fn server_version(&self) -> Result<String> {
         self.scalar("SHOW server_version").await.map(|v| format!("PostgreSQL {v}"))
     }
@@ -261,6 +288,35 @@ impl DbDriver for PgDriver {
     async fn fetch(&self, sql: &str) -> Result<(Vec<ColumnMeta>, Vec<Vec<Cell>>)> {
         let mut conn = self.pool.acquire().await?;
         fetch_all(&mut conn, sql).await
+    }
+
+    async fn execute_stream(&self, next: &mut (dyn FnMut() -> Option<Result<String>> + Send)) -> Result<u64> {
+        let mut conn = self.pool.acquire().await?;
+        sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("BEGIN")).await?;
+        let mut total = 0u64;
+        let mut index = 0usize;
+        let outcome: Result<u64> = loop {
+            let sql = match next() {
+                None => break Ok(total),
+                Some(Err(e)) => break Err(e),
+                Some(Ok(sql)) => sql,
+            };
+            match sqlx::Executor::execute(&mut *conn, sqlx::raw_sql(&sql)).await {
+                Ok(r) => total += r.rows_affected(),
+                Err(e) => break Err(crate::error::Error::Script { index, source: Box::new(e.into()) }),
+            }
+            index += 1;
+        };
+        match outcome {
+            Ok(n) => {
+                sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("COMMIT")).await?;
+                Ok(n)
+            }
+            Err(e) => {
+                let _ = sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("ROLLBACK")).await;
+                Err(e)
+            }
+        }
     }
 
     async fn execute_script(&self, statements: &[String], transactional: bool, expect_single_row: bool) -> Result<Vec<u64>> {

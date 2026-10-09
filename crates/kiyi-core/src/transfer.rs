@@ -7,10 +7,10 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dialect::Dialect;
 use crate::dml;
 use crate::drivers::DbDriver;
-use crate::error::{Error, Result};
+use crate::error::{Error, ErrorInfo, Result};
+use encoding_rs::Encoding;
 use crate::types::{Cell, ColumnMeta, QueryEvent, ValueKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,18 +104,85 @@ pub struct CsvPreview {
     pub rows: Vec<Vec<String>>,
     /// Data rows in the file (not counting the header).
     pub total: u64,
+    /// The text encoding it was read with, e.g. "UTF-8" or "windows-1254".
+    pub encoding: String,
 }
 
-fn reader(path: &Path) -> Result<csv::Reader<File>> {
+/// Rows per INSERT statement during an import.
+const IMPORT_BATCH: usize = 500;
+
+/// Bytes that are Turkish letters in Windows-1254 (Ğ İ Ş ğ ı ş) but rare Icelandic ones in
+/// Windows-1252 (Ð Ý Þ ð ý þ), which tells the two apart.
+const TURKISH_BYTES: [u8; 6] = [0xD0, 0xDD, 0xDE, 0xF0, 0xFD, 0xFE];
+
+/// The file's text encoding. Excel saves "CSV" in the system's legacy code page, so a file
+/// that isn't valid UTF-8 from start to end is read as Windows-1254 (Turkish) or -1252 (Western).
+pub fn detect_encoding(path: &Path) -> Result<&'static Encoding> {
+    use std::io::Read;
+    let mut file = File::open(path).map_err(|e| Error::Invalid(format!("Couldn't read the file: {e}")))?;
+    let mut buf = vec![0u8; 256 * 1024];
+    let mut carry: Vec<u8> = Vec::new();
+    let mut first = true;
+    let mut utf8 = true;
+    let mut turkish = false;
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        let chunk = &buf[..n];
+        if first {
+            first = false;
+            if let Some((enc, _)) = Encoding::for_bom(chunk) {
+                return Ok(enc);
+            }
+        }
+        turkish |= chunk.iter().any(|b| TURKISH_BYTES.contains(b));
+        if utf8 {
+            carry.extend_from_slice(chunk);
+            match std::str::from_utf8(&carry) {
+                Ok(_) => carry.clear(),
+                // A character split across reads: keep its first bytes for the next round.
+                Err(e) if e.error_len().is_none() => carry = carry[e.valid_up_to()..].to_vec(),
+                Err(_) => utf8 = false,
+            }
+        }
+    }
+    Ok(if utf8 && carry.is_empty() {
+        encoding_rs::UTF_8
+    } else if turkish {
+        encoding_rs::WINDOWS_1254
+    } else {
+        encoding_rs::WINDOWS_1252
+    })
+}
+
+fn encoding(label: Option<&str>, path: &Path) -> Result<&'static Encoding> {
+    match label.map(str::trim).filter(|l| !l.is_empty()) {
+        Some(l) => Encoding::for_label(l.as_bytes()).ok_or_else(|| Error::Invalid(format!("Unknown text encoding: {l}"))),
+        None => detect_encoding(path),
+    }
+}
+
+/// The file as UTF-8 text, whatever it was saved as.
+fn decoded(path: &Path, enc: &'static Encoding) -> Result<impl std::io::Read + Send> {
+    let file = File::open(path).map_err(|e| Error::Invalid(format!("Couldn't read the file: {e}")))?;
+    Ok(encoding_rs_io::DecodeReaderBytesBuilder::new().encoding(Some(enc)).bom_override(true).build(file))
+}
+
+fn reader(path: &Path, enc: &'static Encoding) -> Result<csv::Reader<impl std::io::Read + Send>> {
+    use std::io::BufRead;
     // Sniff the delimiter from the first line: comma, semicolon (European Excel) or tab.
-    let first = std::fs::read_to_string(path).map_err(|e| Error::Invalid(format!("Couldn't read the file: {e}")))?;
-    let line = first.lines().next().unwrap_or("");
+    let mut line = String::new();
+    std::io::BufReader::new(decoded(path, enc)?).read_line(&mut line).map_err(|e| Error::Invalid(format!("Couldn't read the file: {e}")))?;
     let delimiter = b",;\t".iter().copied().max_by_key(|d| line.bytes().filter(|b| b == d).count()).unwrap_or(b',');
-    csv::ReaderBuilder::new().delimiter(delimiter).has_headers(false).flexible(true).from_path(path).map_err(|e| Error::Invalid(e.to_string()))
+    Ok(csv::ReaderBuilder::new().delimiter(delimiter).has_headers(false).flexible(true).from_reader(decoded(path, enc)?))
 }
 
-pub fn preview(path: &Path) -> Result<CsvPreview> {
-    let mut rows = reader(path)?.into_records();
+/// The first rows of the file. `encoding` overrides detection.
+pub fn preview(path: &Path, encoding_label: Option<&str>) -> Result<CsvPreview> {
+    let enc = encoding(encoding_label, path)?;
+    let mut rows = reader(path, enc)?.into_records();
     let headers: Vec<String> = match rows.next() {
         Some(r) => r.map_err(|e| Error::Invalid(e.to_string()))?.iter().map(|s| s.trim_start_matches('\u{feff}').to_string()).collect(),
         None => return Err(Error::Invalid("The file is empty.".into())),
@@ -129,7 +196,7 @@ pub fn preview(path: &Path) -> Result<CsvPreview> {
         }
         total += 1;
     }
-    Ok(CsvPreview { headers, rows: sample, total })
+    Ok(CsvPreview { headers, rows: sample, total, encoding: enc.name().to_string() })
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -141,31 +208,57 @@ pub struct ImportPlan {
     pub mapping: Vec<Option<String>>,
     pub has_header: bool,
     pub empty_as_null: bool,
+    /// Text encoding label ("UTF-8", "windows-1254"…); detected when missing.
+    #[serde(default)]
+    pub encoding: Option<String>,
 }
 
-/// Reads the whole file into INSERT statements, ready to run in one transaction.
-pub fn plan_import(d: Dialect, path: &Path, plan: &ImportPlan) -> Result<(Vec<String>, u64)> {
+/// Imports the file in one transaction, a batch of rows at a time, so a large file never sits in
+/// memory whole. Nothing is kept if any row fails. Returns the number of rows imported.
+pub async fn import(driver: &dyn DbDriver, path: &Path, plan: &ImportPlan) -> Result<u64> {
+    let d = driver.dialect();
     let targets: Vec<(usize, String)> = plan.mapping.iter().enumerate().filter_map(|(i, c)| c.clone().map(|c| (i, c))).collect();
     if targets.is_empty() {
         return Err(Error::Invalid("Choose at least one column to import.".into()));
     }
-    let mut rows: Vec<Vec<Cell>> = Vec::new();
-    for (n, record) in reader(path)?.into_records().enumerate() {
-        let record = record.map_err(|e| Error::Invalid(format!("Line {}: {e}", n + 1)))?;
-        if n == 0 && plan.has_header {
-            continue;
-        }
-        rows.push(
-            targets
-                .iter()
-                .map(|(i, _)| {
-                    let v = record.get(*i).unwrap_or("");
-                    if v.is_empty() && plan.empty_as_null { None } else { Some(v.to_string()) }
-                })
-                .collect(),
-        );
+    let columns: Vec<String> = targets.iter().map(|(_, c)| c.clone()).collect();
+    let mut records = reader(path, encoding(plan.encoding.as_deref(), path)?)?.into_records().enumerate();
+    if plan.has_header {
+        records.next();
     }
-    let columns: Vec<String> = targets.into_iter().map(|(_, c)| c).collect();
-    let count = rows.len() as u64;
-    Ok((dml::plan_bulk_insert(d, plan.schema.as_deref(), &plan.table, &columns, &rows, 500), count))
+    let mut count = 0u64;
+    let mut next = || -> Option<Result<String>> {
+        let mut rows: Vec<Vec<Cell>> = Vec::with_capacity(IMPORT_BATCH);
+        for (n, record) in records.by_ref() {
+            let record = match record {
+                Ok(r) => r,
+                Err(e) => return Some(Err(Error::Invalid(format!("Line {}: {e}", n + 1)))),
+            };
+            rows.push(
+                targets
+                    .iter()
+                    .map(|(i, _)| {
+                        let v = record.get(*i).unwrap_or("");
+                        if v.is_empty() && plan.empty_as_null { None } else { Some(v.to_string()) }
+                    })
+                    .collect(),
+            );
+            if rows.len() == IMPORT_BATCH {
+                break;
+            }
+        }
+        if rows.is_empty() {
+            return None;
+        }
+        count += rows.len() as u64;
+        dml::plan_bulk_insert(d, plan.schema.as_deref(), &plan.table, &columns, &rows, IMPORT_BATCH).into_iter().next().map(Ok)
+    };
+    match driver.execute_stream(&mut next).await {
+        Ok(_) => Ok(count),
+        Err(Error::Script { index, source }) => {
+            let first = index * IMPORT_BATCH + 1;
+            Err(Error::Invalid(format!("Nothing was imported. A row between {} and {} was rejected: {}", first, first + IMPORT_BATCH - 1, ErrorInfo::from(&*source).message)))
+        }
+        Err(e) => Err(e),
+    }
 }

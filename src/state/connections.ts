@@ -63,6 +63,11 @@ export const useConnections = create<ConnectionsState>((set, get) => {
 
     async remove(id) {
       await ipc.deleteConnection(id);
+      // Its tabs (and their saved SQL) go with it.
+      useTabs.setState((t) => {
+        const tabs = t.tabs.filter((tab) => tab.connectionId !== id);
+        return { tabs, activeId: tabs.some((tab) => tab.id === t.activeId) ? t.activeId : null };
+      });
       set((s) => {
         const { [id]: _, ...live } = s.live;
         return {

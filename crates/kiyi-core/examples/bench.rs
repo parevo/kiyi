@@ -32,6 +32,8 @@ fn config(kind: DbKind) -> ConnectionConfig {
         read_only: false,
         driver: None,
         tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
     }
 }
 

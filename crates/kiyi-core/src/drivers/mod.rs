@@ -43,6 +43,14 @@ pub trait DbDriver: Send + Sync {
     /// With `expect_single_row`, any statement not affecting exactly one row aborts the
     /// script — so a grid edit never silently touches zero or many rows.
     async fn execute_script(&self, statements: &[String], transactional: bool, expect_single_row: bool) -> Result<Vec<u64>>;
+
+    /// Runs statements pulled one at a time from `next` in a single transaction, so large imports
+    /// stream instead of sitting in memory. A failure rolls everything back and is reported as
+    /// `Error::Script` with the statement's index. Returns the total rows affected.
+    async fn execute_stream(&self, next: &mut (dyn FnMut() -> Option<Result<String>> + Send)) -> Result<u64>;
+
+    /// Uses `password` for connections the pool opens from now on (fresh IAM tokens).
+    fn set_password(&self, _password: &str) {}
 }
 
 pub async fn open(config: &ConnectionConfig, password: Option<&str>) -> Result<Arc<dyn DbDriver>> {

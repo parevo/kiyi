@@ -14,7 +14,10 @@
 .modal {
   width: min(560px, calc(100vw - 32px));
   max-height: 82vh;
-  overflow: auto;
+  /* Only the body scrolls, so the title and the Test / Save buttons stay in view. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border-radius: var(--radius-lg);
   background: var(--bg-raised);
   box-shadow: var(--shadow-pop);
@@ -25,7 +28,8 @@
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(6px) scale(0.99); } }
 
-.dialog { outline: none; }
+.dialog { outline: none; display: flex; flex-direction: column; min-height: 0; }
+.dialog > form { display: flex; flex-direction: column; min-height: 0; }
 
 .header {
   display: flex;
@@ -44,6 +48,8 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
+  overflow: auto;
+  min-height: 0;
 }
 
 .paste {

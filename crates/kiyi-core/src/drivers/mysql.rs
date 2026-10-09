@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlQueryResult, MySqlRow, MySqlSslMode, MySqlTypeInfo};
-use sqlx::{Column, Decode, Executor, MySql, Row, TypeInfo, ValueRef};
+use sqlx::{ConnectOptions, Column, Decode, Executor, MySql, Row, TypeInfo, ValueRef};
 
 use super::engine;
 use super::postgres::split_list;
@@ -58,6 +58,8 @@ fn cell(row: &MySqlRow, i: usize, kind: ValueKind) -> Cell {
 impl MySqlDriver {
     pub async fn connect(config: &ConnectionConfig, password: Option<&str>) -> Result<Self> {
         let mut options = MySqlConnectOptions::new()
+            // Values are inlined into SQL text, so sqlx must never log statements (slow ones included).
+            .disable_statement_logging()
             .host(&config.host)
             .port(config.port)
             .username(&config.user)
@@ -66,8 +68,19 @@ impl MySqlDriver {
                 SslMode::Disable => MySqlSslMode::Disabled,
                 SslMode::Prefer => MySqlSslMode::Preferred,
                 SslMode::Require => MySqlSslMode::Required,
+                SslMode::VerifyCa => MySqlSslMode::VerifyCa,
                 SslMode::VerifyFull => MySqlSslMode::VerifyIdentity,
             });
+        if let Some(path) = config.socket_path() {
+            options = options.socket(path);
+        }
+        if let Some(cert) = config.ssl_root_cert.as_deref().filter(|c| !c.trim().is_empty()) {
+            options = options.ssl_ca(cert.trim());
+        }
+        if matches!(config.auth, crate::config::DbAuth::AwsIam { .. }) {
+            // RDS IAM tokens are sent with the cleartext plugin, over the TLS the caller insists on.
+            options = options.enable_cleartext_plugin(true);
+        }
         if let Some(p) = password {
             options = options.password(p);
         }
@@ -83,6 +96,9 @@ impl MySqlDriver {
             .idle_timeout(Duration::from_secs(600))
             .after_connect(move |conn, _| {
                 Box::pin(async move {
+                    // Generated SQL escapes backslashes, so every pooled connection must treat them as
+                    // escapes, whatever the server default. Read once per connection, not once per pool.
+                    conn.execute(sqlx::raw_sql("SET SESSION sql_mode = REPLACE(@@SESSION.sql_mode, 'NO_BACKSLASH_ESCAPES', '')")).await?;
                     if read_only {
                         conn.execute(sqlx::raw_sql("SET SESSION TRANSACTION READ ONLY")).await?;
                     }
@@ -91,11 +107,7 @@ impl MySqlDriver {
             })
             .connect_with(options)
             .await?;
-        let mut conn = pool.acquire().await?;
-        let sql_mode = first_cell(text_rows(&mut conn, "SELECT @@SESSION.sql_mode").await?).unwrap_or_default();
-        drop(conn);
-        let dialect = Dialect { backslash_escapes: !sql_mode.contains("NO_BACKSLASH_ESCAPES"), ..Dialect::MYSQL };
-        Ok(Self { pool, dialect })
+        Ok(Self { pool, dialect: Dialect::MYSQL })
     }
 
     async fn scalar(&self, sql: &str) -> Result<String> {
@@ -115,6 +127,11 @@ ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
 
 #[async_trait]
 impl DbDriver for MySqlDriver {
+    fn set_password(&self, password: &str) {
+        let options = self.pool.connect_options().as_ref().clone().password(password);
+        self.pool.set_connect_options(options);
+    }
+
     async fn server_version(&self) -> Result<String> {
         let v = self.scalar("SELECT VERSION()").await?;
         Ok(if v.to_ascii_lowercase().contains("mariadb") { format!("MariaDB {v}") } else { format!("MySQL {v}") })
@@ -252,6 +269,35 @@ impl DbDriver for MySqlDriver {
     async fn fetch(&self, sql: &str) -> Result<(Vec<ColumnMeta>, Vec<Vec<Cell>>)> {
         let mut conn = self.pool.acquire().await?;
         fetch_all(&mut conn, sql).await
+    }
+
+    async fn execute_stream(&self, next: &mut (dyn FnMut() -> Option<Result<String>> + Send)) -> Result<u64> {
+        let mut conn = self.pool.acquire().await?;
+        sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("BEGIN")).await?;
+        let mut total = 0u64;
+        let mut index = 0usize;
+        let outcome: Result<u64> = loop {
+            let sql = match next() {
+                None => break Ok(total),
+                Some(Err(e)) => break Err(e),
+                Some(Ok(sql)) => sql,
+            };
+            match sqlx::Executor::execute(&mut *conn, sqlx::raw_sql(&sql)).await {
+                Ok(r) => total += r.rows_affected(),
+                Err(e) => break Err(crate::error::Error::Script { index, source: Box::new(e.into()) }),
+            }
+            index += 1;
+        };
+        match outcome {
+            Ok(n) => {
+                sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("COMMIT")).await?;
+                Ok(n)
+            }
+            Err(e) => {
+                let _ = sqlx::Executor::execute(&mut *conn, sqlx::raw_sql("ROLLBACK")).await;
+                Err(e)
+            }
+        }
     }
 
     async fn execute_script(&self, statements: &[String], transactional: bool, expect_single_row: bool) -> Result<Vec<u64>> {

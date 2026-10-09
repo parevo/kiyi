@@ -27,6 +27,8 @@ fn config(kind: DbKind) -> ConnectionConfig {
         read_only: false,
         driver: None,
         tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
     }
 }
 
@@ -99,6 +101,20 @@ async fn postgres_values_keep_their_canonical_text() {
     assert_eq!(row[5].as_deref(), Some("{vip,early}"));
     assert_eq!(row[6].as_deref(), Some(r#"{"plan": "pro", "seats": 5}"#));
     assert_eq!(row[7].as_deref(), Some(r"\xdeadbeef"));
+}
+
+#[tokio::test]
+async fn postgres_without_a_database_name_uses_postgres() {
+    if !live() {
+        return;
+    }
+    // There's no database named after the user `kiyi`, so Postgres alone would refuse;
+    // `prefer` also has to fall back to plain text on a server without SSL.
+    let config = ConnectionConfig { database: None, ssl_mode: SslMode::Prefer, ..config(DbKind::Postgres) };
+    let driver = drivers::open(&config, Some("kiyi")).await.expect("connect without a database name");
+    let (events, result) = run(&driver, "SELECT current_database()").await;
+    result.unwrap();
+    assert_eq!(table(&events).1[0][0].as_deref(), Some("postgres"));
 }
 
 #[tokio::test]
@@ -449,14 +465,14 @@ async fn discovers_local_databases_by_protocol() {
 
 // ---------------------------------------------------------------- tunnels
 
-use kiyi_core::config::{SshAuth, TunnelConfig};
+use kiyi_core::config::{JumpHost, SshAuth, TunnelConfig};
 use kiyi_core::workspace::Workspace;
 
 fn via_bastion(auth: SshAuth, db_host: &str) -> ConnectionConfig {
     ConnectionConfig {
         host: db_host.into(),
         port: 5432,
-        tunnel: Some(TunnelConfig::Ssh { host: "127.0.0.1".into(), port: 52222, user: "kiyi".into(), auth }),
+        tunnel: Some(TunnelConfig::Ssh { host: "127.0.0.1".into(), port: 52222, user: "kiyi".into(), auth, jump: None }),
         id: String::new(),
         ..config(DbKind::Postgres)
     }
@@ -482,6 +498,32 @@ async fn ssh_tunnel_with_password_and_with_key() {
     let key = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dev/ssh/id_ed25519").to_string();
     let report = ws.test(via_bastion(SshAuth::Key { path: key }, "postgres"), Some("kiyi".into()), None).await;
     assert!(report.ok, "{:#?}", report.steps);
+}
+
+#[tokio::test]
+async fn ssh_tunnel_through_a_jump_host() {
+    if !live() {
+        return;
+    }
+    let ws = scratch_workspace();
+    let key = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dev/ssh/id_ed25519").to_string();
+    // Hop into the bastion, then from there to its own sshd (port 22 inside the container),
+    // then on to `postgres`, which only resolves inside the Docker network.
+    let mut config = via_bastion(SshAuth::Key { path: key }, "postgres");
+    config.tunnel = Some(TunnelConfig::Ssh {
+        host: "127.0.0.1".into(),
+        port: 22,
+        user: "kiyi".into(),
+        auth: match config.tunnel {
+            Some(TunnelConfig::Ssh { auth, .. }) => auth,
+            _ => unreachable!(),
+        },
+        jump: Some(JumpHost { host: "127.0.0.1".into(), port: 52222, user: "kiyi".into() }),
+    });
+    let report = ws.test(config, Some("kiyi".into()), None).await;
+    assert!(report.ok, "{:#?}", report.steps);
+    let labels: Vec<&str> = report.steps.iter().map(|s| s.label.as_str()).collect();
+    assert!(labels.iter().filter(|l| l.starts_with("Signed in to")).count() == 2, "{labels:#?}");
 }
 
 #[tokio::test]
@@ -553,7 +595,7 @@ async fn import_a_messy_csv() {
     let path = std::env::temp_dir().join(format!("{table}.csv"));
     std::fs::write(&path, "\u{feff}Name;Ignored;Note;Amount\nAyşe;x;\"has; semicolon\";12.50\n\"O'Brien\";y;\"two\nlines\";\nZoë;z;;3\n").unwrap();
 
-    let preview = transfer::preview(&path).unwrap();
+    let preview = transfer::preview(&path, None).unwrap();
     assert_eq!(preview.headers, ["Name", "Ignored", "Note", "Amount"]);
     assert_eq!(preview.total, 3);
 
@@ -563,10 +605,9 @@ async fn import_a_messy_csv() {
         mapping: vec![Some("name".into()), None, Some("note".into()), Some("amount".into())],
         has_header: true,
         empty_as_null: true,
+        encoding: None,
     };
-    let (statements, count) = transfer::plan_import(pg.dialect(), &path, &plan).unwrap();
-    assert_eq!(count, 3);
-    pg.execute_script(&statements, true, false).await.unwrap();
+    assert_eq!(transfer::import(&*pg, &path, &plan).await.unwrap(), 3);
 
     let (_, rows) = pg.fetch(&format!("SELECT name, note, amount FROM {table} ORDER BY id")).await.unwrap();
     assert_eq!(rows[0], vec![Some("Ayşe".into()), Some("has; semicolon".into()), Some("12.50".into())]);

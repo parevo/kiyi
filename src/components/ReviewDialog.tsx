@@ -20,6 +20,10 @@ export interface ReviewRequest {
   confirmWord?: string;
   /** MySQL DDL can't be rolled back; say so. */
   nonTransactional?: boolean;
+  /** How many statements delete or overwrite data, when the caller knows better than a quick look. */
+  destructive?: number;
+  /** Show the SQL straight away (it's the user's own). */
+  showSql?: boolean;
   run(): Promise<void>;
 }
 
@@ -50,11 +54,11 @@ export function ReviewDialog({
     setBusy(false);
     setError(null);
     setTyped("");
-    setShowSql(developerMode);
+    setShowSql(developerMode || !!request?.showSql);
   }, [request, developerMode]);
 
   if (!request) return null;
-  const destructive = request.statements.filter(isDestructive).length;
+  const destructive = request.destructive ?? request.statements.filter(isDestructive).length;
   const needsWord = env === "production" && destructive > 0 && !!request.confirmWord;
   const failed = error?.statementIndex ?? null;
   const script = request.statements.map((st) => st + ";").join("\n");

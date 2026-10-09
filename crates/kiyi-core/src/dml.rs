@@ -64,21 +64,109 @@ pub struct BrowseRequest {
 }
 
 /// Checks that a hand-written (or AI-written) condition is a single boolean expression,
-/// so it can't smuggle in a second statement such as `1=1; DROP TABLE t`.
+/// so it can't smuggle in a second statement such as `1=1; DROP TABLE t`, close the WHERE
+/// clause early (`1=1) UNION SELECT …`), or call functions with side effects.
 pub fn validate_condition(d: Dialect, condition: &str) -> Result<(), String> {
-    use sqlparser::dialect::{MySqlDialect, PostgreSqlDialect, SQLiteDialect};
+    use sqlparser::dialect::{Dialect as SqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
     use sqlparser::parser::Parser;
-    let sql = format!("SELECT 1 FROM t WHERE ({condition})");
-    let parsed = match d.kind {
-        crate::config::DbKind::Mysql => Parser::parse_sql(&MySqlDialect {}, &sql),
-        crate::config::DbKind::Sqlite => Parser::parse_sql(&SQLiteDialect {}, &sql),
-        crate::config::DbKind::Postgres => Parser::parse_sql(&PostgreSqlDialect {}, &sql),
+    use sqlparser::tokenizer::{Token, Tokenizer};
+    let dialect: &dyn SqlDialect = match d.kind {
+        crate::config::DbKind::Mysql => &MySqlDialect {},
+        crate::config::DbKind::Sqlite => &SQLiteDialect {},
+        crate::config::DbKind::Postgres => &PostgreSqlDialect {},
     };
-    match parsed {
-        Ok(statements) if statements.len() == 1 && matches!(statements[0], sqlparser::ast::Statement::Query(_)) => Ok(()),
-        Ok(_) => Err("The condition must be a single expression.".into()),
-        Err(e) => Err(format!("The condition is not valid SQL: {e}")),
+    let invalid = |e: &dyn std::fmt::Display| format!("The condition is not valid SQL: {e}");
+    let mut parser = Parser::new(dialect).try_with_sql(condition).map_err(|e| invalid(&e))?;
+    parser.parse_expr().map_err(|e| invalid(&e))?;
+    if parser.peek_token().token != Token::EOF {
+        return Err("The condition must be a single expression.".into());
     }
+    // Anything shaped like a call to a function that changes state, sleeps or reads files.
+    let tokens = Tokenizer::new(dialect, condition).tokenize().map_err(|e| invalid(&e))?;
+    let significant: Vec<&Token> = tokens.iter().filter(|t| !matches!(t, Token::Whitespace(_))).collect();
+    for pair in significant.windows(2) {
+        if let (Token::Word(w), Token::LParen) = (pair[0], pair[1]) {
+            let name = w.value.to_ascii_lowercase();
+            if UNSAFE_FUNCTIONS.iter().any(|f| name == *f || (f.ends_with('_') && name.starts_with(f))) {
+                return Err(format!("The condition can't call {name}()."));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Functions a filter has no business calling. A trailing `_` matches a whole family.
+const UNSAFE_FUNCTIONS: &[&str] = &[
+    "set_config", "pg_terminate_backend", "pg_cancel_backend", "pg_reload_conf", "pg_rotate_logfile", "pg_sleep", "pg_sleep_for",
+    "pg_sleep_until", "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_stat_file", "pg_advisory_", "pg_try_advisory_",
+    "pg_notify", "lo_", "dblink", "dblink_", "nextval", "setval", "txid_current", "pg_create_", "pg_drop_", "pg_switch_wal",
+    "query_to_xml", "query_to_json", "sleep", "benchmark", "load_file", "get_lock", "release_lock", "release_all_locks",
+    "master_pos_wait", "source_pos_wait", "load_extension", "readfile", "writefile", "edit",
+];
+
+/// What a script would do, judged from its keywords (outside strings and comments), so it
+/// works for SQL the parser doesn't fully understand.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptCheck {
+    /// Something other than reading: data or schema changes, procedures, or switching the
+    /// session out of read-only.
+    pub writes: bool,
+    /// Statements that delete or overwrite data (DROP, TRUNCATE, DELETE, UPDATE, ALTER … DROP).
+    pub destructive: usize,
+}
+
+const WRITE_KEYWORDS: &[&str] = &[
+    "INSERT", "UPDATE", "DELETE", "MERGE", "UPSERT", "REPLACE", "CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME", "GRANT", "REVOKE", "COPY",
+    "CALL", "DO", "EXECUTE", "EXEC", "VACUUM", "ANALYZE", "REINDEX", "CLUSTER", "REFRESH", "COMMENT", "LOCK", "IMPORT", "LOAD", "ATTACH",
+    "DETACH", "REASSIGN", "SECURITY", "DISCARD", "HANDLER", "OPTIMIZE", "REPAIR", "INSTALL", "UNINSTALL", "FLUSH", "PURGE", "RESET",
+];
+
+pub fn check_script(d: Dialect, sql: &str) -> ScriptCheck {
+    use sqlparser::dialect::{Dialect as SqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
+    use sqlparser::tokenizer::{Token, Tokenizer};
+    let dialect: &dyn SqlDialect = match d.kind {
+        crate::config::DbKind::Mysql => &MySqlDialect {},
+        crate::config::DbKind::Sqlite => &SQLiteDialect {},
+        crate::config::DbKind::Postgres => &PostgreSqlDialect {},
+    };
+    let Ok(tokens) = Tokenizer::new(dialect, sql).tokenize() else {
+        // Can't even tokenize: assume the worst so read-only and production checks still apply.
+        return ScriptCheck { writes: true, destructive: 0 };
+    };
+    let mut check = ScriptCheck::default();
+    let mut statement: Vec<String> = Vec::new();
+    let mut finish = |words: &mut Vec<String>| {
+        let first = words.first().map(String::as_str).unwrap_or("");
+        let has = |w: &str| words.iter().any(|x| x == w);
+        // Session switches that would undo read-only protection.
+        let unprotects = (has("READ") && has("WRITE"))
+            || words.iter().any(|w| w.contains("READ_ONLY") || w == "SQL_SAFE_UPDATES");
+        // Judge by the statement's command word: `SELECT comment, replace(name, …)` only reads.
+        let dml = || ["INSERT", "UPDATE", "DELETE", "MERGE"].iter().any(|w| has(w));
+        let writes = WRITE_KEYWORDS.contains(&first)
+            || (first == "WITH" && dml())
+            || (first == "EXPLAIN" && has("ANALYZE") && dml())
+            || (first == "SELECT" && has("INTO"))
+            || unprotects;
+        if writes {
+            check.writes = true;
+        }
+        if matches!(first, "DROP" | "TRUNCATE" | "DELETE" | "UPDATE") || (first == "ALTER" && has("DROP")) || (first == "WITH" && (has("DELETE") || has("UPDATE"))) {
+            check.destructive += 1;
+        }
+        words.clear();
+    };
+    for token in tokens {
+        match token {
+            Token::SemiColon => finish(&mut statement),
+            // Only bare words are keywords; "update" in quotes is a name.
+            Token::Word(w) if w.quote_style.is_none() => statement.push(w.value.to_ascii_uppercase()),
+            _ => {}
+        }
+    }
+    finish(&mut statement);
+    check
 }
 
 fn like_pattern(value: &str, prefix: bool, suffix: bool) -> String {
@@ -321,6 +409,37 @@ mod tests {
         assert!(validate_condition(PG, "1=1); DROP TABLE orders; --").is_err());
         assert!(validate_condition(PG, "1=1; DROP TABLE orders").is_err());
         assert!(validate_condition(PG, "total > ").is_err());
+        // Closing the WHERE clause early used to slip through.
+        assert!(validate_condition(PG, "1=1) UNION SELECT 1 FROM pg_shadow WHERE (1=1").is_err());
+        assert!(validate_condition(PG, "1=1) OR (1=1").is_err());
+        assert!(validate_condition(PG, "set_config('default_transaction_read_only', 'off', false) IS NOT NULL").is_err());
+        assert!(validate_condition(PG, "PG_SLEEP (10) IS NULL").is_err());
+        assert!(validate_condition(MY, "SLEEP(5) = 0").is_err());
+        assert!(validate_condition(PG, "pg_advisory_lock(1) IS NULL").is_err());
+        // Ordinary functions and subqueries are fine.
+        assert!(validate_condition(PG, "(status = 'paid' OR status = 'shipped') AND lower(note) LIKE '%x%'").is_ok());
+        assert!(validate_condition(PG, "customer_id IN (SELECT id FROM customers WHERE is_active)").is_ok());
+        assert!(validate_condition(PG, "placed_on >= current_date - interval '30 days'").is_ok());
+    }
+
+    #[test]
+    fn checks_what_a_script_does() {
+        let c = |sql: &str| check_script(PG, sql);
+        assert_eq!(c("SELECT * FROM orders WHERE note = 'please delete me'; -- drop table x"), ScriptCheck { writes: false, destructive: 0 });
+        assert_eq!(c("select \"update\" from t"), ScriptCheck { writes: false, destructive: 0 });
+        assert_eq!(c("INSERT INTO t VALUES (1)"), ScriptCheck { writes: true, destructive: 0 });
+        assert_eq!(c("delete from t; drop table u; update t set a = 1"), ScriptCheck { writes: true, destructive: 3 });
+        assert_eq!(c("ALTER TABLE t DROP COLUMN a"), ScriptCheck { writes: true, destructive: 1 });
+        assert_eq!(c("WITH gone AS (DELETE FROM t RETURNING *) SELECT count(*) FROM gone"), ScriptCheck { writes: true, destructive: 1 });
+        assert!(c("SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE").writes);
+        assert!(c("set default_transaction_read_only = off").writes);
+        assert!(c("BEGIN READ WRITE").writes);
+        assert!(check_script(MY, "SET SESSION TRANSACTION READ WRITE").writes);
+        assert!(!c("SHOW search_path; EXPLAIN SELECT 1").writes);
+        assert!(!c("SELECT comment, replace(name, 'a', 'b'), lock_timeout FROM posts").writes);
+        assert!(c("EXPLAIN ANALYZE DELETE FROM t").writes);
+        assert!(c("SELECT * INTO backup FROM t").writes);
+        assert!(!c("EXPLAIN SELECT * FROM t").writes);
     }
 
     #[test]
