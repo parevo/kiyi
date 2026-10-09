@@ -40,6 +40,7 @@ fn main() {
             commands::count_rows,
             commands::plan_row_changes,
             commands::plan_replace,
+            commands::summarize,
             commands::plan_table,
             commands::plan_table_action,
             commands::execute_script,

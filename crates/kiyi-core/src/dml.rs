@@ -259,6 +259,114 @@ pub fn browse_sql(d: Dialect, req: &BrowseRequest) -> String {
     sql
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Aggregate {
+    Count,
+    CountDistinct,
+    Sum,
+    Avg,
+    Min,
+    Max,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DatePart {
+    Day,
+    Month,
+    Year,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupBy {
+    pub column: String,
+    /// For dates: group by day, month or year instead of the exact value.
+    #[serde(default)]
+    pub date_part: Option<DatePart>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Measure {
+    pub aggregate: Aggregate,
+    /// None for a plain row count.
+    #[serde(default)]
+    pub column: Option<String>,
+}
+
+/// "Group these rows by … and show …": the table's current filters, plus grouping and measures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryRequest {
+    pub browse: BrowseRequest,
+    pub group_by: Vec<GroupBy>,
+    pub measures: Vec<Measure>,
+}
+
+/// Rows a summary returns at most.
+pub const SUMMARY_LIMIT: u32 = 1_000;
+
+fn date_group(d: Dialect, col: &str, part: DatePart) -> String {
+    match (d.kind, part) {
+        (crate::config::DbKind::Postgres, DatePart::Day) => format!("to_char({col}, 'YYYY-MM-DD')"),
+        (crate::config::DbKind::Postgres, DatePart::Month) => format!("to_char({col}, 'YYYY-MM')"),
+        (crate::config::DbKind::Postgres, DatePart::Year) => format!("to_char({col}, 'YYYY')"),
+        (crate::config::DbKind::Mysql, DatePart::Day) => format!("DATE_FORMAT({col}, '%Y-%m-%d')"),
+        (crate::config::DbKind::Mysql, DatePart::Month) => format!("DATE_FORMAT({col}, '%Y-%m')"),
+        (crate::config::DbKind::Mysql, DatePart::Year) => format!("DATE_FORMAT({col}, '%Y')"),
+        (crate::config::DbKind::Sqlite, DatePart::Day) => format!("strftime('%Y-%m-%d', {col})"),
+        (crate::config::DbKind::Sqlite, DatePart::Month) => format!("strftime('%Y-%m', {col})"),
+        (crate::config::DbKind::Sqlite, DatePart::Year) => format!("strftime('%Y', {col})"),
+    }
+}
+
+/// The GROUP BY query for a summary. Date groups sort in time order; otherwise biggest first.
+pub fn summary_sql(d: Dialect, req: &SummaryRequest) -> Result<String, String> {
+    if req.group_by.len() > 2 {
+        return Err("Group by at most two columns.".into());
+    }
+    let measures: Vec<Measure> = if req.measures.is_empty() { vec![Measure { aggregate: Aggregate::Count, column: None }] } else { req.measures.clone() };
+    let mut select = Vec::new();
+    for g in &req.group_by {
+        let col = d.ident(&g.column);
+        let expr = match g.date_part {
+            Some(part) => date_group(d, &col, part),
+            None => col,
+        };
+        let label = match g.date_part {
+            Some(DatePart::Day) => format!("{} (day)", g.column),
+            Some(DatePart::Month) => format!("{} (month)", g.column),
+            Some(DatePart::Year) => format!("{} (year)", g.column),
+            None => g.column.clone(),
+        };
+        select.push(format!("{expr} AS {}", d.ident(&label)));
+    }
+    for m in &measures {
+        let (expr, label) = match (m.aggregate, m.column.as_deref()) {
+            (Aggregate::Count, None) => ("COUNT(*)".to_string(), "Rows".to_string()),
+            (Aggregate::Count, Some(c)) => (format!("COUNT({})", d.ident(c)), format!("Count of {c}")),
+            (Aggregate::CountDistinct, Some(c)) => (format!("COUNT(DISTINCT {})", d.ident(c)), format!("Distinct {c}")),
+            (Aggregate::Sum, Some(c)) => (format!("SUM({})", d.ident(c)), format!("Sum of {c}")),
+            (Aggregate::Avg, Some(c)) => (format!("AVG({})", d.ident(c)), format!("Average {c}")),
+            (Aggregate::Min, Some(c)) => (format!("MIN({})", d.ident(c)), format!("Lowest {c}")),
+            (Aggregate::Max, Some(c)) => (format!("MAX({})", d.ident(c)), format!("Highest {c}")),
+            (_, None) => return Err("Choose a column for that measure.".into()),
+        };
+        select.push(format!("{expr} AS {}", d.ident(&label)));
+    }
+    let n = req.group_by.len();
+    let mut sql = format!("SELECT {} FROM {}{}", select.join(", "), d.table(req.browse.schema.as_deref(), &req.browse.table), where_clause(d, &req.browse));
+    if n > 0 {
+        sql.push_str(&format!(" GROUP BY {}", (1..=n).map(|i| i.to_string()).collect::<Vec<_>>().join(", ")));
+        let by_time = req.group_by[0].date_part.is_some();
+        sql.push_str(&if by_time { " ORDER BY 1".to_string() } else { format!(" ORDER BY {} DESC", n + 1) });
+        sql.push_str(&format!(" LIMIT {SUMMARY_LIMIT}"));
+    }
+    Ok(sql)
+}
+
 /// Find-and-replace in one text column across every row the request matches (not just the loaded
 /// page). Returns the UPDATE and a query counting the rows it would change. Only rows where the
 /// text actually changes are touched, whatever the collation thinks of case.
@@ -436,6 +544,25 @@ mod tests {
         assert!(validate_condition(PG, "(status = 'paid' OR status = 'shipped') AND lower(note) LIKE '%x%'").is_ok());
         assert!(validate_condition(PG, "customer_id IN (SELECT id FROM customers WHERE is_active)").is_ok());
         assert!(validate_condition(PG, "placed_on >= current_date - interval '30 days'").is_ok());
+    }
+
+    #[test]
+    fn summaries_group_filter_and_sort() {
+        let mut r = req();
+        r.filters = vec![Filter { column: "status".into(), op: FilterOp::Ne, value: "pending".into() }];
+        let s = SummaryRequest {
+            browse: r.clone(),
+            group_by: vec![GroupBy { column: "placed_on".into(), date_part: Some(DatePart::Month) }],
+            measures: vec![Measure { aggregate: Aggregate::Count, column: None }, Measure { aggregate: Aggregate::Sum, column: Some("total".into()) }],
+        };
+        assert_eq!(
+            summary_sql(PG, &s).unwrap(),
+            r#"SELECT to_char("placed_on", 'YYYY-MM') AS "placed_on (month)", COUNT(*) AS "Rows", SUM("total") AS "Sum of total" FROM "public"."orders" WHERE "status" <> 'pending' GROUP BY 1 ORDER BY 1 LIMIT 1000"#
+        );
+        let by_status = SummaryRequest { browse: req(), group_by: vec![GroupBy { column: "status".into(), date_part: None }], measures: vec![] };
+        assert!(summary_sql(MY, &by_status).unwrap().ends_with("GROUP BY 1 ORDER BY 2 DESC LIMIT 1000"));
+        let no_col = SummaryRequest { browse: req(), group_by: vec![], measures: vec![Measure { aggregate: Aggregate::Sum, column: None }] };
+        assert!(summary_sql(PG, &no_col).is_err());
     }
 
     #[test]

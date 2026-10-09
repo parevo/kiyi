@@ -26,6 +26,8 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  /* A long editor line must scroll inside the editor, not widen the window. */
+  min-width: 0;
 }
 
 .editor {

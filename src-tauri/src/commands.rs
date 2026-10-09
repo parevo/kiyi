@@ -111,6 +111,11 @@ pub async fn count_rows(ws: Ws<'_>, id: String, request: BrowseRequest) -> CmdRe
 }
 
 #[tauri::command]
+pub async fn summarize(ws: Ws<'_>, id: String, request: kiyi_core::dml::SummaryRequest) -> CmdResult<Page> {
+    Ok(ws.summarize(&id, &request).await?)
+}
+
+#[tauri::command]
 pub async fn plan_replace(ws: Ws<'_>, id: String, request: BrowseRequest, column: String, find: String, replacement: String) -> CmdResult<kiyi_core::workspace::ReplacePlan> {
     Ok(ws.plan_replace(&id, &request, &column, &find, &replacement).await?)
 }

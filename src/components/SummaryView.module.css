@@ -1,0 +1,15 @@
+.view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.builder { display: flex; flex-direction: column; gap: 6px; padding: var(--space-3); border-bottom: 1px solid var(--line); }
+.line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.word { width: 64px; color: var(--text-muted); font-size: var(--text-sm); }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 6px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--bg-raised); }
+.chip select { border: 0; background: transparent; color: var(--text); font: inherit; padding: 3px 2px; }
+.spacer { flex: 1; }
+.toggle { display: flex; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.toggle button { display: flex; align-items: center; gap: 5px; padding: 3px 9px; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.toggle button + button { border-left: 1px solid var(--line); }
+.toggle button[aria-checked="true"] { background: var(--bg-selected); color: var(--text); }
+.hint { margin: 2px 0 0 70px; color: var(--text-faint); font-size: var(--text-sm); }
+.link { margin-left: 8px; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
+.result { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.error { margin: 0; padding: var(--space-4); color: var(--danger); }

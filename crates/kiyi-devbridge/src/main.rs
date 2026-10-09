@@ -68,6 +68,7 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         }
         "browse_table" => ws.browse(&id()?, &arg(a, "request")?).await.map(ok).unwrap_or_else(fail),
         "count_rows" => ws.count(&id()?, &arg(a, "request")?).await.map(ok).unwrap_or_else(fail),
+        "summarize" => ws.summarize(&id()?, &arg(a, "request")?).await.map(ok).unwrap_or_else(fail),
         "plan_replace" => ws
             .plan_replace(&id()?, &arg(a, "request")?, &arg::<String>(a, "column")?, &arg::<String>(a, "find")?, &arg::<String>(a, "replacement")?)
             .await

@@ -27,7 +27,7 @@ export interface RunState {
 }
 
 export type TabKind = "query" | "table" | "create";
-export type TableView = "data" | "structure";
+export type TableView = "data" | "structure" | "summary";
 
 export interface Tab {
   id: string;

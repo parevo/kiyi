@@ -113,3 +113,8 @@
 .cancel[data-hovered] { background: var(--bg-hover); }
 
 .truncated { color: var(--env-staging); }
+
+.viewToggle { margin-left: auto; display: flex; align-self: center; margin-bottom: 4px; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.viewToggle button { display: flex; align-items: center; gap: 5px; padding: 2px 9px; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.viewToggle button + button { border-left: 1px solid var(--line); }
+.viewToggle button[aria-checked="true"] { background: var(--bg-selected); color: var(--text); }

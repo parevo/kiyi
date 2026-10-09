@@ -10,6 +10,7 @@ import type {
   LocalDatabase,
   PlanNode,
   SshHost,
+  SummaryRequest,
   ProviderPreset,
   BrowseRequest,
   DriverInfo,
@@ -71,6 +72,7 @@ export const ipc = {
   sshConfigHosts: () => invoke<SshHost[]>("ssh_config_hosts"),
   logUiError: (message: string) => invoke<void>("log_ui_error", { message }),
   diagnostics: () => invoke<string>("diagnostics"),
+  summarize: (id: string, request: SummaryRequest) => invoke<Page>("summarize", { id, request }),
   planReplace: (id: string, request: BrowseRequest, column: string, find: string, replacement: string) =>
     invoke<{ statement: string; rows: number }>("plan_replace", { id, request, column, find, replacement }),
   explain: (id: string, sql: string) => invoke<PlanNode>("explain", { id, sql }),

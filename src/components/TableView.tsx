@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage, ipc } from "../lib/ipc";
-import type { Cell, ForeignKeyDesign, TableDetails } from "../lib/types";
+import type { BrowseRequest, Cell, ForeignKeyDesign, TableDetails } from "../lib/types";
 import { useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { type Tab, tableKey, useTabs } from "../state/tabs";
@@ -17,6 +17,7 @@ import { useTablePrefs } from "../state/tablePrefs";
 import { useUi } from "../state/ui";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import { CreateTable, StructureView } from "./StructureEditor";
+import { SummaryView } from "./SummaryView";
 import { emptyQuery, TableData, type TableDataHandle, type TableDataStatus, type TableQuery } from "./TableData";
 import { Button, IconButton } from "./ui";
 import s from "./TableView.module.css";
@@ -25,6 +26,22 @@ import { kbd } from "../lib/platform";
 const fmt = new Intl.NumberFormat("en-US");
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** The rows the Data view shows, as a request (before the grid has loaded). */
+function summaryBrowse(details: TableDetails, query: TableQuery): BrowseRequest {
+  return {
+    schema: details.schema,
+    table: details.design.name,
+    filters: query.filters,
+    rawWhere: query.rawWhere,
+    search: query.search,
+    searchColumns: details.design.columns.filter((c) => !c.generated).map((c) => c.name),
+    sort: [],
+    tiebreak: [],
+    limit: 0,
+    offset: 0,
+  };
+}
 
 /** A table tab (data + structure) or a "new table" tab. */
 export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolean; onOpenSql(sql: string): void }) {
@@ -94,7 +111,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
     );
   }
 
-  const setView = (v: "data" | "structure") => patchTab(tab.id, { view: v });
+  const setView = (v: "data" | "structure" | "summary") => patchTab(tab.id, { view: v });
   const editable = !!details && !details.isView && !connection.readOnly;
 
   const ask = async (prompt: string) => {
@@ -151,6 +168,9 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
         <div className={s.toggle} role="group" aria-label="View">
           <button aria-pressed={view === "data"} onClick={() => setView("data")}>
             Data
+          </button>
+          <button aria-pressed={view === "summary"} onClick={() => setView("summary")}>
+            Summary
           </button>
           <button aria-pressed={view === "structure"} onClick={() => setView("structure")}>
             Structure
@@ -264,6 +284,9 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
               onPrompt={setPrompt}
             />
           </div>
+        )}
+        {details && view === "summary" && (
+          <SummaryView connection={connection} details={details} browse={summaryBrowse(details, query)} onOpenSql={onOpenSql} />
         )}
         {details && view === "structure" && (
           <StructureView

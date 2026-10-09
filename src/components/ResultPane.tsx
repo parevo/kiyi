@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Button as AriaButton } from "react-aria-components";
+import type { ChartConfig } from "../lib/chartData";
 import type { DbKind } from "../lib/types";
+import { ChartPanel } from "./ChartPanel";
 import type { RunState } from "../state/tabs";
-import { AlertIcon, CheckIcon, Spinner } from "./icons";
+import { AlertIcon, BarChartIcon, CheckIcon, Spinner, TableIcon } from "./icons";
 import { ResultGrid } from "./ResultGrid";
 import s from "./ResultPane.module.css";
 import { kbd } from "../lib/platform";
@@ -26,11 +28,16 @@ function useElapsed(run: RunState | null) {
   return run.elapsedMs ?? now - run.startedAt;
 }
 
-export function ResultPane({ run, kind, onCancel }: { run: RunState | null; kind: DbKind; onCancel(): void }) {
+export function ResultPane({ run, kind, chart, onCancel }: { run: RunState | null; kind: DbKind; chart?: ChartConfig | null; onCancel(): void }) {
   const elapsed = useElapsed(run);
   const [summary, setSummary] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
-  useEffect(() => setPicked(null), [run?.queryId]);
+  const [view, setView] = useState<"table" | "chart">("table");
+  useEffect(() => {
+    setPicked(null);
+    // A question asked in plain words comes with a chart in mind; show it first.
+    setView(chart ? "chart" : "table");
+  }, [run?.queryId, chart]);
 
   const sets = run?.sets ?? [];
   const withRows = sets.map((set, i) => ({ set, i })).filter(({ set }) => set.columns.length > 0);
@@ -39,15 +46,27 @@ export function ResultPane({ run, kind, onCancel }: { run: RunState | null; kind
   const shown = sets[shownIndex];
   const shownRows = shown ? shown.rows.length : 0;
 
+  const chartable = !run?.error && run?.status !== "running" && !!shown && shown.columns.length > 0 && shownRows > 0;
   return (
     <div className={s.pane}>
-      {withRows.length > 1 && (
+      {(withRows.length > 1 || chartable) && (
         <div className={s.sets} role="tablist">
-          {withRows.map(({ set, i }, n) => (
-            <AriaButton key={i} className={s.setTab} data-selected={i === shownIndex || undefined} onPress={() => setPicked(i)}>
-              Result {n + 1} · {fmt.format(set.rows.length)}
-            </AriaButton>
-          ))}
+          {withRows.length > 1 &&
+            withRows.map(({ set, i }, n) => (
+              <AriaButton key={i} className={s.setTab} data-selected={i === shownIndex || undefined} onPress={() => setPicked(i)}>
+                Result {n + 1} · {fmt.format(set.rows.length)}
+              </AriaButton>
+            ))}
+          {chartable && (
+            <div className={s.viewToggle} role="radiogroup" aria-label="Show results as">
+              <button role="radio" aria-checked={view === "table"} onClick={() => setView("table")}>
+                <TableIcon size={13} /> Table
+              </button>
+              <button role="radio" aria-checked={view === "chart"} onClick={() => setView("chart")}>
+                <BarChartIcon size={13} /> Chart
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -74,7 +93,11 @@ export function ResultPane({ run, kind, onCancel }: { run: RunState | null; kind
           </div>
         )}
 
-        {!run?.error && shown && shown.columns.length > 0 && <ResultGrid key={`${run!.queryId}:${shownIndex}`} set={shown} rowCount={shownRows} kind={kind} onSummary={setSummary} />}
+        {!run?.error && shown && shown.columns.length > 0 && (view === "chart" && chartable ? (
+          <ChartPanel key={`${run!.queryId}:${shownIndex}`} columns={shown.columns} rows={shown.rows} initial={chart} />
+        ) : (
+          <ResultGrid key={`${run!.queryId}:${shownIndex}`} set={shown} rowCount={shownRows} kind={kind} onSummary={setSummary} />
+        ))}
 
         {!run?.error && run?.status === "done" && shown && shown.columns.length === 0 && (
           <div className={s.center}>

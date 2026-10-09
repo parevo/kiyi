@@ -542,6 +542,15 @@ impl Workspace {
         Ok(rows.first().and_then(|r| r.first().cloned().flatten()).and_then(|v| v.parse().ok()).unwrap_or(0))
     }
 
+    /// Grouped figures for a table ("orders per month"), with the table's current filters.
+    pub async fn summarize(&self, id: &str, req: &dml::SummaryRequest) -> Result<Page> {
+        let driver = self.driver(id)?;
+        Self::check_condition(&driver, &req.browse)?;
+        let sql = dml::summary_sql(driver.dialect(), req).map_err(Error::Invalid)?;
+        let (columns, rows) = driver.fetch(&sql).await?;
+        Ok(Page { columns, rows, sql })
+    }
+
     /// The UPDATE for a find-and-replace and how many rows it would change.
     pub async fn plan_replace(&self, id: &str, req: &BrowseRequest, column: &str, find: &str, replacement: &str) -> Result<ReplacePlan> {
         let driver = self.driver(id)?;

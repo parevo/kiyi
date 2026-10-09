@@ -355,3 +355,19 @@ export interface PlanNode {
   warning: string | null;
   children: PlanNode[];
 }
+
+export type Aggregate = "count" | "countDistinct" | "sum" | "avg" | "min" | "max";
+export type DatePart = "day" | "month" | "year";
+export interface GroupBy {
+  column: string;
+  datePart: DatePart | null;
+}
+export interface Measure {
+  aggregate: Aggregate;
+  column: string | null;
+}
+export interface SummaryRequest {
+  browse: BrowseRequest;
+  groupBy: GroupBy[];
+  measures: Measure[];
+}

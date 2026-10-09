@@ -662,3 +662,35 @@ async fn mysql_imports_booleans_written_as_words() {
     my.execute_script(&[format!("DROP TABLE {table}")], false, false).await.unwrap();
     assert_eq!(got, [Some("1".to_string()), Some("1".to_string()), Some("0".to_string()), Some("0".to_string())]);
 }
+
+#[tokio::test]
+async fn summaries_run_on_real_servers() {
+    use kiyi_core::dml::{summary_sql, Aggregate, BrowseRequest, DatePart, GroupBy, Measure, SummaryRequest};
+    if !live() {
+        return;
+    }
+    let browse = |schema: Option<&str>| BrowseRequest {
+        schema: schema.map(Into::into),
+        table: "orders".into(),
+        filters: vec![],
+        raw_where: None,
+        search: None,
+        search_columns: vec![],
+        sort: vec![],
+        tiebreak: vec![],
+        limit: 0,
+        offset: 0,
+    };
+    for (kind, schema, date_col) in [(DbKind::Postgres, Some("public"), "placed_on"), (DbKind::Mysql, None, "updated_at")] {
+        let db = open(kind).await;
+        let req = SummaryRequest {
+            browse: browse(schema),
+            group_by: vec![GroupBy { column: date_col.into(), date_part: Some(DatePart::Month) }],
+            measures: vec![Measure { aggregate: Aggregate::Count, column: None }, Measure { aggregate: Aggregate::Sum, column: Some("total".into()) }],
+        };
+        let (cols, rows) = db.fetch(&summary_sql(db.dialect(), &req).unwrap()).await.unwrap_or_else(|e| panic!("{kind:?}: {e}"));
+        assert_eq!(cols.len(), 3, "{kind:?}");
+        assert!(!rows.is_empty(), "{kind:?}");
+        assert_eq!(rows[0][0].as_deref().map(str::len), Some(7), "{kind:?} month label {:?}", rows[0][0]);
+    }
+}
