@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { CommandPalette } from "./components/CommandPalette";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { type ConnectInit, ConnectionsHome, Overview, Welcome } from "./components/Home";
 import { QueryPane } from "./components/QueryPane";
@@ -63,7 +64,8 @@ export function App() {
       if (!isMod(e)) return;
       const k = e.key.toLowerCase();
       const st = useTabs.getState();
-      if (k === "t") newTab();
+      if (k === "k") useUi.getState().setPalette(!useUi.getState().palette);
+      else if (k === "t") newTab();
       else if (k === "n") setDialog({ editing: null });
       else if (k === "w" && st.activeId) close(st.activeId);
       else if (k === ",") useUi.getState().openSettings();
@@ -124,6 +126,7 @@ export function App() {
 
       <ConnectionDialog isOpen={dialog !== null} editing={dialog?.editing ?? null} init={dialog?.init} onClose={() => setDialog(null)} />
       <SettingsDialog />
+      <CommandPalette onNewConnection={() => setDialog({ editing: null })} onOpenSql={openSql} />
       <UpdateNotice />
       <Toasts />
     </div>

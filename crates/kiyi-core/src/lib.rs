@@ -10,6 +10,7 @@ pub mod dialect;
 pub mod dml;
 pub mod drivers;
 pub mod error;
+pub mod explain;
 pub mod secrets;
 pub mod ssh_config;
 pub mod store;

@@ -15,11 +15,23 @@ import {
   lineNumbers,
   placeholder,
 } from "@codemirror/view";
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { statementAt } from "../lib/sql";
 import type { DbKind, SchemaSnapshot } from "../lib/types";
 import { editorTheme, highlight } from "./editorTheme";
 import { kbd } from "../lib/platform";
+
+/** What the toolbar can do to the editor. */
+export interface EditorHandle {
+  /** The selection, else the statement under the cursor (or everything with `all`). */
+  target(all?: boolean): RunRequest | null;
+  run(all?: boolean): void;
+  /** Replaces part of the document (e.g. formatting) and selects the new text. */
+  replace(from: number, to: number, text: string): void;
+  /** Inserts at the cursor, on its own lines. */
+  insert(text: string): void;
+  focus(): void;
+}
 
 export interface RunRequest {
   sql: string;
@@ -96,7 +108,7 @@ function language(kind: DbKind, schema: SchemaSnapshot | undefined) {
   });
 }
 
-export function QueryEditor({ value, kind, schema, errorAt, onChange, onRun, onCancel }: Props) {
+export const QueryEditor = forwardRef<EditorHandle, Props>(function QueryEditor({ value, kind, schema, errorAt, onChange, onRun, onCancel }, ref) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const lang = useRef(new Compartment());
@@ -104,17 +116,40 @@ export function QueryEditor({ value, kind, schema, errorAt, onChange, onRun, onC
   const props = useRef({ onChange, onRun, onCancel, kind });
   props.current = { onChange, onRun, onCancel, kind };
 
+  const targetOf = (v: EditorView, all: boolean): RunRequest | null => {
+    const { state } = v;
+    const sel = state.selection.main;
+    if (!sel.empty) return { sql: state.sliceDoc(sel.from, sel.to), offset: sel.from };
+    if (all) return { sql: state.doc.toString(), offset: 0 };
+    const st = statementAt(state.doc.toString(), sel.head, props.current.kind === "mysql");
+    return st && { sql: st.text, offset: st.from };
+  };
+
+  useImperativeHandle(ref, () => ({
+    target: (all = false) => (view.current ? targetOf(view.current, all) : null),
+    run: (all = false) => {
+      if (view.current) runAtRef.current?.(view.current, all);
+    },
+    replace(from, to, text) {
+      view.current?.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from, head: from + text.length } });
+      view.current?.focus();
+    },
+    insert(text) {
+      const v = view.current;
+      if (!v) return;
+      const pos = v.state.selection.main.head;
+      const before = pos > 0 && v.state.sliceDoc(pos - 1, pos) !== "\n" ? "\n\n" : "";
+      v.dispatch({ changes: { from: pos, insert: before + text }, selection: { anchor: pos + before.length + text.length } });
+      v.focus();
+    },
+    focus: () => view.current?.focus(),
+  }));
+
+  const runAtRef = useRef<((v: EditorView, all: boolean) => boolean) | null>(null);
+
   useEffect(() => {
     const runAt = (v: EditorView, all: boolean) => {
-      const { state } = v;
-      const sel = state.selection.main;
-      let req: RunRequest | null;
-      if (!sel.empty) req = { sql: state.sliceDoc(sel.from, sel.to), offset: sel.from };
-      else if (all) req = { sql: state.doc.toString(), offset: 0 };
-      else {
-        const st = statementAt(state.doc.toString(), sel.head, props.current.kind === "mysql");
-        req = st && { sql: st.text, offset: st.from };
-      }
+      const req = targetOf(v, all);
       if (!req || !req.sql.trim()) return true;
       v.dispatch({ effects: flash.of({ from: req.offset, to: req.offset + req.sql.length }) });
       setTimeout(() => view.current?.dispatch({ effects: flash.of(null) }), 350);
@@ -162,6 +197,7 @@ export function QueryEditor({ value, kind, schema, errorAt, onChange, onRun, onC
       }),
     });
     view.current = v;
+    runAtRef.current = runAt;
     v.focus();
     return () => v.destroy();
     // The editor is created once per mount; prop changes are applied below.
@@ -185,4 +221,4 @@ export function QueryEditor({ value, kind, schema, errorAt, onChange, onRun, onC
   }, [errorAt]);
 
   return <div ref={host} style={{ height: "100%", overflow: "hidden" }} />;
-}
+});

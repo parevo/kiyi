@@ -362,6 +362,28 @@ impl Workspace {
     }
 
     /// Starts `sql` in the background; events stream into `sink` and always end with `Done`.
+    /// The estimated plan for one statement; nothing is executed.
+    pub async fn explain(&self, id: &str, sql: &str) -> Result<crate::explain::PlanNode> {
+        use crate::config::DbKind;
+        use crate::explain;
+        let driver = self.driver(id)?;
+        let kind = driver.dialect().kind;
+        let first = |rows: &[Vec<Cell>]| rows.first().and_then(|r| r.first().cloned().flatten()).unwrap_or_default();
+        let plan = match kind {
+            DbKind::Postgres => explain::from_postgres(&first(&driver.fetch(&explain::explain_sql(kind, sql)).await?.1)),
+            DbKind::Sqlite => explain::from_sqlite(&driver.fetch(&explain::explain_sql(kind, sql)).await?.1),
+            DbKind::Mysql => match driver.fetch(&explain::explain_sql(kind, sql)).await {
+                Ok((_, rows)) => explain::from_mysql_tree(&first(&rows)),
+                // MariaDB and old MySQL don't know FORMAT=TREE.
+                Err(_) => {
+                    let (cols, rows) = driver.fetch(&explain::explain_classic_sql(sql)).await?;
+                    explain::from_mysql_classic(&cols.iter().map(|c| c.name.clone()).collect::<Vec<_>>(), &rows)
+                }
+            },
+        };
+        plan.map_err(Error::Invalid)
+    }
+
     /// What `sql` would do on this connection, so the UI can ask before changing production data.
     pub fn check_sql(&self, id: &str, sql: &str) -> Result<dml::ScriptCheck> {
         Ok(dml::check_script(self.driver(id)?.dialect(), sql))

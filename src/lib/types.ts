@@ -341,3 +341,13 @@ export interface AiFilterResult {
   condition: string | null;
   explanation: string;
 }
+
+/** One step of a query plan, the same shape for every database. */
+export interface PlanNode {
+  label: string;
+  detail: string | null;
+  rows: number | null;
+  cost: number | null;
+  warning: string | null;
+  children: PlanNode[];
+}

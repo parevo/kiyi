@@ -53,6 +53,7 @@ fn main() {
             commands::discover_local,
             commands::ssh_config_hosts,
             commands::check_sql,
+            commands::explain,
             commands::log_ui_error,
             commands::diagnostics,
             commands::export_table,

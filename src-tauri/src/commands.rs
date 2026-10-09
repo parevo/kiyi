@@ -80,6 +80,11 @@ pub async fn run_query(
 }
 
 #[tauri::command]
+pub async fn explain(ws: Ws<'_>, id: String, sql: String) -> CmdResult<kiyi_core::explain::PlanNode> {
+    Ok(ws.explain(&id, &sql).await?)
+}
+
+#[tauri::command]
 pub fn check_sql(ws: Ws<'_>, id: String, sql: String) -> CmdResult<kiyi_core::dml::ScriptCheck> {
     Ok(ws.check_sql(&id, &sql)?)
 }

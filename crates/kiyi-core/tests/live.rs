@@ -615,3 +615,22 @@ async fn import_a_messy_csv() {
     assert_eq!(rows[2][1], None, "empty field imported as NULL");
     pg.execute_script(&[format!("DROP TABLE {table}")], false, false).await.unwrap();
 }
+
+#[tokio::test]
+async fn explain_plans_from_real_servers() {
+    use kiyi_core::explain;
+    if !live() {
+        return;
+    }
+    let sql = "SELECT * FROM orders WHERE total > 100 ORDER BY total DESC;";
+    let pg = open(DbKind::Postgres).await;
+    let (_, rows) = pg.fetch(&explain::explain_sql(DbKind::Postgres, sql)).await.unwrap();
+    let plan = explain::from_postgres(rows[0][0].as_deref().unwrap()).unwrap();
+    assert!(plan.cost.is_some() && plan.rows.is_some(), "{plan:#?}");
+    assert!(format!("{plan:?}").contains("orders"), "{plan:#?}");
+
+    let my = open(DbKind::Mysql).await;
+    let (_, rows) = my.fetch(&explain::explain_sql(DbKind::Mysql, sql)).await.unwrap();
+    let plan = explain::from_mysql_tree(rows[0][0].as_deref().unwrap()).unwrap();
+    assert!(format!("{plan:?}").contains("orders"), "{plan:#?}");
+}

@@ -109,6 +109,7 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
             ok(())
         }
         "diagnostics" => ok("Kiyi (devbridge)\nLogs go to the terminal running kiyi-devbridge."),
+        "explain" => ws.explain(&id()?, &arg::<String>(a, "sql")?).await.map(ok).unwrap_or_else(fail),
         "check_sql" => ws.check_sql(&id()?, &arg::<String>(a, "sql")?).map(ok).unwrap_or_else(fail),
         "ai_filters" => {
             let schema: Option<String> = arg(a, "schema")?;

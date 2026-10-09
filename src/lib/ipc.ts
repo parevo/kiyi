@@ -8,6 +8,7 @@ import type {
   AiSettings,
   AiStatus,
   LocalDatabase,
+  PlanNode,
   SshHost,
   ProviderPreset,
   BrowseRequest,
@@ -72,6 +73,7 @@ export const ipc = {
   diagnostics: () => invoke<string>("diagnostics"),
   planReplace: (id: string, request: BrowseRequest, column: string, find: string, replacement: string) =>
     invoke<{ statement: string; rows: number }>("plan_replace", { id, request, column, find, replacement }),
+  explain: (id: string, sql: string) => invoke<PlanNode>("explain", { id, sql }),
   checkSql: (id: string, sql: string) => invoke<{ writes: boolean; destructive: number }>("check_sql", { id, sql }),
   exportTable: (id: string, request: BrowseRequest, format: ExportFormat, path: string) => invoke<number>("export_table", { id, request, format, path }),
   csvPreview: (path: string, encoding: string | null = null) => invoke<CsvPreview>("csv_preview", { path, encoding }),

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
+import { useHistory } from "./history";
 import type { Cell, ColumnMeta, ErrorInfo, Filter } from "../lib/types";
 
 export interface ResultSet {
@@ -207,6 +208,19 @@ export const useTabs = create<TabsState>((set, get) => {
             case "done":
               cancelAnimationFrame(frame);
               frame = 0;
+              {
+                const r = get().tabs.find((t) => t.id === id)?.run;
+                if (r && r.queryId === queryId && !event.cancelled) {
+                  const rowSets = r.sets.filter((x) => x.columns.length > 0);
+                  useHistory.getState().record({
+                    connectionId: tab.connectionId!,
+                    sql,
+                    ok: !r.error,
+                    rows: rowSets.length ? rowSets.reduce((n, x) => n + x.rows.length, 0) : null,
+                    ms: event.elapsedMs,
+                  });
+                }
+              }
               updateRun(id, queryId, (r) => ({
                 status: r.error ? "error" : "done",
                 elapsedMs: event.elapsedMs,
