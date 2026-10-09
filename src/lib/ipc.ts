@@ -75,8 +75,9 @@ export const ipc = {
     invoke<{ statement: string; rows: number }>("plan_replace", { id, request, column, find, replacement }),
   explain: (id: string, sql: string) => invoke<PlanNode>("explain", { id, sql }),
   checkSql: (id: string, sql: string) => invoke<{ writes: boolean; destructive: number }>("check_sql", { id, sql }),
+  exportQuery: (id: string, sql: string, format: ExportFormat, path: string) => invoke<number>("export_query", { id, sql, format, path }),
   exportTable: (id: string, request: BrowseRequest, format: ExportFormat, path: string) => invoke<number>("export_table", { id, request, format, path }),
-  csvPreview: (path: string, encoding: string | null = null) => invoke<CsvPreview>("csv_preview", { path, encoding }),
+  csvPreview: (path: string, encoding: string | null = null, sheet: string | null = null) => invoke<CsvPreview>("csv_preview", { path, encoding, sheet }),
   importCsv: (id: string, path: string, plan: ImportPlan) => invoke<number>("import_csv", { id, path, plan }),
   aiFilters: (id: string, schema: string | null, table: string, prompt: string, today: string) =>
     invoke<AiFilterResult>("ai_filters", { id, schema, table, prompt, today }),

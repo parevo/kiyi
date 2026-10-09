@@ -274,7 +274,7 @@ async fn imports_excel_csv_in_batches_and_all_or_nothing() {
     let path = dir.join("excel.csv");
     std::fs::write(&path, &bytes).unwrap();
 
-    let preview = transfer::preview(&path, None).unwrap();
+    let preview = transfer::preview(&path, None, None).unwrap();
     assert_eq!(preview.encoding, "windows-1254");
     assert_eq!(preview.headers, ["Ad", "Şehir"]);
     assert_eq!(preview.total, 1_202);
@@ -286,6 +286,7 @@ async fn imports_excel_csv_in_batches_and_all_or_nothing() {
         has_header: true,
         empty_as_null: true,
         encoding: None,
+        sheet: None,
     };
     assert_eq!(transfer::import(&*db, &path, &plan).await.unwrap(), 1_202);
     let (_, rows) = db.fetch("SELECT name, city FROM people ORDER BY id DESC LIMIT 2").await.unwrap();
@@ -300,7 +301,7 @@ async fn imports_excel_csv_in_batches_and_all_or_nothing() {
     text.push_str(",Nowhere\n"); // empty name → NULL → NOT NULL fails
     let bad = dir.join("bad.csv");
     std::fs::write(&bad, text).unwrap();
-    assert_eq!(transfer::preview(&bad, None).unwrap().encoding, "UTF-8");
+    assert_eq!(transfer::preview(&bad, None, None).unwrap().encoding, "UTF-8");
     let err = transfer::import(&*db, &bad, &plan).await.unwrap_err().to_string();
     assert!(err.contains("Nothing was imported") && err.contains("1001"), "{err}");
     let (_, rows) = db.fetch("SELECT count(*) FROM people").await.unwrap();
@@ -310,9 +311,73 @@ async fn imports_excel_csv_in_batches_and_all_or_nothing() {
     let (bytes, _, _) = encoding_rs::WINDOWS_1252.encode("name,city\nRenée,Zürich\n");
     let west = dir.join("west.csv");
     std::fs::write(&west, &bytes).unwrap();
-    let preview = transfer::preview(&west, None).unwrap();
+    let preview = transfer::preview(&west, None, None).unwrap();
     assert_eq!(preview.encoding, "windows-1252");
     assert_eq!(preview.rows[0], ["Renée", "Zürich"]);
+
+    db.close().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn excel_export_and_import_round_trip() {
+    use kiyi_core::transfer::{self, ExportFormat, ImportPlan};
+
+    let dir = std::env::temp_dir().join(format!("kiyi-xlsx-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = ConnectionConfig {
+        id: "x".into(),
+        name: "x".into(),
+        kind: DbKind::Sqlite,
+        host: String::new(),
+        port: 0,
+        user: String::new(),
+        database: Some(dir.join("x.db").to_string_lossy().into_owned()),
+        ssl_mode: SslMode::Disable,
+        env: EnvTag::Local,
+        read_only: false,
+        driver: Some("sqlite".into()),
+        tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
+    };
+    let db = drivers::open(&config, None).await.unwrap();
+    db.execute_script(
+        &[
+            "CREATE TABLE src (id INTEGER PRIMARY KEY, name TEXT, amount NUMERIC, big TEXT, ok BOOLEAN, day TEXT)".into(),
+            "CREATE TABLE dst (id INTEGER PRIMARY KEY, name TEXT, amount NUMERIC, big TEXT, ok BOOLEAN, day TEXT)".into(),
+            "INSERT INTO src VALUES (1, 'Ayşe Yılmaz', 12.5, '12345678901234567890', 1, '2026-10-09'), (2, NULL, 3, '7', 0, NULL)".into(),
+        ],
+        true,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let path = dir.join("export.xlsx");
+    assert_eq!(transfer::export(&*db, "SELECT * FROM src ORDER BY id", ExportFormat::Xlsx, &path).await.unwrap(), 2);
+
+    let preview = transfer::preview(&path, None, None).unwrap();
+    assert_eq!(preview.headers, ["id", "name", "amount", "big", "ok", "day"]);
+    assert_eq!(preview.sheets, ["Sheet1"]);
+    assert_eq!(preview.total, 2);
+    // A 20-digit ID stays exact (kept as text), whole numbers have no ".0", booleans are real
+    // Excel TRUE/FALSE cells, and the import turns them back into what the column stores.
+    assert_eq!(preview.rows[0], ["1", "Ayşe Yılmaz", "12.5", "12345678901234567890", "true", "2026-10-09"]);
+
+    let plan = ImportPlan {
+        schema: None,
+        table: "dst".into(),
+        mapping: ["id", "name", "amount", "big", "ok", "day"].iter().map(|c| Some(c.to_string())).collect(),
+        has_header: true,
+        empty_as_null: true,
+        encoding: None,
+        sheet: None,
+    };
+    assert_eq!(transfer::import(&*db, &path, &plan).await.unwrap(), 2);
+    let (_, a) = db.fetch("SELECT * FROM src ORDER BY id").await.unwrap();
+    let (_, b) = db.fetch("SELECT * FROM dst ORDER BY id").await.unwrap();
+    assert_eq!(a, b);
 
     db.close().await;
     let _ = std::fs::remove_dir_all(&dir);

@@ -595,7 +595,7 @@ async fn import_a_messy_csv() {
     let path = std::env::temp_dir().join(format!("{table}.csv"));
     std::fs::write(&path, "\u{feff}Name;Ignored;Note;Amount\nAyşe;x;\"has; semicolon\";12.50\n\"O'Brien\";y;\"two\nlines\";\nZoë;z;;3\n").unwrap();
 
-    let preview = transfer::preview(&path, None).unwrap();
+    let preview = transfer::preview(&path, None, None).unwrap();
     assert_eq!(preview.headers, ["Name", "Ignored", "Note", "Amount"]);
     assert_eq!(preview.total, 3);
 
@@ -606,6 +606,7 @@ async fn import_a_messy_csv() {
         has_header: true,
         empty_as_null: true,
         encoding: None,
+        sheet: None,
     };
     assert_eq!(transfer::import(&*pg, &path, &plan).await.unwrap(), 3);
 
@@ -633,4 +634,31 @@ async fn explain_plans_from_real_servers() {
     let (_, rows) = my.fetch(&explain::explain_sql(DbKind::Mysql, sql)).await.unwrap();
     let plan = explain::from_mysql_tree(rows[0][0].as_deref().unwrap()).unwrap();
     assert!(format!("{plan:?}").contains("orders"), "{plan:#?}");
+}
+
+#[tokio::test]
+async fn mysql_imports_booleans_written_as_words() {
+    if !live() {
+        return;
+    }
+    let my = open(DbKind::Mysql).await;
+    let table = scratch_table("kiyi_bools");
+    my.execute_script(&[format!("CREATE TABLE {table} (id int PRIMARY KEY, active tinyint(1))")], false, false).await.unwrap();
+    let path = std::env::temp_dir().join(format!("{table}.csv"));
+    // MySQL would store the text 'true' as 0 without the import normalizing it.
+    std::fs::write(&path, "id,active\n1,true\n2,Evet\n3,false\n4,0\n").unwrap();
+    let plan = ImportPlan {
+        schema: None,
+        table: table.clone(),
+        mapping: vec![Some("id".into()), Some("active".into())],
+        has_header: true,
+        empty_as_null: true,
+        encoding: None,
+        sheet: None,
+    };
+    assert_eq!(transfer::import(&*my, &path, &plan).await.unwrap(), 4);
+    let (_, rows) = my.fetch(&format!("SELECT active FROM {table} ORDER BY id")).await.unwrap();
+    let got: Vec<_> = rows.iter().map(|r| r[0].clone()).collect();
+    my.execute_script(&[format!("DROP TABLE {table}")], false, false).await.unwrap();
+    assert_eq!(got, [Some("1".to_string()), Some("1".to_string()), Some("0".to_string()), Some("0".to_string())]);
 }

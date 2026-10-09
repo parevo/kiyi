@@ -118,6 +118,11 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
                 .map(ok)
                 .unwrap_or_else(fail)
         }
+        "export_query" => ws
+            .export_query(&id()?, &arg::<String>(a, "sql")?, arg(a, "format")?, std::path::Path::new(&arg::<String>(a, "path")?))
+            .await
+            .map(ok)
+            .unwrap_or_else(fail),
         "export_table" => ws
             .export(&id()?, &arg(a, "request")?, arg(a, "format")?, std::path::Path::new(&arg::<String>(a, "path")?))
             .await
@@ -125,7 +130,8 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
             .unwrap_or_else(fail),
         "csv_preview" => {
             let encoding: Option<String> = arg(a, "encoding")?;
-            kiyi_core::transfer::preview(std::path::Path::new(&arg::<String>(a, "path")?), encoding.as_deref()).map(ok).unwrap_or_else(fail)
+            let sheet: Option<String> = arg(a, "sheet")?;
+            kiyi_core::transfer::preview(std::path::Path::new(&arg::<String>(a, "path")?), encoding.as_deref(), sheet.as_deref()).map(ok).unwrap_or_else(fail)
         }
         "import_csv" => ws.import_csv(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), &arg(a, "plan")?).await.map(ok).unwrap_or_else(fail),
         "cancel_query" => {

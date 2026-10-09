@@ -6,11 +6,13 @@ import { type Tab, useTabs } from "../state/tabs";
 import { format as formatSql } from "sql-formatter";
 import { errorMessage } from "../lib/ipc";
 import { kbd } from "../lib/platform";
-import type { PlanNode } from "../lib/types";
+import type { ExportFormat, PlanNode } from "../lib/types";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { ContextMenu, type MenuState } from "./ContextMenu";
 import { useHistory } from "../state/history";
 import { toast } from "../state/toasts";
 import { HistoryPanel } from "./HistoryPanel";
-import { FormatIcon, HistoryIcon, PlayIcon, BookmarkIcon, Spinner, SigmaIcon } from "./icons";
+import { BookmarkIcon, DownloadIcon, FormatIcon, HistoryIcon, PlayIcon, SigmaIcon, Spinner } from "./icons";
 import { PlanView } from "./PlanView";
 import { PromptDialog, type PromptRequest } from "./PromptDialog";
 import { type EditorHandle, QueryEditor, type RunRequest } from "./QueryEditor";
@@ -52,6 +54,7 @@ export function QueryPane({ tab }: { tab: Tab }) {
   const [plan, setPlan] = useState<PlanNode | null>(null);
   const [explaining, setExplaining] = useState(false);
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
 
   if (!connection) return null;
 
@@ -83,6 +86,21 @@ export function QueryPane({ tab }: { tab: Tab }) {
       toast.error(`Couldn't explain this query: ${errorMessage(e)}`);
     } finally {
       setExplaining(false);
+    }
+  };
+
+  const exportResults = async (format: ExportFormat) => {
+    const req = editor.current?.target(false);
+    if (!req?.sql.trim()) return toast.info("Put the cursor in the query whose results you want to export.");
+    const path = await saveDialog({ defaultPath: `results.${format}`, filters: [{ name: format === "xlsx" ? "Excel" : format.toUpperCase(), extensions: [format] }] });
+    if (!path) return;
+    try {
+      await ensureConnected();
+      toast.info("Exporting…");
+      const n = await ipc.exportQuery(connection.id, req.sql, format, path);
+      toast.success(`Exported ${n.toLocaleString("en-US")} rows to ${path.split(/[\\/]/).pop()}`);
+    } catch (e) {
+      toast.error(`Export failed: ${errorMessage(e)}`);
     }
   };
 
@@ -166,6 +184,23 @@ export function QueryPane({ tab }: { tab: Tab }) {
           {explaining ? <Spinner size={13} /> : <SigmaIcon size={14} />} Explain
         </Button>
         <span className={t.spacer} />
+        <Button
+          variant="ghost"
+          onPress={() => {
+            const r = document.activeElement?.getBoundingClientRect();
+            setMenu({
+              x: r?.left ?? 0,
+              y: (r?.bottom ?? 0) + 4,
+              items: [
+                { label: "Export results to Excel…", onSelect: () => exportResults("xlsx") },
+                { label: "Export results to CSV…", onSelect: () => exportResults("csv") },
+                { label: "Export results to JSON…", onSelect: () => exportResults("json") },
+              ],
+            });
+          }}
+        >
+          <DownloadIcon size={14} /> Export
+        </Button>
         <Button variant="ghost" onPress={saveQuery}>
           <BookmarkIcon size={14} /> Save
         </Button>
@@ -191,6 +226,7 @@ export function QueryPane({ tab }: { tab: Tab }) {
       </div>
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} />
       <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
+      <ContextMenu menu={menu} onClose={() => setMenu(null)} />
     </div>
     {showHistory && <HistoryPanel connectionId={connection.id} onPick={(sql) => editor.current?.insert(sql)} onClose={() => setShowHistory(false)} />}
     </div>

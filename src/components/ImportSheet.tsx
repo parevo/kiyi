@@ -39,16 +39,20 @@ export function ImportSheet({
   const [emptyAsNull, setEmptyAsNull] = useState(true);
   /** `null` = as detected. */
   const [encoding, setEncoding] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const columns = details.design.columns.filter((c) => !c.generated);
 
-  useEffect(() => setEncoding(null), [path]);
+  useEffect(() => {
+    setEncoding(null);
+    setSheet(null);
+  }, [path]);
   useEffect(() => {
     if (!path) return;
     setPreview(null);
     setError(null);
-    ipc.csvPreview(path, encoding).then(
+    ipc.csvPreview(path, encoding, sheet).then(
       (p) => {
         setPreview(p);
         // Match by name, ignoring case, spaces and underscores.
@@ -57,7 +61,7 @@ export function ImportSheet({
       (e) => setError(errorMessage(e)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, encoding]);
+  }, [path, encoding, sheet]);
 
   const mapped = mapping.filter(Boolean).length;
   const rows = preview ? preview.total + (hasHeader ? 0 : 1) : 0;
@@ -68,7 +72,7 @@ export function ImportSheet({
     setBusy(true);
     setError(null);
     try {
-      const n = await ipc.importCsv(connection.id, path, { schema: details.schema, table: details.design.name, mapping, hasHeader, emptyAsNull, encoding: preview?.encoding ?? null });
+      const n = await ipc.importCsv(connection.id, path, { schema: details.schema, table: details.design.name, mapping, hasHeader, emptyAsNull, encoding: preview?.sheets.length ? null : (preview?.encoding ?? null), sheet: preview?.sheet ?? null });
       toast.success(`Imported ${n.toLocaleString("en-US")} rows into ${details.design.name}`);
       onImported();
       onClose();
@@ -84,7 +88,7 @@ export function ImportSheet({
       isOpen={path !== null}
       onClose={onClose}
       width={620}
-      title="Import from CSV"
+      title={preview?.sheets.length ? "Import from Excel" : "Import from CSV"}
       subtitle={fileName ? `${fileName} → ${details.design.name}` : undefined}
       footer={
         <>
@@ -123,6 +127,17 @@ export function ImportSheet({
                 </div>
               ))}
             </div>
+            {preview.sheets.length > 1 && (
+              <label className={f.field}>
+                <span className={f.label}>Sheet</span>
+                <select className={f.control} value={preview.sheet ?? ""} onChange={(e) => setSheet(e.target.value)}>
+                  {preview.sheets.map((name) => (
+                    <option key={name}>{name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {preview.sheets.length === 0 && (
             <label className={f.field}>
               <span className={f.label}>Text encoding</span>
               <select className={f.control} value={preview.encoding} onChange={(e) => setEncoding(e.target.value)}>
@@ -136,6 +151,7 @@ export function ImportSheet({
               </select>
               <span className={f.help}>If letters like ş, ğ or é look wrong in the examples, pick the encoding the file was saved with.</span>
             </label>
+            )}
             <div className={f.toggles}>
               <Switch isSelected={hasHeader} onChange={setHasHeader}>
                 The first row has column names

@@ -46,6 +46,7 @@ import {
   MessageCircleQuestion,
   Sigma,
   Braces,
+  Download,
 } from "lucide-react";
 
 type P = LucideProps & { size?: number };
@@ -97,6 +98,7 @@ export const WandIcon = make(WandSparkles);
 export const AskIcon = make(MessageCircleQuestion);
 export const SigmaIcon = make(Sigma);
 export const FormatIcon = make(Braces);
+export const DownloadIcon = make(Download);
 
 export const Spinner = ({ size = 14 }: { size?: number }) => (
   <Loader2 size={size} strokeWidth={2} aria-label="Loading" style={{ animation: "spin 0.8s linear infinite" }} />

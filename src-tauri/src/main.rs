@@ -57,6 +57,7 @@ fn main() {
             commands::log_ui_error,
             commands::diagnostics,
             commands::export_table,
+            commands::export_query,
             commands::csv_preview,
             commands::import_csv,
             commands::ai_filters,

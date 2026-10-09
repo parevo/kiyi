@@ -232,14 +232,17 @@ export interface ChangeSet {
 
 export type ScriptKind = "data" | "schema" | "bulk";
 
-export type ExportFormat = "csv" | "json";
+export type ExportFormat = "csv" | "json" | "xlsx";
 
 export interface CsvPreview {
   headers: string[];
   rows: string[][];
   total: number;
-  /** Text encoding the file was read with, e.g. "UTF-8" or "windows-1254". */
+  /** Text encoding the file was read with, e.g. "UTF-8" or "windows-1254"; the file type for spreadsheets. */
   encoding: string;
+  /** A spreadsheet's sheets (empty for CSV) and the one shown. */
+  sheets: string[];
+  sheet: string | null;
 }
 
 export interface ImportPlan {
@@ -249,6 +252,7 @@ export interface ImportPlan {
   hasHeader: boolean;
   emptyAsNull: boolean;
   encoding?: string | null;
+  sheet?: string | null;
 }
 
 // ---- catalog

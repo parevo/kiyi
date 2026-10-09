@@ -120,7 +120,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
 
   const exportAs = async (format: ExportFormat) => {
     if (!details || !data.current) return;
-    const path = await saveDialog({ defaultPath: `${details.design.name}.${format}`, filters: [{ name: format.toUpperCase(), extensions: [format] }] });
+    const path = await saveDialog({ defaultPath: `${details.design.name}.${format}`, filters: [{ name: format === "xlsx" ? "Excel" : format.toUpperCase(), extensions: [format] }] });
     if (!path) return;
     toast.info(`Exporting ${details.design.name}…`);
     try {
@@ -132,7 +132,13 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   };
 
   const importCsv = async () => {
-    const path = await openDialog({ multiple: false, filters: [{ name: "CSV", extensions: ["csv", "tsv", "txt"] }] });
+    const path = await openDialog({
+      multiple: false,
+      filters: [
+        { name: "CSV or spreadsheet", extensions: ["csv", "tsv", "txt", "xlsx", "xlsm", "xls", "ods"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
     if (typeof path === "string") setImportPath(path);
   };
 
@@ -209,10 +215,11 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
                   x: (r?.right ?? 0) - 220,
                   y: (r?.bottom ?? 0) + 4,
                   items: [
+                    { label: "Export as Excel…", onSelect: () => exportAs("xlsx") },
                     { label: "Export as CSV…", onSelect: () => exportAs("csv") },
                     { label: "Export as JSON…", onSelect: () => exportAs("json") },
                     "separator",
-                    { label: "Import from CSV…", onSelect: importCsv, disabled: !editable },
+                    { label: "Import from Excel or CSV…", onSelect: importCsv, disabled: !editable },
                   ],
                 });
               }}

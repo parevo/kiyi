@@ -211,13 +211,18 @@ pub async fn ai_filters(
 }
 
 #[tauri::command]
+pub async fn export_query(ws: Ws<'_>, id: String, sql: String, format: kiyi_core::transfer::ExportFormat, path: String) -> CmdResult<u64> {
+    Ok(ws.export_query(&id, &sql, format, std::path::Path::new(&path)).await?)
+}
+
+#[tauri::command]
 pub async fn export_table(ws: Ws<'_>, id: String, request: BrowseRequest, format: kiyi_core::transfer::ExportFormat, path: String) -> CmdResult<u64> {
     Ok(ws.export(&id, &request, format, std::path::Path::new(&path)).await?)
 }
 
 #[tauri::command]
-pub fn csv_preview(path: String, encoding: Option<String>) -> CmdResult<kiyi_core::transfer::CsvPreview> {
-    Ok(kiyi_core::transfer::preview(std::path::Path::new(&path), encoding.as_deref())?)
+pub fn csv_preview(path: String, encoding: Option<String>, sheet: Option<String>) -> CmdResult<kiyi_core::transfer::CsvPreview> {
+    Ok(kiyi_core::transfer::preview(std::path::Path::new(&path), encoding.as_deref(), sheet.as_deref())?)
 }
 
 #[tauri::command]

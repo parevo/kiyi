@@ -586,6 +586,15 @@ impl Workspace {
         crate::transfer::export(driver.as_ref(), &dml::export_sql(driver.dialect(), req), format, path).await
     }
 
+    /// Runs a read-only query and streams all of its rows into a file (no editor row limit).
+    pub async fn export_query(&self, id: &str, sql: &str, format: crate::transfer::ExportFormat, path: &Path) -> Result<u64> {
+        let driver = self.driver(id)?;
+        if dml::check_script(driver.dialect(), sql).writes {
+            return Err(Error::Invalid("Only queries that read data can be exported. This one changes something.".into()));
+        }
+        crate::transfer::export(driver.as_ref(), sql, format, path).await
+    }
+
     pub async fn import_csv(&self, id: &str, path: &Path, plan: &crate::transfer::ImportPlan) -> Result<u64> {
         self.ensure_writable(id)?;
         let driver = self.driver(id)?;
