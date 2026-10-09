@@ -100,7 +100,7 @@ export function QueryPane({ tab }: { tab: Tab }) {
       </div>
       <div className={s.splitter} data-dragging={dragging || undefined} onPointerDown={onSplitDown} role="separator" aria-orientation="horizontal" />
       <div className={s.results}>
-        <ResultPane run={tab.run} onCancel={() => cancel(tab.id)} />
+        <ResultPane run={tab.run} kind={connection.kind} onCancel={() => cancel(tab.id)} />
       </div>
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} />
     </div>

@@ -87,3 +87,10 @@
 .aiChip svg { color: var(--ai); flex-shrink: 0; }
 .clearAll { border: 0; background: transparent; color: var(--text-faint); font-size: var(--text-sm); padding: 0 6px; }
 .clearAll:hover { color: var(--text); }
+
+.columnList { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; min-width: 220px; }
+.columnItem { display: flex; align-items: center; gap: var(--space-2); padding: 3px 2px; font-family: var(--font-mono); font-size: var(--text-sm); cursor: pointer; }
+.popActions { display: flex; gap: var(--space-2); }
+.viewRow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 260px; }
+.viewName { flex: 1; text-align: left; background: none; border: 0; padding: 4px 2px; color: var(--text); font: inherit; cursor: pointer; border-radius: var(--radius-sm); }
+.viewName:hover { background: var(--bg-hover, color-mix(in srgb, var(--text) 8%, transparent)); }

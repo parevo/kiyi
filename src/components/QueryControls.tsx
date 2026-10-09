@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Dialog, DialogTrigger, Popover, Button as AriaButton } from "react-aria-components";
+import type { ColumnLayout } from "../lib/columnLayout";
 import type { ColumnDesign, Filter, FilterOp } from "../lib/types";
+import type { SavedView } from "../state/tablePrefs";
 import { useSettings } from "../state/settings";
-import { CloseIcon, FilterIcon, PlusIcon, SearchIcon, SortIcon, SparklesIcon, Spinner, TrashIcon } from "./icons";
+import { BookmarkIcon, CloseIcon, ColumnsIcon, FilterIcon, PlusIcon, SearchIcon, SortIcon, SparklesIcon, Spinner, TrashIcon } from "./icons";
 import type { TableQuery } from "./TableData";
 import { Button, IconButton } from "./ui";
 import f from "./Form.module.css";
@@ -236,6 +238,106 @@ export function SortButton({ columns, query, onQuery }: { columns: ColumnDesign[
             </select>
           </div>
           <p className={s.popHint}>Tip: click a column header to sort by it.</p>
+        </Dialog>
+      </Popover>
+    </DialogTrigger>
+  );
+}
+
+/** Which columns show, in what order. Dragging headers also reorders; right-click a header to freeze. */
+export function ColumnsButton({ columns, layout, onLayout }: { columns: ColumnDesign[]; layout: ColumnLayout; onLayout(l: ColumnLayout): void }) {
+  const hidden = new Set(layout.hidden);
+  const changed = layout.hidden.length > 0 || layout.order.length > 0 || layout.frozen > 0;
+  return (
+    <DialogTrigger>
+      <AriaButton className={s.toolButton} data-active={layout.hidden.length ? true : undefined}>
+        <ColumnsIcon size={14} /> {layout.hidden.length ? `${columns.length - layout.hidden.filter((h) => columns.some((c) => c.name === h)).length} of ${columns.length} columns` : "Columns"}
+      </AriaButton>
+      <Popover className={s.popover} placement="bottom start" offset={6}>
+        <Dialog className={s.popDialog} aria-label="Columns">
+          <div className={s.popTitle}>Show columns</div>
+          <div className={s.columnList}>
+            {columns.map((c) => (
+              <label key={c.name} className={s.columnItem}>
+                <input
+                  type="checkbox"
+                  checked={!hidden.has(c.name)}
+                  // Keep at least one column visible.
+                  disabled={!hidden.has(c.name) && columns.length - hidden.size <= 1}
+                  onChange={(e) => onLayout({ ...layout, hidden: e.target.checked ? layout.hidden.filter((h) => h !== c.name) : [...layout.hidden, c.name] })}
+                />
+                <span>{c.name}</span>
+              </label>
+            ))}
+          </div>
+          <div className={s.popActions}>
+            <Button variant="ghost" onPress={() => onLayout({ ...layout, hidden: [] })} isDisabled={!layout.hidden.length}>
+              Show all
+            </Button>
+            <Button variant="ghost" onPress={() => onLayout({ order: [], hidden: [], frozen: 0 })} isDisabled={!changed}>
+              Reset
+            </Button>
+          </div>
+          <p className={s.popHint}>Drag a column header to move it. Right-click a header to freeze columns on the left.</p>
+        </Dialog>
+      </Popover>
+    </DialogTrigger>
+  );
+}
+
+/** Saved combinations of filters, sort and columns for this table. */
+export function ViewsButton({
+  views,
+  onApply,
+  onSave,
+  onDelete,
+}: {
+  views: SavedView[];
+  onApply(v: SavedView): void;
+  onSave(name: string): void;
+  onDelete(v: SavedView): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  return (
+    <DialogTrigger isOpen={open} onOpenChange={setOpen}>
+      <AriaButton className={s.toolButton} aria-label="Saved views">
+        <BookmarkIcon size={14} /> Views{views.length ? ` (${views.length})` : ""}
+      </AriaButton>
+      <Popover className={s.popover} placement="bottom start" offset={6}>
+        <Dialog className={s.popDialog} aria-label="Saved views">
+          <div className={s.popTitle}>Saved views</div>
+          {views.length === 0 && <p className={s.popHint}>Save the current filters, sort and columns to come back to them in one click.</p>}
+          {views.map((v) => (
+            <div key={v.id} className={s.viewRow}>
+              <button
+                className={s.viewName}
+                onClick={() => {
+                  onApply(v);
+                  setOpen(false);
+                }}
+              >
+                {v.name}
+              </button>
+              <IconButton label={`Delete ${v.name}`} onPress={() => onDelete(v)}>
+                <TrashIcon size={13} />
+              </IconButton>
+            </div>
+          ))}
+          <form
+            className={s.sortRow}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!name.trim()) return;
+              onSave(name.trim());
+              setName("");
+            }}
+          >
+            <input className={f.control} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name this view, e.g. Paid this month" aria-label="View name" />
+            <Button type="submit" isDisabled={!name.trim()}>
+              Save
+            </Button>
+          </form>
         </Dialog>
       </Popover>
     </DialogTrigger>

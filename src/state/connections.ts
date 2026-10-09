@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { ConnectionConfig, SchemaSnapshot } from "../lib/types";
 import { useSettings } from "./settings";
+import { useTablePrefs } from "./tablePrefs";
 import { useTabs } from "./tabs";
 
 type Status = "idle" | "connecting" | "connected" | "error";
@@ -63,6 +64,7 @@ export const useConnections = create<ConnectionsState>((set, get) => {
 
     async remove(id) {
       await ipc.deleteConnection(id);
+      useTablePrefs.getState().forgetConnection(id);
       // Its tabs (and their saved SQL) go with it.
       useTabs.setState((t) => {
         const tabs = t.tabs.filter((tab) => tab.connectionId !== id);

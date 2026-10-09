@@ -68,6 +68,11 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         }
         "browse_table" => ws.browse(&id()?, &arg(a, "request")?).await.map(ok).unwrap_or_else(fail),
         "count_rows" => ws.count(&id()?, &arg(a, "request")?).await.map(ok).unwrap_or_else(fail),
+        "plan_replace" => ws
+            .plan_replace(&id()?, &arg(a, "request")?, &arg::<String>(a, "column")?, &arg::<String>(a, "find")?, &arg::<String>(a, "replacement")?)
+            .await
+            .map(ok)
+            .unwrap_or_else(fail),
         "plan_row_changes" => ws.plan_changes(&id()?, &arg(a, "changes")?).map(ok).unwrap_or_else(fail),
         "plan_table" => {
             let schema: Option<String> = arg(a, "schema")?;

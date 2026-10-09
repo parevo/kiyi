@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button as AriaButton } from "react-aria-components";
+import type { DbKind } from "../lib/types";
 import type { RunState } from "../state/tabs";
 import { AlertIcon, CheckIcon, Spinner } from "./icons";
 import { ResultGrid } from "./ResultGrid";
@@ -25,8 +26,9 @@ function useElapsed(run: RunState | null) {
   return run.elapsedMs ?? now - run.startedAt;
 }
 
-export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel(): void }) {
+export function ResultPane({ run, kind, onCancel }: { run: RunState | null; kind: DbKind; onCancel(): void }) {
   const elapsed = useElapsed(run);
+  const [summary, setSummary] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
   useEffect(() => setPicked(null), [run?.queryId]);
 
@@ -72,7 +74,7 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
           </div>
         )}
 
-        {!run?.error && shown && shown.columns.length > 0 && <ResultGrid key={`${run!.queryId}:${shownIndex}`} set={shown} rowCount={shownRows} />}
+        {!run?.error && shown && shown.columns.length > 0 && <ResultGrid key={`${run!.queryId}:${shownIndex}`} set={shown} rowCount={shownRows} kind={kind} onSummary={setSummary} />}
 
         {!run?.error && run?.status === "done" && shown && shown.columns.length === 0 && (
           <div className={s.center}>
@@ -119,6 +121,7 @@ export function ResultPane({ run, onCancel }: { run: RunState | null; onCancel()
               </span>
             )}
             {run.statements > 1 && <span className={s.faint}>{run.statements} statements</span>}
+            {summary && <span className="selectable">{summary}</span>}
             <span className={s.spacer} />
             <span className={s.faint}>{duration(elapsed)}</span>
           </>

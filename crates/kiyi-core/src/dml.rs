@@ -259,6 +259,22 @@ pub fn browse_sql(d: Dialect, req: &BrowseRequest) -> String {
     sql
 }
 
+/// Find-and-replace in one text column across every row the request matches (not just the loaded
+/// page). Returns the UPDATE and a query counting the rows it would change. Only rows where the
+/// text actually changes are touched, whatever the collation thinks of case.
+pub fn plan_replace(d: Dialect, req: &BrowseRequest, column: &str, find: &str, replacement: &str) -> Result<(String, String), String> {
+    if find.is_empty() {
+        return Err("Enter the text to find.".into());
+    }
+    let col = d.ident(column);
+    let replaced = format!("REPLACE({col}, {}, {})", d.string(find), d.string(replacement));
+    let changes = format!("{col} IS NOT NULL AND {replaced} <> {col}");
+    let filters = where_clause(d, req);
+    let where_ = if filters.is_empty() { format!(" WHERE {changes}") } else { format!("{filters} AND {changes}") };
+    let table = d.table(req.schema.as_deref(), &req.table);
+    Ok((format!("UPDATE {table} SET {col} = {replaced}{where_}"), format!("SELECT COUNT(*) FROM {table}{where_}")))
+}
+
 /// Every row matching the request, in order, without paging (for export).
 pub fn export_sql(d: Dialect, req: &BrowseRequest) -> String {
     let paged = browse_sql(d, &BrowseRequest { offset: 0, ..req.clone() });
@@ -420,6 +436,16 @@ mod tests {
         assert!(validate_condition(PG, "(status = 'paid' OR status = 'shipped') AND lower(note) LIKE '%x%'").is_ok());
         assert!(validate_condition(PG, "customer_id IN (SELECT id FROM customers WHERE is_active)").is_ok());
         assert!(validate_condition(PG, "placed_on >= current_date - interval '30 days'").is_ok());
+    }
+
+    #[test]
+    fn replaces_across_matching_rows() {
+        let mut r = req();
+        r.filters = vec![Filter { column: "status".into(), op: FilterOp::Eq, value: "paid".into() }];
+        let (update, count) = plan_replace(PG, &r, "note", "it's", "it is").unwrap();
+        assert_eq!(update, r#"UPDATE "public"."orders" SET "note" = REPLACE("note", 'it''s', 'it is') WHERE "status" = 'paid' AND "note" IS NOT NULL AND REPLACE("note", 'it''s', 'it is') <> "note""#);
+        assert!(count.starts_with(r#"SELECT COUNT(*) FROM "public"."orders" WHERE "status" = 'paid' AND"#));
+        assert!(plan_replace(PG, &req(), "note", "", "x").is_err());
     }
 
     #[test]

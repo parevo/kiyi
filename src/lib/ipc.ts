@@ -70,6 +70,8 @@ export const ipc = {
   sshConfigHosts: () => invoke<SshHost[]>("ssh_config_hosts"),
   logUiError: (message: string) => invoke<void>("log_ui_error", { message }),
   diagnostics: () => invoke<string>("diagnostics"),
+  planReplace: (id: string, request: BrowseRequest, column: string, find: string, replacement: string) =>
+    invoke<{ statement: string; rows: number }>("plan_replace", { id, request, column, find, replacement }),
   checkSql: (id: string, sql: string) => invoke<{ writes: boolean; destructive: number }>("check_sql", { id, sql }),
   exportTable: (id: string, request: BrowseRequest, format: ExportFormat, path: string) => invoke<number>("export_table", { id, request, format, path }),
   csvPreview: (path: string, encoding: string | null = null) => invoke<CsvPreview>("csv_preview", { path, encoding }),

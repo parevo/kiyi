@@ -1,15 +1,22 @@
 import "@glideapps/glide-data-grid/dist/index.css";
 import {
+  CompactSelection,
   DataEditor,
   type GridCell,
   GridCellKind,
   type GridColumn,
   GridColumnIcon,
+  type GridSelection,
   type Item,
+  type Rectangle,
   type Theme,
 } from "@glideapps/glide-data-grid";
-import { useCallback, useMemo, useState } from "react";
-import type { ColumnMeta, ValueKind } from "../lib/types";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { describeSummary, summarize } from "../lib/aggregate";
+import { COPY_FORMATS, type CopyFormat, formatRows } from "../lib/copyAs";
+import type { Cell, ColumnMeta, DbKind, ValueKind } from "../lib/types";
+import { toast } from "../state/toasts";
+import { ContextMenu, type MenuState } from "./ContextMenu";
 import type { ResultSet } from "../state/tabs";
 import { useGridTheme } from "./gridTheme";
 
@@ -43,9 +50,58 @@ function preview(value: string): string {
   return flat.replace(/\r?\n/g, " ⏎ ");
 }
 
-export function ResultGrid({ set, rowCount }: { set: ResultSet; rowCount: number }) {
+export function ResultGrid({
+  set,
+  rowCount,
+  kind,
+  onSummary,
+}: {
+  set: ResultSet;
+  rowCount: number;
+  kind: DbKind;
+  /** Status-bar figures for the selected cells, or "". */
+  onSummary?(summary: string): void;
+}) {
   const theme = useGridTheme();
   const [widths, setWidths] = useState<Record<number, number>>({});
+  const [selection, setSelection] = useState<GridSelection>({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
+  const [menu, setMenu] = useState<MenuState | null>(null);
+
+  useEffect(() => {
+    const values: Cell[] = [];
+    const ranges = selection.current ? [selection.current.range, ...selection.current.rangeStack] : [];
+    for (const { x, y, width, height } of ranges)
+      for (let r = y; r < y + height && values.length < 100_000; r++) for (let c = x; c < x + width; c++) values.push(set.rows[r]?.[c] ?? null);
+    onSummary?.(describeSummary(summarize(values)));
+  }, [selection, set, onSummary]);
+
+  const copyAs = (format: CopyFormat, rows: number[]) => {
+    navigator.clipboard.writeText(formatRows(format, set.columns, rows.map((r) => set.rows[r] ?? []), { kind })).then(
+      () => toast.success(rows.length === 1 ? "Copied 1 row" : `Copied ${rows.length} rows`),
+      () => toast.error("Couldn't copy to the clipboard."),
+    );
+  };
+
+  const onCellContextMenu = ([col, row]: Item, e: { bounds: Rectangle; localEventX: number; localEventY: number; preventDefault(): void }) => {
+    e.preventDefault();
+    if (row < 0) return;
+    const range = selection.current?.range;
+    const rows = selection.rows.hasIndex(row)
+      ? selection.rows.toArray()
+      : range && row >= range.y && row < range.y + range.height
+        ? Array.from({ length: range.height }, (_, i) => range.y + i)
+        : [row];
+    const x = e.bounds.x + e.localEventX;
+    const y = e.bounds.y + e.localEventY;
+    setMenu({
+      x,
+      y,
+      items: [
+        { label: "Copy value", onSelect: () => navigator.clipboard.writeText(set.rows[row]?.[col] ?? "") },
+        ...COPY_FORMATS.map((f) => ({ label: `Copy ${rows.length > 1 ? `${rows.length} rows` : "row"} ${f.format === "tsv" ? "for Excel / Sheets" : `as ${f.label}`}`, onSelect: () => copyAs(f.format, rows) })),
+      ],
+    });
+  };
 
   const nullTheme = useMemo<Partial<Theme>>(
     () => ({ textDark: getComputedStyle(document.documentElement).getPropertyValue("--null").trim(), baseFontStyle: "italic 12px" }),
@@ -90,8 +146,12 @@ export function ResultGrid({ set, rowCount }: { set: ResultSet; rowCount: number
   );
 
   return (
+    <>
     <DataEditor
       columns={columns}
+      gridSelection={selection}
+      onGridSelectionChange={setSelection}
+      onCellContextMenu={onCellContextMenu}
       rows={rowCount}
       getCellContent={getCellContent}
       getCellsForSelection
@@ -107,5 +167,7 @@ export function ResultGrid({ set, rowCount }: { set: ResultSet; rowCount: number
       onColumnResize={(_, width, index) => setWidths((w) => ({ ...w, [index]: width }))}
       keybindings={{ search: true, copy: true, selectAll: true }}
     />
+    <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+    </>
   );
 }

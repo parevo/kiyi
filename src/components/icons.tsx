@@ -33,6 +33,19 @@ import {
   Play,
   Copy,
   Undo2,
+  Bookmark,
+  History,
+  ChartColumn,
+  ChartLine,
+  ChartPie,
+  Command,
+  Network,
+  Archive,
+  GitCompare,
+  WandSparkles,
+  MessageCircleQuestion,
+  Sigma,
+  Braces,
 } from "lucide-react";
 
 type P = LucideProps & { size?: number };
@@ -71,6 +84,19 @@ export const ColumnsIcon = make(Columns3);
 export const ArrowIcon = make(ArrowRight);
 export const CopyIcon = make(Copy);
 export const UndoIcon = make(Undo2);
+export const BookmarkIcon = make(Bookmark);
+export const HistoryIcon = make(History);
+export const BarChartIcon = make(ChartColumn);
+export const LineChartIcon = make(ChartLine);
+export const PieChartIcon = make(ChartPie);
+export const CommandIcon = make(Command);
+export const DiagramIcon = make(Network);
+export const ArchiveIcon = make(Archive);
+export const CompareIcon = make(GitCompare);
+export const WandIcon = make(WandSparkles);
+export const AskIcon = make(MessageCircleQuestion);
+export const SigmaIcon = make(Sigma);
+export const FormatIcon = make(Braces);
 
 export const Spinner = ({ size = 14 }: { size?: number }) => (
   <Loader2 size={size} strokeWidth={2} aria-label="Loading" style={{ animation: "spin 0.8s linear infinite" }} />

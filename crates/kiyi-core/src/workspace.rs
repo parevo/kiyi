@@ -58,6 +58,14 @@ pub struct Page {
     pub sql: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacePlan {
+    pub statement: String,
+    /// Rows the statement would change.
+    pub rows: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ScriptKind {
@@ -510,6 +518,16 @@ impl Workspace {
         Self::check_condition(&driver, req)?;
         let (_, rows) = driver.fetch(&dml::count_sql(driver.dialect(), req)).await?;
         Ok(rows.first().and_then(|r| r.first().cloned().flatten()).and_then(|v| v.parse().ok()).unwrap_or(0))
+    }
+
+    /// The UPDATE for a find-and-replace and how many rows it would change.
+    pub async fn plan_replace(&self, id: &str, req: &BrowseRequest, column: &str, find: &str, replacement: &str) -> Result<ReplacePlan> {
+        let driver = self.driver(id)?;
+        Self::check_condition(&driver, req)?;
+        let (statement, count_sql) = dml::plan_replace(driver.dialect(), req, column, find, replacement).map_err(Error::Invalid)?;
+        let (_, rows) = driver.fetch(&count_sql).await?;
+        let rows = rows.first().and_then(|r| r.first().cloned().flatten()).and_then(|v| v.parse().ok()).unwrap_or(0);
+        Ok(ReplacePlan { statement, rows })
     }
 
     pub fn plan_changes(&self, id: &str, set: &ChangeSet) -> Result<Vec<String>> {

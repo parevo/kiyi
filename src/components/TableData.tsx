@@ -14,6 +14,9 @@ import {
   type Theme,
 } from "@glideapps/glide-data-grid";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { describeSummary, summarize } from "../lib/aggregate";
+import { type ColumnLayout, displayColumns, moveColumn, setHidden } from "../lib/columnLayout";
+import { COPY_FORMATS, type CopyFormat, formatRows } from "../lib/copyAs";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { BrowseRequest, Cell, ColumnMeta, ConnectionConfig, ErrorInfo, Filter, ForeignKeyDesign, RowChange, Sort, TableDetails } from "../lib/types";
 import { driverFor, useCatalog } from "../state/catalog";
@@ -22,6 +25,7 @@ import { toast } from "../state/toasts";
 import { ContextMenu, type MenuEntry, type MenuState } from "./ContextMenu";
 import { useGridTheme } from "./gridTheme";
 import { RecordPanel } from "./RecordPanel";
+import type { PromptRequest } from "./PromptDialog";
 import type { ReviewRequest } from "./ReviewDialog";
 import s from "./TableView.module.css";
 import { isMod, kbd } from "../lib/platform";
@@ -57,6 +61,8 @@ export interface TableDataStatus {
   /** Unsaved edits; only used on production connections, where edits are staged. */
   pending: number;
   selectedRows: number;
+  /** "Count 3 · Sum 12 …" for the selected cells, or "". */
+  selection: string;
   loading: boolean;
   elapsedMs: number | null;
   sql: string | null;
@@ -73,6 +79,9 @@ interface Props {
   onInsert(prefill?: Record<string, Cell>): void;
   onFollow(fk: ForeignKeyDesign, value: string): void;
   onEditStructure(): void;
+  layout: ColumnLayout;
+  onLayout(layout: ColumnLayout): void;
+  onPrompt(req: PromptRequest): void;
 }
 
 /** Lucide's key and link glyphs as grid header sprites. */
@@ -94,7 +103,7 @@ type Updates = Map<number, Map<number, Cell>>;
 const cloneUpdates = (u: Updates): Updates => new Map([...u].map(([r, m]) => [r, new Map(m)]));
 
 export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
-  { connection, details, query, active, onQuery, onStatus, onReview, onInsert, onFollow, onEditStructure },
+  { connection, details, query, active, onQuery, onStatus, onReview, onInsert, onFollow, onEditStructure, layout, onLayout, onPrompt },
   ref,
 ) {
   const theme = useGridTheme();
@@ -135,6 +144,9 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     return m;
   }, [design]);
   const colIndex = (name: string) => columns.findIndex((c) => c.name === name);
+  // The grid shows columns in the user's order without the hidden ones; `shown[displayCol]` is the real index.
+  const names = useMemo(() => columns.map((c) => c.name), [columns]);
+  const shown = useMemo(() => displayColumns(names, layout), [names, layout]);
 
   const request = useCallback(
     (offset: number): BrowseRequest => ({
@@ -328,6 +340,83 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     return [];
   };
 
+  /** Values of the selected cells (ranges, not whole rows), capped so a huge selection stays quick. */
+  function selectedValues(): Cell[] {
+    const out: Cell[] = [];
+    const ranges = selection.current ? [selection.current.range, ...selection.current.rangeStack] : [];
+    for (const { x, y, width, height } of ranges) {
+      for (let r = y; r < y + height && out.length < 100_000; r++) for (let c = x; c < x + width; c++) out.push(valueAt(shown[c], r));
+    }
+    return out;
+  }
+
+  /** Selected cells as real column indices and rows. */
+  const selectedCells = (): [number, number][] => {
+    const out: [number, number][] = [];
+    const ranges = selection.current ? [selection.current.range, ...selection.current.rangeStack] : [];
+    for (const { x, y, width, height } of ranges) for (let c = x; c < x + width; c++) for (let r = y; r < y + height; r++) out.push([shown[c], r]);
+    return out;
+  };
+
+  const copyAs = (format: CopyFormat, rowIndices: number[]) => {
+    const cols = shown.map((i) => columns[i]);
+    const text = formatRows(
+      format,
+      cols,
+      rowIndices.map((r) => shown.map((i) => valueAt(i, r))),
+      { kind: connection.kind, table: [schema, design.name].filter(Boolean).map((p) => (connection.kind === "mysql" ? `\`${p}\`` : `"${p}"`)).join(".") },
+    );
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(rowIndices.length === 1 ? "Copied 1 row" : `Copied ${rowIndices.length} rows`),
+      (e) => toast.error(errorMessage(e)),
+    );
+  };
+
+  /** Puts one value into many cells, saving like any other edit. */
+  const setMany = (cells: [number, number][]) => {
+    const targets = cells.filter(([c]) => columnWritable(c));
+    if (!targets.length) return toast.info("None of the selected cells can be edited.");
+    const allNullable = targets.every(([c]) => designByName.get(columns[c].name)?.nullable);
+    onPrompt({
+      title: targets.length === 1 ? "Set value" : `Set ${targets.length} cells`,
+      subtitle: [...new Set(targets.map(([c]) => columns[c].name))].join(", "),
+      fields: [{ label: "New value", nullable: allNullable }],
+      action: "Set",
+      run: ([value]) => {
+        for (const [c, r] of targets) setValue(c, r, value);
+      },
+    });
+  };
+
+  /** Find and replace in one column, across every row the current filters match. */
+  const replaceInColumn = (col: number) => {
+    const name = columns[col].name;
+    onPrompt({
+      title: `Replace in ${name}`,
+      subtitle: query.filters.length || query.search || query.rawWhere ? "In every row that matches the current filters" : "In every row of the table",
+      fields: [{ label: "Find", mono: true }, { label: "Replace with", mono: true }],
+      help: "Matches exact text, case included. You'll see how many rows change before anything is saved.",
+      action: "Preview",
+      run: async ([find, replacement]) => {
+        const plan = await ipc.planReplace(connection.id, request(0), name, find ?? "", replacement ?? "");
+        if (plan.rows === 0) throw new Error(`No ${name} values contain “${find}”.`);
+        onReview({
+          title: `Replace in ${name}`,
+          subtitle: design.name,
+          summary: [{ text: `${plan.rows.toLocaleString("en-US")} ${plan.rows === 1 ? "row" : "rows"}: “${find}” becomes “${replacement}”` }],
+          statements: [plan.statement],
+          action: `Update ${plan.rows.toLocaleString("en-US")} ${plan.rows === 1 ? "row" : "rows"}`,
+          confirmWord: design.name,
+          run: async () => {
+            await ipc.executeScript(connection.id, [plan.statement], "bulk");
+            toast.success(`Updated ${plan.rows.toLocaleString("en-US")} rows`);
+            reload();
+          },
+        });
+      },
+    });
+  };
+
   const deleteRows = async (indices: number[]) => {
     if (!editable || !indices.length) return;
     const changes: RowChange[] = indices.map((r) => ({ type: "delete", key: keyOf(r) }));
@@ -389,6 +478,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     totalIsEstimate: total?.estimate ?? false,
     pending,
     selectedRows: selection.rows.length,
+    selection: describeSummary(summarize(selectedValues())),
     loading,
     elapsedMs: elapsed,
     sql: lastSql,
@@ -430,7 +520,8 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
 
   const gridColumns = useMemo<GridColumn[]>(
     () =>
-      columns.map((c, i) => {
+      shown.map((i) => {
+        const c = columns[i];
         const d = designByName.get(c.name);
         const arrow = query.sort?.column === c.name ? (query.sort.descending ? "  ↓" : "  ↑") : "";
         let width = widths[c.name];
@@ -445,11 +536,12 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
         return { id: c.name, title: c.name + arrow, icon: d?.primaryKey ? "key" : fkByColumn.has(c.name) ? "link" : undefined, width };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [columns, query.sort, widths, designByName, fkByColumn, rowCount > 0],
+    [columns, shown, query.sort, widths, designByName, fkByColumn, rowCount > 0],
   );
 
   const getCellContent = useCallback(
-    ([col, row]: Item): GridCell => {
+    ([displayCol, row]: Item): GridCell => {
+      const col = shown[displayCol];
       const meta = columns[col];
       const edited = !!updates.current.get(row)?.has(col);
       const value = valueAt(col, row);
@@ -475,10 +567,11 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     },
     // `version` captures edits; the ref contents are read at draw time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [columns, version, colors, editable],
+    [columns, shown, version, colors, editable],
   );
 
-  const onCellEdited = ([col, row]: Item, cell: EditableGridCell) => {
+  const onCellEdited = ([displayCol, row]: Item, cell: EditableGridCell) => {
+    const col = shown[displayCol];
     if (cell.kind === GridCellKind.Boolean) setValue(col, row, cell.data === null || cell.data === undefined ? null : String(cell.data));
     else if (cell.kind === GridCellKind.Text) {
       // Opening a NULL cell and closing it without typing isn't an edit.
@@ -492,19 +585,28 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     onQuery({ ...query, ai: null, filters: [...query.filters.filter((x) => x.column !== column), f] });
   };
 
-  const rowJson = (row: number) => JSON.stringify(Object.fromEntries(columns.map((c, i) => [c.name, valueAt(i, row)])), null, 2);
 
-  const onCellContextMenu = ([col, row]: Item, e: { bounds: Rectangle; localEventX: number; localEventY: number; preventDefault(): void }) => {
+  const onCellContextMenu = ([displayCol, row]: Item, e: { bounds: Rectangle; localEventX: number; localEventY: number; preventDefault(): void }) => {
     e.preventDefault();
-    if (row < 0 || col < 0) return;
+    if (row < 0 || displayCol < 0) return;
+    const col = shown[displayCol];
     const meta = columns[col];
     const value = valueAt(col, row);
     const fk = fkByColumn.get(meta.name);
     const nullable = designByName.get(meta.name)?.nullable;
     const rowsSel = selection.rows.hasIndex(row) ? selection.rows.toArray() : [row];
+    // Glide reports cell bounds in viewport coordinates.
+    const x = e.bounds.x + e.localEventX;
+    const y = e.bounds.y + e.localEventY;
+    const range = selection.current?.range;
+    const inRange = !!range && displayCol >= range.x && displayCol < range.x + range.width && row >= range.y && row < range.y + range.height;
+    const cells = inRange ? selectedCells() : ([[col, row]] as [number, number][]);
     const items: MenuEntry[] = [
       { label: "Copy value", onSelect: () => navigator.clipboard.writeText(value ?? ""), shortcut: kbd("C") },
-      { label: "Copy row as JSON", onSelect: () => navigator.clipboard.writeText(rowsSel.length > 1 ? `[${rowsSel.map(rowJson).join(",\n")}]` : rowJson(row)) },
+      {
+        label: rowsSel.length > 1 ? `Copy ${rowsSel.length} rows as…` : "Copy row as…",
+        onSelect: () => setMenu({ x, y, items: COPY_FORMATS.map((f) => ({ label: f.label, onSelect: () => copyAs(f.format, rowsSel) })) }),
+      },
       "separator",
       { label: value === null ? `Show rows where ${meta.name} is empty` : `Show rows with this ${meta.name}`, onSelect: () => filterBy(meta.name, value) },
     ];
@@ -513,16 +615,17 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
       items.push(
         "separator",
         { label: "Set to NULL", onSelect: () => setValue(col, row, null), disabled: !nullable || !columnWritable(col) || value === null },
+        { label: cells.length > 1 ? `Set ${cells.length} cells to…` : "Set value…", onSelect: () => setMany(cells), disabled: !cells.some(([c]) => columnWritable(c)) },
+        ...(meta.kind === "text" && columnWritable(col) ? [{ label: `Replace in ${meta.name}…`, onSelect: () => replaceInColumn(col) }] : []),
         { label: "Duplicate row", onSelect: () => duplicate(row) },
         { label: rowsSel.length > 1 ? `Delete ${rowsSel.length} rows…` : "Delete row…", onSelect: () => deleteRows(rowsSel), danger: true },
       );
     }
-    // Glide reports cell bounds in viewport coordinates.
-    setMenu({ x: e.bounds.x + e.localEventX, y: e.bounds.y + e.localEventY, items });
+    setMenu({ x, y, items });
   };
 
-  const onHeaderClicked = (col: number) => {
-    const name = columns[col]?.name;
+  const onHeaderClicked = (displayCol: number) => {
+    const name = columns[shown[displayCol]]?.name;
     if (!name) return;
     const cur = query.sort;
     onQuery({ ...query, sort: cur?.column !== name ? { column: name, descending: false } : cur.descending ? null : { column: name, descending: true } });
@@ -536,10 +639,32 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
     }
     if (sel.current) {
       const { x, y, width, height } = sel.current.range;
-      for (let c = x; c < x + width; c++)
+      for (let dc = x; dc < x + width; dc++) {
+        const c = shown[dc];
         for (let r = y; r < y + height; r++) if (columnWritable(c) && designByName.get(columns[c].name)?.nullable) setValue(c, r, null);
+      }
     }
     return false;
+  };
+
+  const onHeaderContextMenu = (displayCol: number, e: { bounds: Rectangle; localEventX: number; localEventY: number; preventDefault(): void }) => {
+    e.preventDefault();
+    const col = shown[displayCol];
+    const meta = columns[col];
+    if (!meta) return;
+    const frozen = Math.min(layout.frozen, shown.length);
+    const items: MenuEntry[] = [
+      { label: "Sort ascending", onSelect: () => onQuery({ ...query, sort: { column: meta.name, descending: false } }) },
+      { label: "Sort descending", onSelect: () => onQuery({ ...query, sort: { column: meta.name, descending: true } }) },
+      "separator",
+      { label: `Hide ${meta.name}`, onSelect: () => onLayout(setHidden(layout, meta.name, true)), disabled: shown.length <= 1 },
+      displayCol < frozen
+        ? { label: "Unfreeze columns", onSelect: () => onLayout({ ...layout, frozen: 0 }) }
+        : { label: displayCol === 0 ? "Freeze this column" : "Freeze columns up to here", onSelect: () => onLayout({ ...layout, frozen: displayCol + 1 }) },
+    ];
+    if (layout.hidden.length) items.push({ label: `Show ${layout.hidden.length} hidden ${layout.hidden.length === 1 ? "column" : "columns"}`, onSelect: () => onLayout({ ...layout, hidden: [] }) });
+    if (meta.kind === "text" && columnWritable(col)) items.push("separator", { label: `Replace in ${meta.name}…`, onSelect: () => replaceInColumn(col) });
+    setMenu({ x: e.bounds.x + e.localEventX, y: e.bounds.y + e.localEventY, items });
   };
 
   const onVisibleRegionChanged = (range: Rectangle) => {
@@ -570,6 +695,9 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
                 onCellEdited={onCellEdited}
                 onCellContextMenu={onCellContextMenu}
                 onHeaderClicked={onHeaderClicked}
+                onHeaderContextMenu={onHeaderContextMenu}
+                onColumnMoved={(from, to) => onLayout(moveColumn(names, layout, from, to))}
+                freezeColumns={Math.min(layout.frozen, shown.length)}
                 onDelete={onDelete}
                 onVisibleRegionChanged={onVisibleRegionChanged}
                 onColumnResize={(c, w) => setWidths((cur) => ({ ...cur, [c.id as string]: w }))}

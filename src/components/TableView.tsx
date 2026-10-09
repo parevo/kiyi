@@ -11,7 +11,9 @@ import { CopyIcon, MoreIcon, PanelIcon, PlusIcon, RefreshIcon, Spinner, TrashIco
 import { ImportSheet } from "./ImportSheet";
 import type { ExportFormat } from "../lib/types";
 import { InsertRowSheet } from "./InsertRowSheet";
-import { ActiveFilters, FilterButton, SearchBar, SortButton } from "./QueryControls";
+import { ActiveFilters, ColumnsButton, FilterButton, SearchBar, SortButton, ViewsButton } from "./QueryControls";
+import { PromptDialog, type PromptRequest } from "./PromptDialog";
+import { useTablePrefs } from "../state/tablePrefs";
 import { useUi } from "../state/ui";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import { CreateTable, StructureView } from "./StructureEditor";
@@ -49,6 +51,11 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
   const data = useRef<TableDataHandle>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [importPath, setImportPath] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<PromptRequest | null>(null);
+  const prefsKey = tab.connectionId && tab.tableName ? tableKey(tab.connectionId, schema, tab.tableName) : "";
+  const layout = useTablePrefs((st) => st.layouts[prefsKey]) ?? { order: [], hidden: [], frozen: 0 };
+  const views = useTablePrefs((st) => st.views[prefsKey]) ?? [];
+  const prefs = useTablePrefs.getState();
 
   const loadDetails = useCallback(async () => {
     if (creating || !tab.connectionId || !tab.tableName) return;
@@ -149,6 +156,19 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
             <SearchBar query={query} onQuery={setQuery} onAsk={ask} asking={asking} />
             <FilterButton columns={details.design.columns} query={query} onQuery={setQuery} />
             <SortButton columns={details.design.columns} query={query} onQuery={setQuery} />
+            <ColumnsButton columns={details.design.columns} layout={layout} onLayout={(l) => prefs.setLayout(prefsKey, l)} />
+            <ViewsButton
+              views={views}
+              onApply={(v) => {
+                setQuery({ filters: v.filters, rawWhere: v.rawWhere, search: v.search, sort: v.sort, ai: null });
+                prefs.setLayout(prefsKey, v.layout);
+              }}
+              onSave={(name) => {
+                prefs.saveView(prefsKey, { name, filters: query.filters, rawWhere: query.rawWhere, search: query.search, sort: query.sort, layout });
+                toast.success(`Saved view “${name}”`);
+              }}
+              onDelete={(v) => prefs.deleteView(prefsKey, v.id)}
+            />
             <span className={s.spacer} />
             {(status?.selectedRows ?? 0) > 0 && editable && (
               <>
@@ -232,6 +252,9 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
               onInsert={(prefill) => setInsert({ prefill })}
               onFollow={follow}
               onEditStructure={() => setView("structure")}
+              layout={layout}
+              onLayout={(l) => prefs.setLayout(prefsKey, l)}
+              onPrompt={setPrompt}
             />
           </div>
         )}
@@ -263,6 +286,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
             )}
           </span>
           {status.elapsedMs !== null && <span className={s.faint}>{Math.round(status.elapsedMs)} ms</span>}
+          {status.selection && <span className="selectable">{status.selection}</span>}
           {connection.readOnly && <span className={s.faint}>Read-only connection</span>}
           {connection.env === "production" && !connection.readOnly && <span className={s.faint}>Production: changes wait for Save</span>}
           <span className={s.spacer} />
@@ -286,6 +310,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
       )}
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} onOpenInEditor={onOpenSql} />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
       {details && <ImportSheet path={importPath} connection={connection} details={details} onClose={() => setImportPath(null)} onImported={() => data.current?.refresh()} />}
     </div>
   );

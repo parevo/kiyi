@@ -106,6 +106,11 @@ pub async fn count_rows(ws: Ws<'_>, id: String, request: BrowseRequest) -> CmdRe
 }
 
 #[tauri::command]
+pub async fn plan_replace(ws: Ws<'_>, id: String, request: BrowseRequest, column: String, find: String, replacement: String) -> CmdResult<kiyi_core::workspace::ReplacePlan> {
+    Ok(ws.plan_replace(&id, &request, &column, &find, &replacement).await?)
+}
+
+#[tauri::command]
 pub fn plan_row_changes(ws: Ws<'_>, id: String, changes: ChangeSet) -> CmdResult<Vec<String>> {
     Ok(ws.plan_changes(&id, &changes)?)
 }

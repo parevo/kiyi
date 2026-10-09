@@ -39,6 +39,7 @@ fn main() {
             commands::browse_table,
             commands::count_rows,
             commands::plan_row_changes,
+            commands::plan_replace,
             commands::plan_table,
             commands::plan_table_action,
             commands::execute_script,
