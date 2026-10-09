@@ -694,3 +694,110 @@ async fn summaries_run_on_real_servers() {
         assert_eq!(rows[0][0].as_deref().map(str::len), Some(7), "{kind:?} month label {:?}", rows[0][0]);
     }
 }
+
+#[tokio::test]
+async fn schema_graphs_from_real_servers() {
+    use kiyi_core::graph;
+    if !live() {
+        return;
+    }
+    for kind in [DbKind::Postgres, DbKind::Mysql] {
+        let db = open(kind).await;
+        let (_, rows) = db.fetch(graph::graph_sql(kind)).await.unwrap_or_else(|e| panic!("{kind:?}: {e}"));
+        let g = graph::from_rows(kind, &rows);
+        let fk = g.relations.iter().find(|r| r.table == "orders" && r.ref_table == "customers").unwrap_or_else(|| panic!("{kind:?}: {g:#?}"));
+        assert_eq!(fk.columns, ["customer_id"], "{kind:?}");
+        assert_eq!(fk.ref_columns, ["id"], "{kind:?}");
+        assert!(g.primary_keys.iter().any(|p| p.table == "orders" && p.columns == ["id"]), "{kind:?}");
+    }
+}
+
+#[tokio::test]
+async fn kiyi_backups_restore_into_an_empty_database() {
+    use kiyi_core::backup::{self, Target};
+    if !live() {
+        return;
+    }
+    for kind in [DbKind::Postgres, DbKind::Mysql] {
+        let src = open(kind).await;
+        let path = std::env::temp_dir().join(format!("kiyi-backup-{kind:?}-{}.sql", std::process::id()));
+        let target = Target { config: config(kind), password: Some("kiyi".into()) };
+        let report = backup::backup(&*src, &target, &path, true).await.unwrap_or_else(|e| panic!("{kind:?} backup: {e}"));
+        assert!(report.rows.unwrap() > 0 && report.tables >= 2, "{kind:?} {report:?}");
+
+        // A fresh, empty database to restore into.
+        // MySQL's test user can't create databases; root (same password in the dev compose file) can.
+        let admin_user = if kind == DbKind::Mysql { "root" } else { "kiyi" };
+        let admin = drivers::open(&ConnectionConfig { database: if kind == DbKind::Postgres { Some("postgres".into()) } else { None }, user: admin_user.into(), ..config(kind) }, Some("kiyi"))
+            .await
+            .unwrap();
+        let fresh = "kiyi_restore_test";
+        let _ = admin.execute_script(&[format!("DROP DATABASE IF EXISTS {fresh}")], false, false).await;
+        admin.execute_script(&[format!("CREATE DATABASE {fresh}")], false, false).await.unwrap();
+        if kind == DbKind::Mysql {
+            admin.execute_script(&[format!("GRANT ALL ON {fresh}.* TO 'kiyi'@'%'")], false, false).await.unwrap();
+        }
+        let dst_config = ConnectionConfig { database: Some(fresh.into()), ..config(kind) };
+        let dst = drivers::open(&dst_config, Some("kiyi")).await.unwrap();
+        let restored = backup::restore(&*dst, &Target { config: dst_config.clone(), password: Some("kiyi".into()) }, &path).await.unwrap_or_else(|e| panic!("{kind:?} restore: {e}"));
+        assert!(restored.statements.unwrap() > 0);
+
+        for table in ["customers", "orders"] {
+            let q = format!("SELECT * FROM {table} ORDER BY id");
+            let (_, a) = src.fetch(&q).await.unwrap();
+            let (_, b) = dst.fetch(&q).await.unwrap();
+            assert_eq!(a, b, "{kind:?} {table} differs after restore");
+        }
+        // Foreign keys came back, and numbering continues after the restored rows.
+        let (_, fk) = dst
+            .fetch(if kind == DbKind::Postgres {
+                "SELECT count(*) FROM pg_constraint WHERE contype = 'f'"
+            } else {
+                "SELECT count(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = 'kiyi_restore_test'"
+            })
+            .await
+            .unwrap();
+        assert_ne!(fk[0][0].as_deref(), Some("0"), "{kind:?} foreign keys");
+        let (_, max) = dst.fetch("SELECT MAX(id) FROM customers").await.unwrap();
+        dst.execute_script(&["INSERT INTO customers (email) VALUES ('after-restore@example.com')".to_string()], true, false).await.unwrap_or_else(|e| panic!("{kind:?} insert after restore: {e}"));
+        let (_, next) = dst.fetch("SELECT MAX(id) FROM customers").await.unwrap();
+        assert!(next[0][0].as_deref().unwrap().parse::<i64>().unwrap() > max[0][0].as_deref().unwrap().parse::<i64>().unwrap());
+
+        dst.close().await;
+        admin.execute_script(&[format!("DROP DATABASE {fresh}")], false, false).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[tokio::test]
+async fn comparing_databases_and_applying_the_proposed_sql() {
+    use kiyi_core::compare::{compare, DiffStatus};
+    if !live() {
+        return;
+    }
+    let left = open(DbKind::Postgres).await;
+    let admin = drivers::open(&ConnectionConfig { database: Some("postgres".into()), ..config(DbKind::Postgres) }, Some("kiyi")).await.unwrap();
+    let _ = admin.execute_script(&["DROP DATABASE IF EXISTS kiyi_compare_test".into()], false, false).await;
+    admin.execute_script(&["CREATE DATABASE kiyi_compare_test".into()], false, false).await.unwrap();
+    let right = drivers::open(&ConnectionConfig { database: Some("kiyi_compare_test".into()), ..config(DbKind::Postgres) }, Some("kiyi")).await.unwrap();
+    // An older version of the schema: customers lacks most columns, orders doesn't exist, and an extra table.
+    right.execute_script(&["CREATE TABLE customers (id bigint PRIMARY KEY, email text)".into(), "CREATE TABLE legacy (id int)".into()], true, false).await.unwrap();
+
+    let c = compare(&*left, &*right).await.unwrap();
+    let status = |name: &str| c.tables.iter().find(|t| t.name == name).map(|t| t.status);
+    assert_eq!(status("orders"), Some(DiffStatus::OnlyLeft));
+    assert_eq!(status("customers"), Some(DiffStatus::Different));
+    assert_eq!(status("legacy"), Some(DiffStatus::OnlyRight));
+    let sql = c.migration.clone().unwrap();
+    assert!(!sql.is_empty());
+    assert!(c.note.as_deref().unwrap_or("").contains("only on the right"), "{:?}", c.note);
+
+    right.execute_script(&sql, true, false).await.unwrap_or_else(|e| panic!("proposed SQL failed: {e}\n{}", sql.join(";\n")));
+    let again = compare(&*left, &*right).await.unwrap();
+    // Other tests create scratch tables (kiyi_…) in the same database while this one runs.
+    let left_over: Vec<_> = again.tables.iter().filter(|t| !t.name.starts_with("kiyi_") && matches!(t.status, DiffStatus::OnlyLeft | DiffStatus::Different)).collect();
+    assert!(left_over.is_empty(), "still different after applying: {left_over:#?}");
+
+    right.close().await;
+    admin.execute_script(&["DROP DATABASE kiyi_compare_test".into()], false, false).await.unwrap();
+}

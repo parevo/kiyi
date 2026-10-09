@@ -105,6 +105,14 @@ pub fn explain_connect_error(err: &Error) -> String {
     }
 }
 
+/// "No such table" from any of the databases (e.g. dropped by someone else a moment ago).
+pub(crate) fn is_missing_table(e: &Error) -> bool {
+    match e {
+        Error::Db(sqlx::Error::Database(db)) => matches!(db.code().as_deref(), Some("42P01") | Some("1146")) || db.message().contains("no such table"),
+        _ => false,
+    }
+}
+
 /// True when the error is the server confirming a user-requested cancel.
 pub(crate) fn is_cancel_error(err: &Error) -> bool {
     matches!(err, Error::Db(sqlx::Error::Database(db)) if matches!(db.code().as_deref(), Some("57014") | Some("1317")))

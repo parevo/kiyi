@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
+import { ToolHost } from "./components/ToolHost";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { type ConnectInit, ConnectionsHome, Overview, Welcome } from "./components/Home";
 import { QueryPane } from "./components/QueryPane";
@@ -95,6 +96,11 @@ export function App() {
   }, [newTab, close, focus]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
+  const tool = useUi((st) => st.tool);
+  // Tools work on the open connection; leaving it closes them.
+  useEffect(() => {
+    if (tool && !activeConn) useUi.getState().openTool(null);
+  }, [tool, activeConn]);
 
   return (
     <div className={s.app}>
@@ -124,6 +130,9 @@ export function App() {
           ))}
       </main>
 
+      {tool && activeConn && live?.status === "connected" && (
+        <ToolHost tool={tool} />
+      )}
       <ConnectionDialog isOpen={dialog !== null} editing={dialog?.editing ?? null} init={dialog?.init} onClose={() => setDialog(null)} />
       <SettingsDialog />
       <CommandPalette onNewConnection={() => setDialog({ editing: null })} onOpenSql={openSql} />

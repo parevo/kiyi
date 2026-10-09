@@ -120,3 +120,5 @@
 .examples { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-left: 24px; }
 .examples button { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--text-muted); font: inherit; font-size: var(--text-sm); cursor: pointer; }
 .examples button:hover { color: var(--text); border-color: var(--line-strong); }
+
+.headerActions { display: flex; align-items: center; gap: var(--space-2); }

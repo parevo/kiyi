@@ -396,3 +396,50 @@ export interface SummaryRequest {
   groupBy: GroupBy[];
   measures: Measure[];
 }
+
+export interface Relation {
+  schema: string;
+  table: string;
+  columns: string[];
+  refSchema: string;
+  refTable: string;
+  refColumns: string[];
+}
+export interface SchemaGraph {
+  primaryKeys: { schema: string; table: string; columns: string[] }[];
+  relations: Relation[];
+}
+
+export interface BackupTools {
+  backup: string | null;
+  restore: string | null;
+  suggestedName: string;
+}
+export interface BackupReport {
+  method: "native" | "kiyi";
+  tool: string;
+  tables: number;
+  rows: number | null;
+  bytes: number;
+  note: string | null;
+}
+export interface RestoreReport {
+  tool: string;
+  statements: number | null;
+}
+
+export type DiffStatus = "same" | "different" | "onlyLeft" | "onlyRight";
+export interface TableDiff {
+  name: string;
+  status: DiffStatus;
+  columns: { name: string; left: string | null; right: string | null }[];
+  leftRows: number | null;
+  rightRows: number | null;
+}
+export interface Comparison {
+  leftSchema: string | null;
+  rightSchema: string | null;
+  tables: TableDiff[];
+  migration: string[] | null;
+  note: string | null;
+}

@@ -7,7 +7,7 @@ import { useActiveConnection, useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
 import { useUi } from "../state/ui";
-import { DatabaseIcon, LinkIcon, PlusIcon, RefreshIcon, SearchIcon, SparklesIcon, Spinner, TableIcon, ViewIcon } from "./icons";
+import { ArchiveIcon, CompareIcon, DatabaseIcon, DiagramIcon, LinkIcon, PlusIcon, RefreshIcon, SearchIcon, SparklesIcon, Spinner, TableIcon, ViewIcon } from "./icons";
 import { Button } from "./ui";
 import s from "./Home.module.css";
 
@@ -66,10 +66,21 @@ export function Overview() {
             {connection.readOnly && <span>· read-only</span>}
           </p>
         </div>
-        <label className={s.search}>
-          <SearchIcon size={14} />
-          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a table" spellCheck={false} />
-        </label>
+        <div className={s.headerActions}>
+          <Button variant="ghost" onPress={() => useUi.getState().openTool("diagram")}>
+            <DiagramIcon size={14} /> Diagram
+          </Button>
+          <Button variant="ghost" onPress={() => useUi.getState().openTool("compare")}>
+            <CompareIcon size={14} /> Compare
+          </Button>
+          <Button variant="ghost" onPress={() => useUi.getState().openTool("backup")}>
+            <ArchiveIcon size={14} /> Back up
+          </Button>
+          <label className={s.search}>
+            <SearchIcon size={14} />
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a table" spellCheck={false} />
+          </label>
+        </div>
       </div>
 
       <AskBox connectionId={connection.id} />

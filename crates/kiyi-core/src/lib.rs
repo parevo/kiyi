@@ -3,7 +3,9 @@
 
 pub mod ai;
 pub mod ai_sql;
+pub mod backup;
 pub mod catalog;
+pub mod compare;
 pub mod config;
 pub mod design;
 pub mod discover;
@@ -12,6 +14,7 @@ pub mod dml;
 pub mod drivers;
 pub mod error;
 pub mod explain;
+pub mod graph;
 pub mod secrets;
 pub mod ssh_config;
 pub mod store;

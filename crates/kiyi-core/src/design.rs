@@ -207,7 +207,19 @@ fn column_def(d: Dialect, c: &ColumnDesign) -> String {
     sql
 }
 
-fn fk_def(d: Dialect, schema: Option<&str>, f: &ForeignKeyDesign) -> String {
+/// `serial` columns default to nextval() of a sequence another database won't have. As identity
+/// columns they get their own sequence wherever the design is created (backups, comparisons).
+pub fn portable_serials(d: Dialect, des: &mut TableDesign) {
+    if d.kind != crate::config::DbKind::Postgres {
+        return;
+    }
+    for c in des.columns.iter_mut().filter(|c| c.default.as_deref().is_some_and(|v| v.starts_with("nextval("))) {
+        c.auto_increment = true;
+        c.default = None;
+    }
+}
+
+pub(crate) fn fk_def(d: Dialect, schema: Option<&str>, f: &ForeignKeyDesign) -> String {
     let ref_schema = f.ref_schema.as_deref().or(schema);
     format!(
         "CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}) ON DELETE {} ON UPDATE {}",

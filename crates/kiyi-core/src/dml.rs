@@ -122,6 +122,57 @@ const WRITE_KEYWORDS: &[&str] = &[
     "DETACH", "REASSIGN", "SECURITY", "DISCARD", "HANDLER", "OPTIMIZE", "REPAIR", "INSTALL", "UNINSTALL", "FLUSH", "PURGE", "RESET",
 ];
 
+/// Splits a script into statements on semicolons outside strings, quoted names, comments and
+/// Postgres dollar-quoted bodies. Statements come back trimmed, without their semicolon.
+pub fn split_sql(sql: &str) -> Vec<String> {
+    let b = sql.as_bytes();
+    let (mut out, mut start, mut i) = (Vec::new(), 0usize, 0usize);
+    let push = |out: &mut Vec<String>, s: &str| {
+        let t = s.trim();
+        if !t.is_empty() {
+            out.push(t.to_string());
+        }
+    };
+    while i < b.len() {
+        match b[i] {
+            b'-' if b.get(i + 1) == Some(&b'-') => i = sql[i..].find('\n').map_or(b.len(), |n| i + n + 1),
+            b'/' if b.get(i + 1) == Some(&b'*') => i = sql[i + 2..].find("*/").map_or(b.len(), |n| i + 2 + n + 2),
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i < b.len() {
+                    if b[i] == q && b.get(i + 1) == Some(&q) {
+                        i += 2;
+                    } else if b[i] == q {
+                        i += 1;
+                        break;
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+            b'$' => {
+                let rest = &sql[i..];
+                let tag_len = rest[1..].find('$').filter(|n| rest[1..1 + n].chars().all(|c| c.is_alphanumeric() || c == '_')).map(|n| n + 2);
+                match tag_len {
+                    Some(n) => {
+                        let tag = &rest[..n];
+                        i = rest[n..].find(tag).map_or(b.len(), |m| i + n + m + n);
+                    }
+                    None => i += 1,
+                }
+            }
+            b';' => {
+                push(&mut out, &sql[start..i]);
+                i += 1;
+                start = i;
+            }
+            _ => i += 1,
+        }
+    }
+    push(&mut out, &sql[start..]);
+    out
+}
+
 /// Statements in `sql`, counting only semicolons outside strings and comments.
 pub fn statement_count(d: Dialect, sql: &str) -> usize {
     use sqlparser::dialect::{Dialect as SqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
@@ -621,6 +672,10 @@ mod tests {
         assert!(!c("EXPLAIN SELECT * FROM t").writes);
         assert_eq!(statement_count(PG, "SELECT ';'; -- x;\nSELECT 2;"), 2);
         assert_eq!(statement_count(PG, "SELECT 1;  "), 1);
+        assert_eq!(
+            split_sql("CREATE TABLE t (a TEXT); -- x;y\nINSERT INTO t VALUES ('a;b'), ('it''s');\nCREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;\n/* ; */ COMMIT;"),
+            ["CREATE TABLE t (a TEXT)", "-- x;y\nINSERT INTO t VALUES ('a;b'), ('it''s')", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql", "/* ; */ COMMIT"]
+        );
     }
 
     #[test]

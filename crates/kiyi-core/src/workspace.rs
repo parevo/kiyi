@@ -89,6 +89,8 @@ struct Running {
 /// An open connection: the pool, and the tunnel it goes through (closed on drop).
 struct Live {
     driver: Arc<dyn DbDriver>,
+    /// Where the driver actually connects (the tunnel's local end, if any), for command-line tools.
+    effective: ConnectionConfig,
     _tunnel: Option<crate::tunnel::Tunnel>,
     /// Renews the IAM token before it expires; stops with the connection.
     _refresh: Option<AbortOnDrop>,
@@ -323,7 +325,8 @@ impl Workspace {
         let (config, tunnel) = self.open_tunnel(&config, tunnel_secret.as_deref()).await?;
         let driver = Self::open_driver(&config, password.as_deref()).await.map_err(|e| Error::Invalid(explain_connect_error(&e)))?;
         let server_version = driver.server_version().await?;
-        let refresh = match &saved.auth {
+        let saved_auth = saved.auth.clone();
+        let refresh = match &saved_auth {
             DbAuth::Password => None,
             DbAuth::AwsIam { region, profile } => {
                 let (driver, region, profile) = (Arc::downgrade(&driver), region.clone(), profile.clone());
@@ -339,7 +342,7 @@ impl Workspace {
                 })))
             }
         };
-        self.live.write().unwrap().insert(id.to_string(), Live { driver, _tunnel: tunnel, _refresh: refresh });
+        self.live.write().unwrap().insert(id.to_string(), Live { driver, effective: config, _tunnel: tunnel, _refresh: refresh });
         Ok(ConnectInfo { server_version })
     }
 
@@ -362,6 +365,50 @@ impl Workspace {
     }
 
     /// Starts `sql` in the background; events stream into `sink` and always end with `Done`.
+    /// How command-line tools reach the open connection right now, with its password.
+    async fn target(&self, id: &str) -> Result<crate::backup::Target> {
+        let config = self.live.read().unwrap().get(id).map(|l| l.effective.clone()).ok_or(Error::NotConnected)?;
+        let saved = self.config(id)?;
+        let password = match &saved.auth {
+            crate::config::DbAuth::Password => secrets::get_password(id)?,
+            crate::config::DbAuth::AwsIam { region, profile } => {
+                Some(crate::tunnel::rds_auth_token(&saved.host, saved.port, &saved.user, region.as_deref(), profile.as_deref()).await?)
+            }
+        };
+        Ok(crate::backup::Target { config, password })
+    }
+
+    /// Differences between two open connections; `left` is the reference.
+    pub async fn compare(&self, left: &str, right: &str) -> Result<crate::compare::Comparison> {
+        let (l, r) = (self.driver(left)?, self.driver(right)?);
+        crate::compare::compare(l.as_ref(), r.as_ref()).await
+    }
+
+    pub fn backup_tools(&self, id: &str, today: &str) -> Result<crate::backup::BackupTools> {
+        Ok(crate::backup::tools(&self.config(id)?, today))
+    }
+
+    pub async fn backup(&self, id: &str, path: &Path, prefer_kiyi: bool) -> Result<crate::backup::BackupReport> {
+        let driver = self.driver(id)?;
+        let target = self.target(id).await?;
+        crate::backup::backup(driver.as_ref(), &target, path, prefer_kiyi).await
+    }
+
+    pub async fn restore(&self, id: &str, path: &Path) -> Result<crate::backup::RestoreReport> {
+        self.ensure_writable(id)?;
+        let driver = self.driver(id)?;
+        let target = self.target(id).await?;
+        crate::backup::restore(driver.as_ref(), &target, path).await
+    }
+
+    /// Every table's primary key and foreign keys, for the schema diagram.
+    pub async fn schema_graph(&self, id: &str) -> Result<crate::graph::SchemaGraph> {
+        let driver = self.driver(id)?;
+        let kind = driver.dialect().kind;
+        let (_, rows) = driver.fetch(crate::graph::graph_sql(kind)).await?;
+        Ok(crate::graph::from_rows(kind, &rows))
+    }
+
     /// The estimated plan for one statement; nothing is executed.
     pub async fn explain(&self, id: &str, sql: &str) -> Result<crate::explain::PlanNode> {
         use crate::config::DbKind;

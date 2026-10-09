@@ -110,6 +110,11 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
             ok(())
         }
         "diagnostics" => ok("Kiyi (devbridge)\nLogs go to the terminal running kiyi-devbridge."),
+        "compare" => ws.compare(&arg::<String>(a, "left")?, &arg::<String>(a, "right")?).await.map(ok).unwrap_or_else(fail),
+        "backup_tools" => ws.backup_tools(&id()?, &arg::<String>(a, "today")?).map(ok).unwrap_or_else(fail),
+        "backup" => ws.backup(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), arg(a, "preferKiyi")?).await.map(ok).unwrap_or_else(fail),
+        "restore" => ws.restore(&id()?, std::path::Path::new(&arg::<String>(a, "path")?)).await.map(ok).unwrap_or_else(fail),
+        "schema_graph" => ws.schema_graph(&id()?).await.map(ok).unwrap_or_else(fail),
         "explain" => ws.explain(&id()?, &arg::<String>(a, "sql")?).await.map(ok).unwrap_or_else(fail),
         "check_sql" => ws.check_sql(&id()?, &arg::<String>(a, "sql")?).map(ok).unwrap_or_else(fail),
         "ai_filters" => {

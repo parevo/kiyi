@@ -382,3 +382,85 @@ async fn excel_export_and_import_round_trip() {
     db.close().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn sqlite_schema_graph() {
+    use kiyi_core::graph;
+    let dir = std::env::temp_dir().join(format!("kiyi-graph-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = ConnectionConfig {
+        id: "g".into(),
+        name: "g".into(),
+        kind: DbKind::Sqlite,
+        host: String::new(),
+        port: 0,
+        user: String::new(),
+        database: Some(dir.join("g.db").to_string_lossy().into_owned()),
+        ssl_mode: SslMode::Disable,
+        env: EnvTag::Local,
+        read_only: false,
+        driver: Some("sqlite".into()),
+        tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
+    };
+    let db = drivers::open(&config, None).await.unwrap();
+    db.execute_script(
+        &["CREATE TABLE a (id INTEGER PRIMARY KEY)".into(), "CREATE TABLE b (id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id))".into()],
+        true,
+        false,
+    )
+    .await
+    .unwrap();
+    let (_, rows) = db.fetch(graph::graph_sql(DbKind::Sqlite)).await.unwrap();
+    let g = graph::from_rows(DbKind::Sqlite, &rows);
+    assert_eq!(g.relations.len(), 1);
+    assert_eq!((g.relations[0].table.as_str(), g.relations[0].ref_table.as_str()), ("b", "a"));
+    assert_eq!(g.relations[0].columns, ["a_id"]);
+    assert_eq!(g.primary_keys.len(), 2);
+    db.close().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn sqlite_backup_copies_the_file_and_restores_dumps() {
+    use kiyi_core::backup::{self, BackupMethod, Target};
+    let dir = std::env::temp_dir().join(format!("kiyi-sqlite-backup-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cfg = |file: &str| ConnectionConfig {
+        id: "b".into(),
+        name: "b".into(),
+        kind: DbKind::Sqlite,
+        host: String::new(),
+        port: 0,
+        user: String::new(),
+        database: Some(dir.join(file).to_string_lossy().into_owned()),
+        ssl_mode: SslMode::Disable,
+        env: EnvTag::Local,
+        read_only: false,
+        driver: Some("sqlite".into()),
+        tunnel: None,
+        ssl_root_cert: None,
+        auth: Default::default(),
+    };
+    let src = drivers::open(&cfg("src.db"), None).await.unwrap();
+    src.execute_script(&["CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)".into(), "INSERT INTO t (name) VALUES ('Ayşe'), ('it''s; fine')".into()], true, false).await.unwrap();
+
+    let copy = dir.join("copy.db");
+    let report = backup::backup(&*src, &Target { config: cfg("src.db"), password: None }, &copy, false).await.unwrap();
+    assert_eq!(report.method, BackupMethod::Native);
+    let copied = drivers::open(&cfg("copy.db"), None).await.unwrap();
+    assert_eq!(copied.fetch("SELECT name FROM t ORDER BY id").await.unwrap().1, src.fetch("SELECT name FROM t ORDER BY id").await.unwrap().1);
+
+    // What `sqlite3 db .dump` writes, restored into an empty database.
+    let dump = dir.join("dump.sql");
+    std::fs::write(&dump, "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT);\nINSERT INTO t VALUES(1,'Ayşe');\nINSERT INTO t VALUES(2,'it''s; fine');\nCOMMIT;\n").unwrap();
+    let empty = drivers::open(&cfg("empty.db"), None).await.unwrap();
+    backup::restore(&*empty, &Target { config: cfg("empty.db"), password: None }, &dump).await.unwrap();
+    assert_eq!(empty.fetch("SELECT name FROM t ORDER BY id").await.unwrap().1, src.fetch("SELECT name FROM t ORDER BY id").await.unwrap().1);
+
+    for d in [src, copied, empty] {
+        d.close().await;
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

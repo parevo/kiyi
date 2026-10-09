@@ -80,6 +80,31 @@ pub async fn run_query(
 }
 
 #[tauri::command]
+pub async fn compare(ws: Ws<'_>, left: String, right: String) -> CmdResult<kiyi_core::compare::Comparison> {
+    Ok(ws.compare(&left, &right).await?)
+}
+
+#[tauri::command]
+pub fn backup_tools(ws: Ws<'_>, id: String, today: String) -> CmdResult<kiyi_core::backup::BackupTools> {
+    Ok(ws.backup_tools(&id, &today)?)
+}
+
+#[tauri::command]
+pub async fn backup(ws: Ws<'_>, id: String, path: String, prefer_kiyi: bool) -> CmdResult<kiyi_core::backup::BackupReport> {
+    Ok(ws.backup(&id, std::path::Path::new(&path), prefer_kiyi).await?)
+}
+
+#[tauri::command]
+pub async fn restore(ws: Ws<'_>, id: String, path: String) -> CmdResult<kiyi_core::backup::RestoreReport> {
+    Ok(ws.restore(&id, std::path::Path::new(&path)).await?)
+}
+
+#[tauri::command]
+pub async fn schema_graph(ws: Ws<'_>, id: String) -> CmdResult<kiyi_core::graph::SchemaGraph> {
+    Ok(ws.schema_graph(&id).await?)
+}
+
+#[tauri::command]
 pub async fn explain(ws: Ws<'_>, id: String, sql: String) -> CmdResult<kiyi_core::explain::PlanNode> {
     Ok(ws.explain(&id, &sql).await?)
 }
