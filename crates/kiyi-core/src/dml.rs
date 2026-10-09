@@ -122,6 +122,32 @@ const WRITE_KEYWORDS: &[&str] = &[
     "DETACH", "REASSIGN", "SECURITY", "DISCARD", "HANDLER", "OPTIMIZE", "REPAIR", "INSTALL", "UNINSTALL", "FLUSH", "PURGE", "RESET",
 ];
 
+/// Statements in `sql`, counting only semicolons outside strings and comments.
+pub fn statement_count(d: Dialect, sql: &str) -> usize {
+    use sqlparser::dialect::{Dialect as SqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
+    use sqlparser::tokenizer::{Token, Tokenizer};
+    let dialect: &dyn SqlDialect = match d.kind {
+        crate::config::DbKind::Mysql => &MySqlDialect {},
+        crate::config::DbKind::Sqlite => &SQLiteDialect {},
+        crate::config::DbKind::Postgres => &PostgreSqlDialect {},
+    };
+    let Ok(tokens) = Tokenizer::new(dialect, sql).tokenize() else { return 1 };
+    let mut count = 0;
+    let mut in_statement = false;
+    for t in tokens {
+        match t {
+            Token::SemiColon => in_statement = false,
+            Token::Whitespace(_) => {}
+            _ if !in_statement => {
+                in_statement = true;
+                count += 1;
+            }
+            _ => {}
+        }
+    }
+    count
+}
+
 pub fn check_script(d: Dialect, sql: &str) -> ScriptCheck {
     use sqlparser::dialect::{Dialect as SqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
     use sqlparser::tokenizer::{Token, Tokenizer};
@@ -593,6 +619,8 @@ mod tests {
         assert!(c("EXPLAIN ANALYZE DELETE FROM t").writes);
         assert!(c("SELECT * INTO backup FROM t").writes);
         assert!(!c("EXPLAIN SELECT * FROM t").writes);
+        assert_eq!(statement_count(PG, "SELECT ';'; -- x;\nSELECT 2;"), 2);
+        assert_eq!(statement_count(PG, "SELECT 1;  "), 1);
     }
 
     #[test]

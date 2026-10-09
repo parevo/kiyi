@@ -221,6 +221,26 @@ pub async fn export_query(ws: Ws<'_>, id: String, sql: String, format: kiyi_core
 }
 
 #[tauri::command]
+pub async fn ai_ask(ws: Ws<'_>, id: String, question: String, today: String) -> CmdResult<kiyi_core::ai_sql::AskResult> {
+    Ok(ws.ai_ask(&id, &question, &today).await?)
+}
+
+#[tauri::command]
+pub async fn ai_write_sql(ws: Ws<'_>, id: String, instruction: String, current: String, today: String) -> CmdResult<kiyi_core::ai_sql::SqlSuggestion> {
+    Ok(ws.ai_write_sql(&id, &instruction, &current, &today).await?)
+}
+
+#[tauri::command]
+pub async fn ai_fix_sql(ws: Ws<'_>, id: String, sql: String, error: String) -> CmdResult<kiyi_core::ai_sql::SqlSuggestion> {
+    Ok(ws.ai_fix_sql(&id, &sql, &error).await?)
+}
+
+#[tauri::command]
+pub async fn ai_explain_sql(ws: Ws<'_>, id: String, sql: String, language: String) -> CmdResult<kiyi_core::ai_sql::QueryExplanation> {
+    Ok(ws.ai_explain_sql(&id, &sql, &language).await?)
+}
+
+#[tauri::command]
 pub async fn export_table(ws: Ws<'_>, id: String, request: BrowseRequest, format: kiyi_core::transfer::ExportFormat, path: String) -> CmdResult<u64> {
     Ok(ws.export(&id, &request, format, std::path::Path::new(&path)).await?)
 }

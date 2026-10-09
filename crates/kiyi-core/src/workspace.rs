@@ -515,6 +515,42 @@ impl Workspace {
         crate::ai::list_models(provider, key.as_deref()).await
     }
 
+    /// The active AI provider and its key, or a message pointing to Settings.
+    fn ai_provider(&self) -> Result<(crate::ai::AiProvider, Option<String>)> {
+        let ai = self.ai();
+        let p = ai.active().ok_or_else(|| Error::Invalid("Choose an AI provider in Settings to use AI.".into()))?;
+        let key = ai.key(&p, None)?;
+        Ok((p, key))
+    }
+
+    pub async fn ai_ask(&self, id: &str, question: &str, today: &str) -> Result<crate::ai_sql::AskResult> {
+        let (p, key) = self.ai_provider()?;
+        let driver = self.driver(id)?;
+        let schema = driver.schema().await?;
+        crate::ai_sql::ask(&p, key.as_deref(), driver.dialect(), &schema, question, today).await
+    }
+
+    pub async fn ai_write_sql(&self, id: &str, instruction: &str, current: &str, today: &str) -> Result<crate::ai_sql::SqlSuggestion> {
+        let (p, key) = self.ai_provider()?;
+        let driver = self.driver(id)?;
+        let schema = driver.schema().await?;
+        crate::ai_sql::write_sql(&p, key.as_deref(), driver.dialect(), &schema, instruction, current, today).await
+    }
+
+    pub async fn ai_fix_sql(&self, id: &str, sql: &str, error: &str) -> Result<crate::ai_sql::SqlSuggestion> {
+        let (p, key) = self.ai_provider()?;
+        let driver = self.driver(id)?;
+        let schema = driver.schema().await?;
+        crate::ai_sql::fix_sql(&p, key.as_deref(), driver.dialect(), &schema, sql, error).await
+    }
+
+    pub async fn ai_explain_sql(&self, id: &str, sql: &str, language: &str) -> Result<crate::ai_sql::QueryExplanation> {
+        let (p, key) = self.ai_provider()?;
+        let driver = self.driver(id)?;
+        let schema = driver.schema().await?;
+        crate::ai_sql::explain_sql(&p, key.as_deref(), driver.dialect(), &schema, sql, language).await
+    }
+
     pub async fn ai_filters(&self, id: &str, schema: Option<&str>, table: &str, prompt: &str, today: &str) -> Result<crate::ai::AiFilterResult> {
         let (provider, key) = {
             let ai = self.ai();

@@ -353,6 +353,11 @@ fn is_non_chat_model(id: &str) -> bool {
         .any(|w| id.contains(w))
 }
 
+/// For the other AI features (SQL questions, editor help); same request and fallbacks.
+pub(crate) async fn complete_json_pub(p: &AiProvider, key: Option<&str>, system: &str, user: &str, schema: &Value) -> Result<String> {
+    complete_json(p, key, system, user, schema).await
+}
+
 /// Asks for a JSON object matching `schema` and returns it as text.
 async fn complete_json(p: &AiProvider, key: Option<&str>, system: &str, user: &str, schema: &Value) -> Result<String> {
     let http = client()?;

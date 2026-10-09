@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Button as AriaButton } from "react-aria-components";
-import type { ChartConfig } from "../lib/chartData";
-import type { DbKind } from "../lib/types";
+import { configFromHint } from "../lib/chartData";
+import type { ChartHint, DbKind } from "../lib/types";
 import { ChartPanel } from "./ChartPanel";
 import type { RunState } from "../state/tabs";
-import { AlertIcon, BarChartIcon, CheckIcon, Spinner, TableIcon } from "./icons";
+import { AlertIcon, BarChartIcon, CheckIcon, Spinner, TableIcon, WandIcon } from "./icons";
 import { ResultGrid } from "./ResultGrid";
 import s from "./ResultPane.module.css";
 import { kbd } from "../lib/platform";
@@ -28,7 +28,21 @@ function useElapsed(run: RunState | null) {
   return run.elapsedMs ?? now - run.startedAt;
 }
 
-export function ResultPane({ run, kind, chart, onCancel }: { run: RunState | null; kind: DbKind; chart?: ChartConfig | null; onCancel(): void }) {
+export function ResultPane({
+  run,
+  kind,
+  hint,
+  onCancel,
+  onFix,
+}: {
+  run: RunState | null;
+  kind: DbKind;
+  /** The AI's idea of how to chart this result. */
+  hint?: ChartHint | null;
+  onCancel(): void;
+  /** Offered when a run fails: let AI correct the SQL. */
+  onFix?(): void;
+}) {
   const elapsed = useElapsed(run);
   const [summary, setSummary] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
@@ -36,8 +50,8 @@ export function ResultPane({ run, kind, chart, onCancel }: { run: RunState | nul
   useEffect(() => {
     setPicked(null);
     // A question asked in plain words comes with a chart in mind; show it first.
-    setView(chart ? "chart" : "table");
-  }, [run?.queryId, chart]);
+    setView(hint ? "chart" : "table");
+  }, [run?.queryId, hint]);
 
   const sets = run?.sets ?? [];
   const withRows = sets.map((set, i) => ({ set, i })).filter(({ set }) => set.columns.length > 0);
@@ -90,11 +104,16 @@ export function ResultPane({ run, kind, chart, onCancel }: { run: RunState | nul
               {run.error.code && <span className={s.errorCode}>{run.error.code}</span>}
             </div>
             <div className={`${s.errorBody} selectable`}>{run.error.message}</div>
+            {onFix && (
+              <button className={s.fix} onClick={onFix}>
+                <WandIcon size={13} /> Fix with AI
+              </button>
+            )}
           </div>
         )}
 
         {!run?.error && shown && shown.columns.length > 0 && (view === "chart" && chartable ? (
-          <ChartPanel key={`${run!.queryId}:${shownIndex}`} columns={shown.columns} rows={shown.rows} initial={chart} />
+          <ChartPanel key={`${run!.queryId}:${shownIndex}`} columns={shown.columns} rows={shown.rows} initial={configFromHint(shown.columns, hint)} />
         ) : (
           <ResultGrid key={`${run!.queryId}:${shownIndex}`} set={shown} rowCount={shownRows} kind={kind} onSummary={setSummary} />
         ))}

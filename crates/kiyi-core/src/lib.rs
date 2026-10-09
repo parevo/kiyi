@@ -2,6 +2,7 @@
 //! Deliberately free of any Tauri dependency so the UI layer can be swapped.
 
 pub mod ai;
+pub mod ai_sql;
 pub mod catalog;
 pub mod config;
 pub mod design;

@@ -1,18 +1,20 @@
 import { useRef, useState } from "react";
 import { ipc } from "../lib/ipc";
-import { splitStatements } from "../lib/sql";
+import { prettySql, splitStatements } from "../lib/sql";
 import { useConnections } from "../state/connections";
 import { type Tab, useTabs } from "../state/tabs";
 import { format as formatSql } from "sql-formatter";
 import { errorMessage } from "../lib/ipc";
 import { kbd } from "../lib/platform";
-import type { ExportFormat, PlanNode } from "../lib/types";
+import type { ExportFormat, PlanNode, QueryExplanation } from "../lib/types";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { ContextMenu, type MenuState } from "./ContextMenu";
 import { useHistory } from "../state/history";
 import { toast } from "../state/toasts";
 import { HistoryPanel } from "./HistoryPanel";
-import { BookmarkIcon, DownloadIcon, FormatIcon, HistoryIcon, PlayIcon, SigmaIcon, Spinner } from "./icons";
+import { BookmarkIcon, DownloadIcon, FormatIcon, HistoryIcon, PlayIcon, SigmaIcon, SparklesIcon, Spinner, WandIcon } from "./icons";
+import { AiExplainView } from "./AiExplainView";
+import { ensureAi } from "../lib/askAi";
 import { PlanView } from "./PlanView";
 import { PromptDialog, type PromptRequest } from "./PromptDialog";
 import { type EditorHandle, QueryEditor, type RunRequest } from "./QueryEditor";
@@ -55,6 +57,8 @@ export function QueryPane({ tab }: { tab: Tab }) {
   const [explaining, setExplaining] = useState(false);
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [explained, setExplained] = useState<QueryExplanation | null>(null);
 
   if (!connection) return null;
 
@@ -104,6 +108,66 @@ export function QueryPane({ tab }: { tab: Tab }) {
     }
   };
 
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  /** Runs an AI action with a busy state and friendly errors. */
+  const withAi = async (fn: () => Promise<void>) => {
+    if (!(await ensureAi())) return;
+    setAiBusy(true);
+    try {
+      await ensureConnected();
+      await fn();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const writeWithAi = () => {
+    const current = editor.current?.target(true)?.sql ?? "";
+    setPrompt({
+      title: "Write SQL with AI",
+      fields: [{ label: "What should the SQL do?", placeholder: "e.g. customers who ordered nothing this year" }],
+      help: current.trim() ? "The SQL in the editor is sent along for context, with the table and column names (never your data)." : "Only table and column names are sent, never your data.",
+      action: "Write",
+      run: async ([instruction]) => {
+        if (!instruction?.trim()) throw new Error("Describe what you want.");
+        if (!(await ensureAi())) return;
+        await ensureConnected();
+        const r = await ipc.aiWriteSql(connection.id, instruction.trim(), current, today());
+        editor.current?.insert(`-- ${instruction.trim().replace(/\s+/g, " ")}\n${prettySql(r.sql, connection.kind)}`);
+        toast.success(r.writes ? `${r.explanation} It changes data: review before running.` : r.explanation);
+      },
+    });
+  };
+
+  const explainWithAi = () => {
+    const req = editor.current?.target(false);
+    if (!req?.sql.trim()) return toast.info("Put the cursor in the query you want explained.");
+    withAi(async () => {
+      setPlan(null);
+      setExplained(await ipc.aiExplainSql(connection.id, req.sql, navigator.language.startsWith("tr") ? "Turkish" : "the language of the SQL comments, or English"));
+    });
+  };
+
+  const fixWithAi = () => {
+    const run = tab.run;
+    if (!run?.error) return;
+    // The statement that failed: the one the server named in a script, else everything that ran.
+    const parts = splitStatements(run.sql, connection.kind === "mysql");
+    const part = run.error.statementIndex != null ? parts[run.error.statementIndex] : parts.length === 1 ? parts[0] : null;
+    const failed = (part?.text ?? run.sql).replace(/;\s*$/, "").trim();
+    withAi(async () => {
+      const r = await ipc.aiFixSql(connection.id, failed, run.error!.message);
+      const at = tab.sql.indexOf(failed, Math.max(0, run.offset - 1));
+      const fixed = failed.includes("\n") ? prettySql(r.sql, connection.kind) : r.sql;
+      if (at >= 0) editor.current?.replace(at, at + failed.length, fixed);
+      else editor.current?.insert(fixed);
+      toast.success(`${r.explanation} Run it again to check.`);
+    });
+  };
+
   const saveQuery = () => {
     const req = editor.current?.target(true);
     if (!req?.sql.trim()) return toast.info("Write a query first.");
@@ -124,6 +188,7 @@ export function QueryPane({ tab }: { tab: Tab }) {
 
   const run = async ({ sql, offset }: RunRequest) => {
     setPlan(null);
+    setExplained(null);
     await ensureConnected();
     // On production, SQL that changes anything is reviewed first, like edits made in the grid.
     if (connection.env === "production" && !connection.readOnly) {
@@ -183,6 +248,24 @@ export function QueryPane({ tab }: { tab: Tab }) {
         <Button variant="ghost" onPress={explain} isDisabled={explaining}>
           {explaining ? <Spinner size={13} /> : <SigmaIcon size={14} />} Explain
         </Button>
+        <Button
+          variant="ghost"
+          isDisabled={aiBusy}
+          onPress={() => {
+            const r = document.activeElement?.getBoundingClientRect();
+            setMenu({
+              x: r?.left ?? 0,
+              y: (r?.bottom ?? 0) + 4,
+              items: [
+                { label: "Write SQL from a description…", onSelect: writeWithAi },
+                { label: "Explain this query in plain words", onSelect: explainWithAi },
+                { label: "Fix the last error", onSelect: fixWithAi, disabled: !tab.run?.error },
+              ],
+            });
+          }}
+        >
+          {aiBusy ? <Spinner size={13} /> : <WandIcon size={14} />} AI
+        </Button>
         <span className={t.spacer} />
         <Button
           variant="ghost"
@@ -215,14 +298,32 @@ export function QueryPane({ tab }: { tab: Tab }) {
           kind={connection.kind}
           schema={schema}
           errorAt={errorAt}
-          onChange={(sql) => setSql(tab.id, sql)}
+          onChange={(sql) => {
+            setSql(tab.id, sql);
+            // Once the AI's query is edited, its question and chart no longer describe it.
+            if (tab.ai && !sql.includes(tab.ai.question.replace(/\s+/g, " "))) useTabs.getState().patch(tab.id, { ai: undefined });
+          }}
           onRun={run}
           onCancel={() => cancel(tab.id)}
         />
       </div>
       <div className={s.splitter} data-dragging={dragging || undefined} onPointerDown={onSplitDown} role="separator" aria-orientation="horizontal" />
       <div className={s.results}>
-        {plan ? <PlanView plan={plan} onClose={() => setPlan(null)} /> : <ResultPane run={tab.run} kind={connection.kind} onCancel={() => cancel(tab.id)} />}
+        {tab.ai && (
+          <div className={t.aiBanner}>
+            <SparklesIcon size={13} />
+            <span>
+              <b>{tab.ai.question}</b> · {tab.ai.explanation}
+            </span>
+          </div>
+        )}
+        {plan ? (
+          <PlanView plan={plan} onClose={() => setPlan(null)} />
+        ) : explained ? (
+          <AiExplainView explanation={explained} onClose={() => setExplained(null)} />
+        ) : (
+          <ResultPane run={tab.run} kind={connection.kind} hint={tab.ai?.chart} onCancel={() => cancel(tab.id)} onFix={tab.run?.error ? fixWithAi : undefined} />
+        )}
       </div>
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} />
       <PromptDialog request={prompt} onClose={() => setPrompt(null)} />

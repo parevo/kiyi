@@ -13,6 +13,8 @@ export interface ResultSet {
 export interface RunState {
   status: "running" | "done" | "error";
   queryId: string;
+  /** Exactly what ran. */
+  sql: string;
   /** Character offset of the executed statement within the editor, to place error markers. */
   offset: number;
   sets: ResultSet[];
@@ -45,6 +47,8 @@ export interface Tab {
   initialFilters?: Filter[];
   /** Unsaved grid or structure edits; closing asks first. */
   dirty?: boolean;
+  /** A query written by AI for a question: what was asked, what the result shows, how to chart it. */
+  ai?: { question: string; explanation: string; chart: import("../lib/types").ChartHint | null };
 }
 
 export const tableKey = (connectionId: string, schema: string | null, table: string) =>
@@ -153,6 +157,7 @@ export const useTabs = create<TabsState>((set, get) => {
         run: {
           status: "running",
           queryId,
+          sql,
           offset,
           sets: [],
           rowCount: 0,

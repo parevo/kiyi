@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { askQuestion } from "../lib/askAi";
 import { ipc } from "../lib/ipc";
 import type { DriverInfo, LocalDatabase } from "../lib/types";
 import { connectionWhere, driverFor, useCatalog } from "../state/catalog";
@@ -71,6 +72,8 @@ export function Overview() {
         </label>
       </div>
 
+      <AskBox connectionId={connection.id} />
+
       <div className={s.grid}>
         {tables.map(card)}
         {!connection.readOnly && !filter && (
@@ -87,6 +90,40 @@ export function Overview() {
         </>
       )}
     </div>
+  );
+}
+
+/** "Ask a question about your data": AI writes the query, it runs, and the answer shows as a chart. */
+function AskBox({ connectionId }: { connectionId: string }) {
+  const [question, setQuestion] = useState("");
+  const [busy, setBusy] = useState(false);
+  const examples = ["How many rows were added each month?", "Top 10 by total", "Son 30 günde kaç kayıt eklendi?"];
+  const ask = async (q: string) => {
+    setBusy(true);
+    if (await askQuestion(connectionId, q)) setQuestion("");
+    setBusy(false);
+  };
+  return (
+    <form
+      className={s.ask}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (question.trim() && !busy) ask(question);
+      }}
+    >
+      <SparklesIcon size={16} />
+      <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask a question about your data, in any language…" spellCheck={false} aria-label="Ask a question" disabled={busy} />
+      <Button type="submit" variant="primary" isDisabled={!question.trim() || busy}>
+        {busy ? <Spinner size={13} /> : null} Ask
+      </Button>
+      <div className={s.examples}>
+        {examples.map((x) => (
+          <button key={x} type="button" onClick={() => setQuestion(x)}>
+            {x}
+          </button>
+        ))}
+      </div>
+    </form>
   );
 }
 

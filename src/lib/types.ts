@@ -356,6 +356,31 @@ export interface PlanNode {
   children: PlanNode[];
 }
 
+/** How the AI suggests drawing a result, by column name. */
+export interface ChartHint {
+  kind: "bar" | "line" | "pie" | "number";
+  x: string | null;
+  y: string[];
+}
+
+export interface AskResult {
+  sql: string;
+  explanation: string;
+  chart: ChartHint | null;
+}
+
+export interface SqlSuggestion {
+  sql: string;
+  explanation: string;
+  writes: boolean;
+}
+
+export interface QueryExplanation {
+  summary: string;
+  steps: string[];
+  warnings: string[];
+}
+
 export type Aggregate = "count" | "countDistinct" | "sum" | "avg" | "min" | "max";
 export type DatePart = "day" | "month" | "year";
 export interface GroupBy {

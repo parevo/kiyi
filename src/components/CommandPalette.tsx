@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
+import { askQuestion } from "../lib/askAi";
 import { fuzzyFilter } from "../lib/fuzzy";
 import { kbd } from "../lib/platform";
 import { useConnections } from "../state/connections";
@@ -7,7 +8,7 @@ import { useHistory } from "../state/history";
 import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
 import { useUi } from "../state/ui";
-import { BookmarkIcon, CodeIcon, CommandIcon, DatabaseIcon, SettingsIcon, TableIcon, ViewIcon } from "./icons";
+import { BookmarkIcon, CodeIcon, CommandIcon, DatabaseIcon, SettingsIcon, SparklesIcon, TableIcon, ViewIcon } from "./icons";
 import s from "./CommandPalette.module.css";
 
 interface Command {
@@ -84,7 +85,15 @@ export function CommandPalette({ onNewConnection, onOpenSql }: { onNewConnection
     return out;
   }, [activeId, snapshot, saved, connections, developerMode, onNewConnection, onOpenSql]);
 
-  const shown = useMemo(() => fuzzyFilter(commands, query, (c) => `${c.title} ${c.hint ?? ""}`).slice(0, 60), [commands, query]);
+  const shown = useMemo(() => {
+    const found = fuzzyFilter(commands, query, (c) => `${c.title} ${c.hint ?? ""}`).slice(0, 60);
+    // Anything typed can also be asked as a question about the data.
+    if (activeId && query.trim().length > 3) {
+      const ask: Command = { id: "ask", title: `Ask AI: ${query.trim()}`, group: "Ask", icon: <SparklesIcon size={15} />, run: () => askQuestion(activeId, query) };
+      return found.length && found[0].title.toLowerCase().includes(query.trim().toLowerCase()) ? [...found, ask] : [ask, ...found];
+    }
+    return found;
+  }, [commands, query, activeId]);
   useEffect(() => setIndex(0), [query]);
   useEffect(() => {
     list.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });

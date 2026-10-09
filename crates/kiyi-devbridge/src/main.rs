@@ -119,6 +119,14 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
                 .map(ok)
                 .unwrap_or_else(fail)
         }
+        "ai_ask" => ws.ai_ask(&id()?, &arg::<String>(a, "question")?, &arg::<String>(a, "today")?).await.map(ok).unwrap_or_else(fail),
+        "ai_write_sql" => ws
+            .ai_write_sql(&id()?, &arg::<String>(a, "instruction")?, &arg::<String>(a, "current")?, &arg::<String>(a, "today")?)
+            .await
+            .map(ok)
+            .unwrap_or_else(fail),
+        "ai_fix_sql" => ws.ai_fix_sql(&id()?, &arg::<String>(a, "sql")?, &arg::<String>(a, "error")?).await.map(ok).unwrap_or_else(fail),
+        "ai_explain_sql" => ws.ai_explain_sql(&id()?, &arg::<String>(a, "sql")?, &arg::<String>(a, "language")?).await.map(ok).unwrap_or_else(fail),
         "export_query" => ws
             .export_query(&id()?, &arg::<String>(a, "sql")?, arg(a, "format")?, std::path::Path::new(&arg::<String>(a, "path")?))
             .await

@@ -53,6 +53,8 @@
 .results {
   flex: 1;
   min-height: 80px;
+  display: flex;
+  flex-direction: column;
 }
 
 .empty {

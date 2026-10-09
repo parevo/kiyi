@@ -34,6 +34,16 @@ const NUMBER = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i;
 export const isNumeric = (c: ColumnMeta) => c.kind === "number";
 const isOrdered = (c: ColumnMeta) => c.kind === "temporal" || c.kind === "number";
 
+/** The AI's suggestion (by column names) as a config for these columns, or null if it doesn't fit. */
+export function configFromHint(columns: ColumnMeta[], hint: { kind: ChartKind; x: string | null; y: string[] } | null | undefined): ChartConfig | null {
+  if (!hint) return null;
+  const idx = (name: string | null) => (name ? columns.findIndex((c) => c.name === name) : -1);
+  const y = hint.y.map(idx).filter((i) => i >= 0 && isNumeric(columns[i]));
+  const x = idx(hint.x);
+  if (hint.kind === "number") return y.length ? { kind: "number", x: null, y: [y[0]] } : null;
+  return x >= 0 ? { kind: hint.kind, x, y: y.slice(0, MAX_SERIES) } : null;
+}
+
 /** A sensible first chart for a result: time → line, categories → bars, one number → a figure. */
 export function suggestChart(columns: ColumnMeta[], rows: Cell[][]): ChartConfig | null {
   const numeric = columns.map((c, i) => (isNumeric(c) ? i : -1)).filter((i) => i >= 0);
