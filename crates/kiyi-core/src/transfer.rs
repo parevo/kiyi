@@ -325,7 +325,7 @@ pub struct ImportPlan {
 
 fn is_bool_type(data_type: &str) -> bool {
     let t = data_type.trim().to_ascii_lowercase();
-    t.starts_with("bool") || t == "tinyint(1)" || t == "bit(1)"
+    t.starts_with("bool") || t == "tinyint(1)" || t == "bit(1)" || t == "bit"
 }
 
 /// A boolean as the database wants it, or None to leave an unrecognized value for the database to judge.
@@ -357,7 +357,7 @@ pub async fn import(driver: &dyn DbDriver, path: &Path, plan: &ImportPlan) -> Re
         .iter()
         .map(|(_, c)| details.design.columns.iter().find(|x| &x.name == c).is_some_and(|x| is_bool_type(&x.data_type)))
         .collect();
-    let mysql_like = d.is_mysql() || d.is_sqlite();
+    let mysql_like = d.is_mysql() || d.is_sqlite() || d.is_sqlserver();
     // Both sources yield the file's rows as text, numbered from 1 for error messages.
     let mut records: Box<dyn Iterator<Item = (usize, Result<Vec<String>>)> + Send> = if is_spreadsheet(path) {
         let (_, _, rows) = read_sheet(path, plan.sheet.as_deref())?;

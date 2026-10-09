@@ -1,6 +1,6 @@
 // Mirrors of the Rust types in crates/kiyi-core (serde camelCase).
 
-export type DbKind = "postgres" | "mysql" | "sqlite";
+export type DbKind = "postgres" | "mysql" | "sqlite" | "sqlserver";
 export type EnvTag = "local" | "staging" | "production";
 export type SslMode = "disable" | "prefer" | "require" | "verify-ca" | "verify-full";
 

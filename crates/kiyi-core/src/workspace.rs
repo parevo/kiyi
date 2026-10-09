@@ -416,7 +416,11 @@ impl Workspace {
         let driver = self.driver(id)?;
         let kind = driver.dialect().kind;
         let first = |rows: &[Vec<Cell>]| rows.first().and_then(|r| r.first().cloned().flatten()).unwrap_or_default();
+        if let Some(rows) = driver.explain_rows(sql).await {
+            return explain::from_sqlserver_text(&rows?).map_err(Error::Invalid);
+        }
         let plan = match kind {
+            DbKind::Sqlserver => unreachable!("SQL Server plans come from explain_rows"),
             DbKind::Postgres => explain::from_postgres(&first(&driver.fetch(&explain::explain_sql(kind, sql)).await?.1)),
             DbKind::Sqlite => explain::from_sqlite(&driver.fetch(&explain::explain_sql(kind, sql)).await?.1),
             DbKind::Mysql => match driver.fetch(&explain::explain_sql(kind, sql)).await {

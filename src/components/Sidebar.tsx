@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { quoteIdent } from "../lib/dialect";
 import { Dialog, DialogTrigger, Heading, Modal, ModalOverlay, Popover, Button as AriaButton } from "react-aria-components";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { ConnectionConfig, TableAction, TableInfo } from "../lib/types";
@@ -251,7 +252,7 @@ function TableList({
   }, [current, needle]);
 
   const schema = current?.name ?? null;
-  const q = (id: string) => (connection.kind === "mysql" ? `\`${id.replace(/`/g, "``")}\`` : `"${id.replace(/"/g, '""')}"`);
+  const q = (id: string) => quoteIdent(connection.kind, id);
 
   const runAction = async (table: TableInfo, action: TableAction) => {
     try {

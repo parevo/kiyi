@@ -63,18 +63,24 @@ pub struct BrowseRequest {
     pub offset: u64,
 }
 
+/// The parser dialect for a database, for checking and splitting its SQL.
+fn sql_dialect(d: Dialect) -> &'static dyn sqlparser::dialect::Dialect {
+    use sqlparser::dialect::{MsSqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
+    match d.kind {
+        crate::config::DbKind::Mysql => &MySqlDialect {},
+        crate::config::DbKind::Sqlite => &SQLiteDialect {},
+        crate::config::DbKind::Postgres => &PostgreSqlDialect {},
+        crate::config::DbKind::Sqlserver => &MsSqlDialect {},
+    }
+}
+
 /// Checks that a hand-written (or AI-written) condition is a single boolean expression,
 /// so it can't smuggle in a second statement such as `1=1; DROP TABLE t`, close the WHERE
 /// clause early (`1=1) UNION SELECT …`), or call functions with side effects.
 pub fn validate_condition(d: Dialect, condition: &str) -> Result<(), String> {
-    use sqlparser::dialect::{Dialect as SqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
     use sqlparser::parser::Parser;
     use sqlparser::tokenizer::{Token, Tokenizer};
-    let dialect: &dyn SqlDialect = match d.kind {
-        crate::config::DbKind::Mysql => &MySqlDialect {},
-        crate::config::DbKind::Sqlite => &SQLiteDialect {},
-        crate::config::DbKind::Postgres => &PostgreSqlDialect {},
-    };
+    let dialect = sql_dialect(d);
     let invalid = |e: &dyn std::fmt::Display| format!("The condition is not valid SQL: {e}");
     let mut parser = Parser::new(dialect).try_with_sql(condition).map_err(|e| invalid(&e))?;
     parser.parse_expr().map_err(|e| invalid(&e))?;
@@ -175,13 +181,8 @@ pub fn split_sql(sql: &str) -> Vec<String> {
 
 /// Statements in `sql`, counting only semicolons outside strings and comments.
 pub fn statement_count(d: Dialect, sql: &str) -> usize {
-    use sqlparser::dialect::{Dialect as SqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
     use sqlparser::tokenizer::{Token, Tokenizer};
-    let dialect: &dyn SqlDialect = match d.kind {
-        crate::config::DbKind::Mysql => &MySqlDialect {},
-        crate::config::DbKind::Sqlite => &SQLiteDialect {},
-        crate::config::DbKind::Postgres => &PostgreSqlDialect {},
-    };
+    let dialect = sql_dialect(d);
     let Ok(tokens) = Tokenizer::new(dialect, sql).tokenize() else { return 1 };
     let mut count = 0;
     let mut in_statement = false;
@@ -200,13 +201,8 @@ pub fn statement_count(d: Dialect, sql: &str) -> usize {
 }
 
 pub fn check_script(d: Dialect, sql: &str) -> ScriptCheck {
-    use sqlparser::dialect::{Dialect as SqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
     use sqlparser::tokenizer::{Token, Tokenizer};
-    let dialect: &dyn SqlDialect = match d.kind {
-        crate::config::DbKind::Mysql => &MySqlDialect {},
-        crate::config::DbKind::Sqlite => &SQLiteDialect {},
-        crate::config::DbKind::Postgres => &PostgreSqlDialect {},
-    };
+    let dialect = sql_dialect(d);
     let Ok(tokens) = Tokenizer::new(dialect, sql).tokenize() else {
         // Can't even tokenize: assume the worst so read-only and production checks still apply.
         return ScriptCheck { writes: true, destructive: 0 };
@@ -252,7 +248,8 @@ fn like_pattern(value: &str, prefix: bool, suffix: bool) -> String {
         out.push('%');
     }
     for c in value.chars() {
-        if matches!(c, '\\' | '%' | '_') {
+        // `[` starts a character class in SQL Server's LIKE; escaping it is harmless elsewhere.
+        if matches!(c, '\\' | '%' | '_' | '[') {
             out.push('\\');
         }
         out.push(c);
@@ -270,10 +267,11 @@ fn condition(d: Dialect, f: &Filter) -> String {
         crate::config::DbKind::Mysql => format!("CAST({col} AS CHAR)"),
         crate::config::DbKind::Sqlite => format!("CAST({col} AS TEXT)"),
         crate::config::DbKind::Postgres => format!("{col}::text"),
+        crate::config::DbKind::Sqlserver => format!("CAST({col} AS NVARCHAR(MAX))"),
     };
     let like = if d.kind == crate::config::DbKind::Postgres { "ILIKE" } else { "LIKE" };
-    // SQLite has no default LIKE escape character.
-    let esc = if d.is_sqlite() { " ESCAPE '\\'" } else { "" };
+    // SQLite and SQL Server have no default LIKE escape character.
+    let esc = if d.is_sqlite() || d.is_sqlserver() { " ESCAPE '\\'" } else { "" };
     let v = &f.value;
     match f.op {
         FilterOp::Eq => format!("{col} = {}", d.string(v)),
@@ -314,7 +312,8 @@ fn where_clause(d: Dialect, req: &BrowseRequest) -> String {
     if parts.is_empty() { String::new() } else { format!(" WHERE {}", parts.join(" AND ")) }
 }
 
-pub fn browse_sql(d: Dialect, req: &BrowseRequest) -> String {
+/// `SELECT * … WHERE … ORDER BY …` for the request, without paging.
+fn ordered_select(d: Dialect, req: &BrowseRequest) -> String {
     let mut sql = format!("SELECT * FROM {}{}", d.table(req.schema.as_deref(), &req.table), where_clause(d, req));
     let mut order: Vec<String> =
         req.sort.iter().map(|s| format!("{}{}", d.ident(&s.column), if s.descending { " DESC" } else { "" })).collect();
@@ -328,6 +327,19 @@ pub fn browse_sql(d: Dialect, req: &BrowseRequest) -> String {
     }
     if !order.is_empty() {
         sql.push_str(&format!(" ORDER BY {}", order.join(", ")));
+    }
+    sql
+}
+
+pub fn browse_sql(d: Dialect, req: &BrowseRequest) -> String {
+    let mut sql = ordered_select(d, req);
+    if d.is_sqlserver() {
+        // OFFSET/FETCH needs an ORDER BY; without a key or sort, any order will do.
+        if !sql.contains(" ORDER BY ") {
+            sql.push_str(" ORDER BY (SELECT NULL)");
+        }
+        sql.push_str(&format!(" OFFSET {} ROWS FETCH NEXT {} ROWS ONLY", req.offset, req.limit));
+        return sql;
     }
     sql.push_str(&format!(" LIMIT {}", req.limit));
     if req.offset > 0 {
@@ -396,6 +408,10 @@ fn date_group(d: Dialect, col: &str, part: DatePart) -> String {
         (crate::config::DbKind::Sqlite, DatePart::Day) => format!("strftime('%Y-%m-%d', {col})"),
         (crate::config::DbKind::Sqlite, DatePart::Month) => format!("strftime('%Y-%m', {col})"),
         (crate::config::DbKind::Sqlite, DatePart::Year) => format!("strftime('%Y', {col})"),
+        // Style 126 is ISO 8601; the char length keeps the date part needed.
+        (crate::config::DbKind::Sqlserver, DatePart::Day) => format!("CONVERT(char(10), {col}, 126)"),
+        (crate::config::DbKind::Sqlserver, DatePart::Month) => format!("CONVERT(char(7), {col}, 126)"),
+        (crate::config::DbKind::Sqlserver, DatePart::Year) => format!("CONVERT(char(4), {col}, 126)"),
     }
 }
 
@@ -406,6 +422,7 @@ pub fn summary_sql(d: Dialect, req: &SummaryRequest) -> Result<String, String> {
     }
     let measures: Vec<Measure> = if req.measures.is_empty() { vec![Measure { aggregate: Aggregate::Count, column: None }] } else { req.measures.clone() };
     let mut select = Vec::new();
+    let mut group_exprs = Vec::new();
     for g in &req.group_by {
         let col = d.ident(&g.column);
         let expr = match g.date_part {
@@ -418,6 +435,7 @@ pub fn summary_sql(d: Dialect, req: &SummaryRequest) -> Result<String, String> {
             Some(DatePart::Year) => format!("{} (year)", g.column),
             None => g.column.clone(),
         };
+        group_exprs.push(expr.clone());
         select.push(format!("{expr} AS {}", d.ident(&label)));
     }
     for m in &measures {
@@ -434,12 +452,17 @@ pub fn summary_sql(d: Dialect, req: &SummaryRequest) -> Result<String, String> {
         select.push(format!("{expr} AS {}", d.ident(&label)));
     }
     let n = req.group_by.len();
-    let mut sql = format!("SELECT {} FROM {}{}", select.join(", "), d.table(req.browse.schema.as_deref(), &req.browse.table), where_clause(d, &req.browse));
+    let top = if d.is_sqlserver() && n > 0 { format!("TOP {SUMMARY_LIMIT} ") } else { String::new() };
+    let mut sql = format!("SELECT {top}{} FROM {}{}", select.join(", "), d.table(req.browse.schema.as_deref(), &req.browse.table), where_clause(d, &req.browse));
     if n > 0 {
-        sql.push_str(&format!(" GROUP BY {}", (1..=n).map(|i| i.to_string()).collect::<Vec<_>>().join(", ")));
+        // SQL Server can't GROUP BY position; the others can, which keeps their SQL short.
+        let group = if d.is_sqlserver() { group_exprs.join(", ") } else { (1..=n).map(|i| i.to_string()).collect::<Vec<_>>().join(", ") };
+        sql.push_str(&format!(" GROUP BY {group}"));
         let by_time = req.group_by[0].date_part.is_some();
         sql.push_str(&if by_time { " ORDER BY 1".to_string() } else { format!(" ORDER BY {} DESC", n + 1) });
-        sql.push_str(&format!(" LIMIT {SUMMARY_LIMIT}"));
+        if !d.is_sqlserver() {
+            sql.push_str(&format!(" LIMIT {SUMMARY_LIMIT}"));
+        }
     }
     Ok(sql)
 }
@@ -462,8 +485,7 @@ pub fn plan_replace(d: Dialect, req: &BrowseRequest, column: &str, find: &str, r
 
 /// Every row matching the request, in order, without paging (for export).
 pub fn export_sql(d: Dialect, req: &BrowseRequest) -> String {
-    let paged = browse_sql(d, &BrowseRequest { offset: 0, ..req.clone() });
-    paged.rsplit_once(" LIMIT ").map(|(head, _)| head.to_string()).unwrap_or(paged)
+    ordered_select(d, req)
 }
 
 /// Multi-row INSERTs, `batch` rows per statement, for imports.
@@ -621,6 +643,30 @@ mod tests {
         assert!(validate_condition(PG, "(status = 'paid' OR status = 'shipped') AND lower(note) LIKE '%x%'").is_ok());
         assert!(validate_condition(PG, "customer_id IN (SELECT id FROM customers WHERE is_active)").is_ok());
         assert!(validate_condition(PG, "placed_on >= current_date - interval '30 days'").is_ok());
+    }
+
+    #[test]
+    fn sql_server_browsing() {
+        let ms = Dialect::SQLSERVER;
+        let mut r = req();
+        r.filters = vec![Filter { column: "note".into(), op: FilterOp::Contains, value: "50%[off]".into() }];
+        assert_eq!(
+            browse_sql(ms, &r),
+            r#"SELECT * FROM [public].[orders] WHERE CAST([note] AS NVARCHAR(MAX)) LIKE N'%50\%\[off]%' ESCAPE '\' ORDER BY [id] OFFSET 0 ROWS FETCH NEXT 200 ROWS ONLY"#
+        );
+        r.tiebreak = vec![];
+        r.filters = vec![];
+        assert!(browse_sql(ms, &r).ends_with("ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 200 ROWS ONLY"));
+        assert_eq!(export_sql(ms, &r), "SELECT * FROM [public].[orders]");
+        let s = SummaryRequest {
+            browse: req(),
+            group_by: vec![GroupBy { column: "placed_on".into(), date_part: Some(DatePart::Month) }],
+            measures: vec![],
+        };
+        assert_eq!(
+            summary_sql(ms, &s).unwrap(),
+            "SELECT TOP 1000 CONVERT(char(7), [placed_on], 126) AS [placed_on (month)], COUNT(*) AS [Rows] FROM [public].[orders] GROUP BY CONVERT(char(7), [placed_on], 126) ORDER BY 1"
+        );
     }
 
     #[test]

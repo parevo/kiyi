@@ -33,6 +33,7 @@ export function BackupView() {
   const dbName = connection.database ?? connection.name;
   const nativeTool = sqlite ? null : tools?.backup;
   const clientTools = connection.kind === "postgres" ? "pg_dump and psql (PostgreSQL client tools)" : "mysqldump and mysql (MySQL client)";
+  const sqlserver = connection.kind === "sqlserver";
 
   const backup = async () => {
     const path = await saveDialog({ defaultPath: tools?.suggestedName ?? "backup.sql", filters: [sqlite ? { name: "SQLite database", extensions: ["db"] } : { name: "SQL", extensions: ["sql"] }] });
@@ -97,7 +98,8 @@ export function BackupView() {
                 ? `Uses ${nativeTool} for a complete backup: tables, data, views, functions and triggers.`
                 : "Kiyi writes the tables, their data, keys and indexes to a SQL file. Views, functions, triggers and permissions are left out."}
           </p>
-          {!sqlite && !nativeTool && tools && <p className={s.tip}>For a complete backup, install {clientTools}; Kiyi uses them automatically.</p>}
+          {!sqlite && !sqlserver && !nativeTool && tools && <p className={s.tip}>For a complete backup, install {clientTools}; Kiyi uses them automatically.</p>}
+          {sqlserver && <p className={s.tip}>For a full SQL Server backup (views, procedures, logins), use BACKUP DATABASE or SqlPackage on the server.</p>}
           {!sqlite && nativeTool && (
             <label className={s.check}>
               <input type="checkbox" checked={preferKiyi} onChange={(e) => setPreferKiyi(e.target.checked)} /> Use Kiyi's own format instead (tables and data only)
@@ -113,7 +115,7 @@ export function BackupView() {
           <p className={s.text}>
             {sqlite
               ? "Runs a SQL script (for example from sqlite3 .dump) against this database, all or nothing. To use a backup copy of the file itself, open it as a connection."
-              : `Runs a backup file against ${dbName}. Backups made by Kiyi restore anywhere${tools?.restore ? `; others use ${tools.restore}` : `; others need ${connection.kind === "postgres" ? "psql" : "the mysql client"}`}.`}
+              : `Runs a backup file against ${dbName}. Backups made by Kiyi restore anywhere${tools?.restore ? `; others use ${tools.restore}` : `; others need ${connection.kind === "postgres" ? "psql" : sqlserver ? "sqlcmd" : "the mysql client"}`}.`}
           </p>
           {connection.readOnly && <p className={s.tip}>This connection is read-only. Turn that off in its settings to restore.</p>}
           {connection.kind === "mysql" && <p className={s.tip}>MySQL can't undo structure changes if a restore stops halfway; restore into an empty database.</p>}

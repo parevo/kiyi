@@ -68,3 +68,13 @@ describe("column layout", () => {
     expect(displayColumns(names, setHidden(moved, "name", false)).map((i) => names[i])).toEqual(["city", "id", "email", "name"]);
   });
 });
+
+describe("SQL Server copy", () => {
+  it("brackets names, uses N'' strings and 1/0 booleans", () => {
+    const cols: ColumnMeta[] = [
+      { name: "full name", typeName: "nvarchar", kind: "text" },
+      { name: "active", typeName: "bit", kind: "bool" },
+    ];
+    expect(formatRows("insert", cols, [["Ayşe", "true"]], { kind: "sqlserver", table: "[dbo].[people]" })).toBe("INSERT INTO [dbo].[people] ([full name], [active]) VALUES (N'Ayşe', 1);");
+  });
+});

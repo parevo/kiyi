@@ -70,3 +70,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: KIYI_LIVE=1 cargo test -p kiyi-core --test live
+      - name: SQL Server
+        run: |
+          docker compose -f dev/docker-compose.yml --profile sqlserver up -d --wait sqlserver
+          docker compose -f dev/docker-compose.yml exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Kiyi_pass1 -b -i /seed/sqlserver.sql
+          KIYI_LIVE_SQLSERVER=1 cargo test -p kiyi-core --test sqlserver_live -- --test-threads=1

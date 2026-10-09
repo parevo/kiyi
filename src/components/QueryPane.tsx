@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { ipc } from "../lib/ipc";
+import { formatterLanguage } from "../lib/dialect";
 import { prettySql, splitStatements } from "../lib/sql";
 import { useConnections } from "../state/connections";
 import { type Tab, useTabs } from "../state/tabs";
@@ -72,7 +73,7 @@ export function QueryPane({ tab }: { tab: Tab }) {
     const req = editor.current?.target(true);
     if (!req?.sql.trim()) return;
     try {
-      const formatted = formatSql(req.sql, { language: connection.kind === "mysql" ? "mysql" : connection.kind === "sqlite" ? "sqlite" : "postgresql", keywordCase: "upper", tabWidth: 2 });
+      const formatted = formatSql(req.sql, { language: formatterLanguage(connection.kind), keywordCase: "upper", tabWidth: 2 });
       editor.current?.replace(req.offset, req.offset + req.sql.length, formatted);
     } catch (e) {
       toast.error(`Couldn't format this SQL: ${errorMessage(e)}`);

@@ -2,6 +2,7 @@ mod engine;
 mod mysql;
 mod postgres;
 mod sqlite;
+mod sqlserver;
 
 use std::sync::Arc;
 
@@ -51,6 +52,12 @@ pub trait DbDriver: Send + Sync {
 
     /// Uses `password` for connections the pool opens from now on (fresh IAM tokens).
     fn set_password(&self, _password: &str) {}
+
+    /// Plan rows for databases whose EXPLAIN needs session settings on one connection
+    /// (SQL Server's SHOWPLAN_TEXT); None means use a plain EXPLAIN query.
+    async fn explain_rows(&self, _sql: &str) -> Option<Result<Vec<Vec<Cell>>>> {
+        None
+    }
 }
 
 pub async fn open(config: &ConnectionConfig, password: Option<&str>) -> Result<Arc<dyn DbDriver>> {
@@ -58,5 +65,6 @@ pub async fn open(config: &ConnectionConfig, password: Option<&str>) -> Result<A
         DbKind::Postgres => Arc::new(postgres::PgDriver::connect(config, password).await?),
         DbKind::Mysql => Arc::new(mysql::MySqlDriver::connect(config, password).await?),
         DbKind::Sqlite => Arc::new(sqlite::SqliteDriver::connect(config).await?),
+        DbKind::Sqlserver => Arc::new(sqlserver::SqlServerDriver::connect(config, password).await?),
     })
 }

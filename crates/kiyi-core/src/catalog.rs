@@ -168,6 +168,59 @@ fn sqlite_types() -> Vec<TypeOption> {
     ]
 }
 
+fn sqlserver_types() -> Vec<TypeOption> {
+    vec![
+        ty!("Text", Text, "nvarchar(max)", "Names, descriptions, addresses: any length of text"),
+        ty!("Short text", Text, "nvarchar(255)", "Up to 255 characters"),
+        ty!("Integer", Number, "int", "Whole numbers up to about ±2 billion"),
+        ty!("Big integer", Number, "bigint", "IDs and very large whole numbers"),
+        ty!("Decimal", Decimal, "float", "Approximate values such as measurements"),
+        ty!("Money / exact number", Decimal, "decimal(12,2)", "Exact amounts, to the cent"),
+        ty!("True / False", Boolean, "bit", "A yes-or-no value"),
+        ty!("Date", Date, "date", "A calendar day"),
+        ty!("Date & time", DateTime, "datetime2", "A date with a time of day"),
+        ty!("Date & time with zone", DateTime, "datetimeoffset", "A moment in time, with its UTC offset"),
+        ty!("Time", Time, "time", "A time of day"),
+        ty!("UUID", Identifier, "uniqueidentifier", "A unique, unguessable identifier"),
+        ty!("JSON", Json, "nvarchar(max)", "Flexible, nested data (stored as text)"),
+        ty!("Binary", Binary, "varbinary(max)", "Raw bytes, such as files"),
+    ]
+}
+
+fn sqlserver_recognise() -> Vec<(&'static str, TypeCategory)> {
+    use TypeCategory::*;
+    vec![
+        ("bit", Boolean),
+        ("tinyint", Number),
+        ("smallint", Number),
+        ("int", Number),
+        ("bigint", Number),
+        ("decimal", Decimal),
+        ("numeric", Decimal),
+        ("money", Decimal),
+        ("smallmoney", Decimal),
+        ("float", Decimal),
+        ("real", Decimal),
+        ("datetimeoffset", DateTime),
+        ("datetime2", DateTime),
+        ("datetime", DateTime),
+        ("smalldatetime", DateTime),
+        ("date", Date),
+        ("time", Time),
+        ("uniqueidentifier", Identifier),
+        ("varbinary", Binary),
+        ("binary", Binary),
+        ("image", Binary),
+        ("nvarchar", Text),
+        ("varchar", Text),
+        ("nchar", Text),
+        ("char", Text),
+        ("ntext", Text),
+        ("text", Text),
+        ("xml", Other),
+    ]
+}
+
 fn sqlite_recognise() -> Vec<(&'static str, TypeCategory)> {
     use TypeCategory::*;
     vec![
@@ -235,11 +288,11 @@ pub fn drivers() -> Vec<DriverInfo> {
         DriverInfo {
             id: "sqlserver",
             name: "SQL Server",
-            kind: None,
+            kind: Some(DbKind::Sqlserver),
             default_port: 1433,
-            url_example: "",
-            types: vec![],
-            recognise: vec![],
+            url_example: "sqlserver://user:password@host:1433/database",
+            types: sqlserver_types(),
+            recognise: sqlserver_recognise(),
         },
     ]
 }

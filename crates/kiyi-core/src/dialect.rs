@@ -18,6 +18,7 @@ impl Dialect {
     pub const POSTGRES: Dialect = Dialect { kind: DbKind::Postgres, backslash_escapes: false };
     pub const MYSQL: Dialect = Dialect { kind: DbKind::Mysql, backslash_escapes: true };
     pub const SQLITE: Dialect = Dialect { kind: DbKind::Sqlite, backslash_escapes: false };
+    pub const SQLSERVER: Dialect = Dialect { kind: DbKind::Sqlserver, backslash_escapes: false };
 
     pub fn is_mysql(self) -> bool {
         self.kind == DbKind::Mysql
@@ -27,10 +28,15 @@ impl Dialect {
         self.kind == DbKind::Sqlite
     }
 
+    pub fn is_sqlserver(self) -> bool {
+        self.kind == DbKind::Sqlserver
+    }
+
     pub fn ident(self, name: &str) -> String {
         match self.kind {
             DbKind::Postgres | DbKind::Sqlite => format!("\"{}\"", name.replace('"', "\"\"")),
             DbKind::Mysql => format!("`{}`", name.replace('`', "``")),
+            DbKind::Sqlserver => format!("[{}]", name.replace(']', "]]")),
         }
     }
 
@@ -43,7 +49,11 @@ impl Dialect {
     }
 
     pub fn string(self, value: &str) -> String {
-        let mut out = String::with_capacity(value.len() + 2);
+        let mut out = String::with_capacity(value.len() + 3);
+        // N'…': Unicode text in SQL Server; a plain '…' would lose characters outside the code page.
+        if self.is_sqlserver() {
+            out.push('N');
+        }
         out.push('\'');
         for c in value.chars() {
             match c {
@@ -63,6 +73,9 @@ impl Dialect {
     pub fn value(self, value: Option<&str>, binary: bool) -> String {
         match value {
             None => "NULL".into(),
+            Some(v) if binary && self.is_sqlserver() && is_hex_literal(v) => {
+                if v.len() == 2 { "0x".into() } else { v.to_string() }
+            }
             Some(v) if binary && !matches!(self.kind, DbKind::Postgres) && is_hex_literal(v) => {
                 if v.len() == 2 { "''".into() } else { format!("X'{}'", &v[2..]) }
             }
@@ -98,6 +111,15 @@ mod tests {
         let no_bs = Dialect { backslash_escapes: false, ..Dialect::MYSQL };
         assert_eq!(no_bs.string(r"a\b"), r"'a\b'");
         assert_eq!(Dialect::MYSQL.string("a\0b"), r"'a\0b'");
+    }
+
+    #[test]
+    fn sql_server_quoting() {
+        let d = Dialect::SQLSERVER;
+        assert_eq!(d.ident("we]ird"), "[we]]ird]");
+        assert_eq!(d.table(Some("dbo"), "t"), "[dbo].[t]");
+        assert_eq!(d.string("Ayşe's"), "N'Ayşe''s'");
+        assert_eq!(d.value(Some("0xDEAD"), true), "0xDEAD");
     }
 
     #[test]

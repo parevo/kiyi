@@ -17,6 +17,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { describeSummary, summarize } from "../lib/aggregate";
 import { type ColumnLayout, displayColumns, moveColumn, setHidden } from "../lib/columnLayout";
 import { COPY_FORMATS, type CopyFormat, formatRows } from "../lib/copyAs";
+import { quoteIdent } from "../lib/dialect";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { BrowseRequest, Cell, ColumnMeta, ConnectionConfig, ErrorInfo, Filter, ForeignKeyDesign, RowChange, Sort, TableDetails } from "../lib/types";
 import { driverFor, useCatalog } from "../state/catalog";
@@ -364,7 +365,7 @@ export const TableData = forwardRef<TableDataHandle, Props>(function TableData(
       format,
       cols,
       rowIndices.map((r) => shown.map((i) => valueAt(i, r))),
-      { kind: connection.kind, table: [schema, design.name].filter(Boolean).map((p) => (connection.kind === "mysql" ? `\`${p}\`` : `"${p}"`)).join(".") },
+      { kind: connection.kind, table: [schema, design.name].filter((p): p is string => !!p).map((p) => quoteIdent(connection.kind, p)).join(".") },
     );
     navigator.clipboard.writeText(text).then(
       () => toast.success(rowIndices.length === 1 ? "Copied 1 row" : `Copied ${rowIndices.length} rows`),

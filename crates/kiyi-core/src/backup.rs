@@ -148,7 +148,8 @@ pub async fn backup(driver: &dyn DbDriver, target: &Target, path: &Path, prefer_
         let tables = driver.schema().await?.schemas.iter().map(|s| s.tables.len()).sum();
         return Ok(BackupReport { method: BackupMethod::Native, tool: "SQLite".into(), tables, rows: None, bytes: std::fs::metadata(path)?.len(), note: None });
     }
-    let tool = if prefer_kiyi { None } else { crate::tunnel::find_tool(if kind == DbKind::Postgres { "pg_dump" } else { "mysqldump" }) };
+    // SQL Server has no dump tool that writes a runnable script; Kiyi's own format is used there.
+    let tool = if prefer_kiyi || kind == DbKind::Sqlserver { None } else { crate::tunnel::find_tool(if kind == DbKind::Postgres { "pg_dump" } else { "mysqldump" }) };
     if let Some(tool) = tool {
         let snapshot = driver.schema().await?;
         // MySQL lists every database the user can see; count the connected one.
@@ -228,6 +229,12 @@ async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport>
                 }
             }
             design::portable_serials(d, &mut des);
+            if d.is_sqlserver() {
+                // rowversion/timestamp values are set by the server and can't be inserted.
+                for c in des.columns.iter_mut().filter(|c| matches!(c.data_type.to_ascii_lowercase().as_str(), "timestamp" | "rowversion")) {
+                    c.generated = true;
+                }
+            }
             designs.push((if d.is_mysql() { None } else { schema.clone() }, des));
         }
     }
@@ -241,6 +248,17 @@ async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport>
     if d.is_mysql() {
         // Data goes in before the foreign keys that check it.
         statement("SET FOREIGN_KEY_CHECKS = 0")?;
+    }
+
+    // SQL Server schemas other than dbo have to exist before their tables.
+    if d.is_sqlserver() {
+        let mut made: Vec<&str> = Vec::new();
+        for (schema, _) in &designs {
+            if let Some(sc) = schema.as_deref().filter(|s| *s != "dbo" && !made.contains(s)) {
+                made.push(sc);
+                statement(&format!("IF SCHEMA_ID({}) IS NULL EXEC({})", d.string(sc), d.string(&format!("CREATE SCHEMA {}", d.ident(sc)))))?;
+            }
+        }
     }
 
     // Postgres enum types the tables use.
@@ -276,6 +294,11 @@ async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport>
         let table = d.table(schema.as_deref(), &des.name);
         let generated: Vec<&str> = des.columns.iter().filter(|c| c.generated).map(|c| c.name.as_str()).collect();
         let identity = d.kind == DbKind::Postgres && des.columns.iter().any(|c| c.auto_increment);
+        // SQL Server only takes explicit values for an identity column with IDENTITY_INSERT on.
+        let identity_insert = d.is_sqlserver() && des.columns.iter().any(|c| c.auto_increment);
+        if identity_insert {
+            statement(&format!("SET IDENTITY_INSERT {table} ON"))?;
+        }
         let pending = Mutex::new(Pending::default());
         let failure: Mutex<Option<std::io::Error>> = Mutex::new(None);
         let flush = |p: &mut Pending| {
@@ -319,6 +342,9 @@ async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport>
             return Err(e.into());
         }
         total_rows += rows.into_inner().unwrap();
+        if identity_insert {
+            statement(&format!("SET IDENTITY_INSERT {table} OFF"))?;
+        }
         if identity {
             for c in des.columns.iter().filter(|c| c.auto_increment) {
                 let col = d.ident(&c.name);
@@ -407,6 +433,17 @@ pub async fn restore(driver: &dyn DbDriver, target: &Target, path: &Path) -> Res
             let _ = std::fs::remove_file(&cleaned);
             result
         }
+        DbKind::Sqlserver => {
+            let sqlcmd = crate::tunnel::find_tool("sqlcmd").ok_or_else(|| Error::Invalid("Restoring this file needs sqlcmd (Microsoft's command-line tools). Install it, or restore a backup made by Kiyi.".into()))?;
+            let mut args = vec!["-S".into(), format!("{},{}", target.config.host, target.config.port), "-U".into(), target.config.user.clone(), "-d".into(), database(target), "-i".into(), path.display().to_string(), "-b".into()];
+            if !matches!(target.config.ssl_mode, SslMode::VerifyCa | SslMode::VerifyFull) {
+                // Same trust as the connection itself: encrypted, certificate not checked.
+                args.push("-C".into());
+            }
+            let env: Vec<(String, String)> = target.password.iter().map(|p| ("SQLCMDPASSWORD".to_string(), p.clone())).collect();
+            run_tool(&sqlcmd, &args, &env, None).await?;
+            Ok(RestoreReport { tool: "sqlcmd".into(), statements: None })
+        }
         DbKind::Sqlite => {
             // A plain .sql file (e.g. from `sqlite3 .dump`): split and run it in one transaction.
             let text = std::fs::read_to_string(path).map_err(|e| Error::Invalid(format!("Couldn't read the file: {e}")))?;
@@ -483,6 +520,7 @@ pub fn tools(config: &ConnectionConfig, today: &str) -> BackupTools {
         DbKind::Postgres => (found("pg_dump"), found("psql")),
         DbKind::Mysql => (found("mysqldump"), found("mysql")),
         DbKind::Sqlite => (Some("SQLite".to_string()), Some("SQLite".to_string())),
+        DbKind::Sqlserver => (None, found("sqlcmd")),
     };
     BackupTools { backup, restore, suggested_name: suggested_name(config, today) }
 }

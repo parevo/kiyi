@@ -1,11 +1,11 @@
-import { MySQL, PostgreSQL, SQLite } from "@codemirror/lang-sql";
+import { MSSQL, MySQL, PostgreSQL, SQLite } from "@codemirror/lang-sql";
 import { classHighlighter, highlightCode } from "@lezer/highlight";
 import type { ReactNode } from "react";
 import type { DbKind } from "./types";
 
 /** Renders SQL as highlighted spans without an editor instance. */
 export function HighlightedSql({ sql, kind }: { sql: string; kind: DbKind }) {
-  const dialect = kind === "mysql" ? MySQL : kind === "sqlite" ? SQLite : PostgreSQL;
+  const dialect = kind === "mysql" ? MySQL : kind === "sqlite" ? SQLite : kind === "sqlserver" ? MSSQL : PostgreSQL;
   const tree = dialect.language.parser.parse(sql);
   const out: ReactNode[] = [];
   highlightCode(

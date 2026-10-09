@@ -70,8 +70,26 @@ FROM sqlite_master m JOIN pragma_table_info(m.name) t WHERE m.type = 'table' AND
 ORDER BY 2, 3, 4, 9
 "#;
 
+/// One row per key column, like MySQL's.
+const SQLSERVER: &str = r#"
+SELECT s.name, t.name, 'p', i.name, c.name, NULL, NULL, NULL
+FROM sys.indexes i JOIN sys.tables t ON t.object_id = i.object_id JOIN sys.schemas s ON s.schema_id = t.schema_id
+JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+WHERE i.is_primary_key = 1
+UNION ALL
+SELECT s.name, t.name, 'f', fk.name, pc.name, SCHEMA_NAME(rt.schema_id), rt.name, rc.name
+FROM sys.foreign_keys fk JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+JOIN sys.tables t ON t.object_id = fk.parent_object_id JOIN sys.schemas s ON s.schema_id = t.schema_id
+JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
+JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+ORDER BY 1, 2, 3, 4
+"#;
+
 pub fn graph_sql(kind: DbKind) -> &'static str {
     match kind {
+        DbKind::Sqlserver => SQLSERVER,
         DbKind::Postgres => POSTGRES,
         DbKind::Mysql => MYSQL,
         DbKind::Sqlite => SQLITE,

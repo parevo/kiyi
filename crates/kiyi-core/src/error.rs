@@ -27,6 +27,12 @@ pub enum Error {
     Script { index: usize, source: Box<Error> },
     #[error("Expected to change 1 row but {0} were affected. Someone may have changed or deleted it in the meantime.")]
     RowMismatch(u64),
+    /// An error from SQL Server, with its error number.
+    #[error("{message}")]
+    Mssql { code: u32, message: String },
+    /// The query was stopped on request.
+    #[error("The query was cancelled.")]
+    Cancelled,
 }
 
 /// What the UI receives: a human message plus an optional machine code
@@ -59,6 +65,7 @@ impl From<&Error> for ErrorInfo {
                 }
             }
             Error::Script { index, source } => ErrorInfo { statement_index: Some(*index), ..ErrorInfo::from(&**source) },
+            Error::Mssql { code, message } => ErrorInfo { message: message.clone(), code: Some(code.to_string()), position: None, statement_index: None },
             other => ErrorInfo { message: other.to_string(), code: None, position: None, statement_index: None },
         }
     }
@@ -98,6 +105,8 @@ pub fn explain_connect_error(err: &Error) -> String {
             }
         }
         Error::Db(sqlx::Error::Tls(e)) => format!("TLS/SSL error: {e}"),
+        Error::Mssql { code: 18456, .. } => "The username or password is incorrect.".into(),
+        Error::Mssql { code: 4060, .. } => "That database does not exist, or this user can't open it. Check its name.".into(),
         Error::Db(sqlx::Error::PoolTimedOut) | Error::Timeout(_) => {
             "The server did not respond in time. Check network access (VPN, firewall, security group).".into()
         }
@@ -109,11 +118,12 @@ pub fn explain_connect_error(err: &Error) -> String {
 pub(crate) fn is_missing_table(e: &Error) -> bool {
     match e {
         Error::Db(sqlx::Error::Database(db)) => matches!(db.code().as_deref(), Some("42P01") | Some("1146")) || db.message().contains("no such table"),
+        Error::Mssql { code: 208, .. } => true,
         _ => false,
     }
 }
 
 /// True when the error is the server confirming a user-requested cancel.
 pub(crate) fn is_cancel_error(err: &Error) -> bool {
-    matches!(err, Error::Db(sqlx::Error::Database(db)) if matches!(db.code().as_deref(), Some("57014") | Some("1317")))
+    matches!(err, Error::Cancelled) || matches!(err, Error::Db(sqlx::Error::Database(db)) if matches!(db.code().as_deref(), Some("57014") | Some("1317")))
 }

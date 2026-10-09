@@ -1,7 +1,7 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
-import { MySQL, PostgreSQL, SQLite, sql, type SQLNamespace } from "@codemirror/lang-sql";
+import { MSSQL, MySQL, PostgreSQL, SQLite, sql, type SQLNamespace } from "@codemirror/lang-sql";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
 import {
@@ -101,7 +101,7 @@ function completionSchema(schema: SchemaSnapshot | undefined): SQLNamespace {
 
 function language(kind: DbKind, schema: SchemaSnapshot | undefined) {
   return sql({
-    dialect: kind === "mysql" ? MySQL : kind === "sqlite" ? SQLite : PostgreSQL,
+    dialect: kind === "mysql" ? MySQL : kind === "sqlite" ? SQLite : kind === "sqlserver" ? MSSQL : PostgreSQL,
     schema: completionSchema(schema),
     defaultSchema: schema?.defaultSchema ?? undefined,
     upperCaseKeywords: true,

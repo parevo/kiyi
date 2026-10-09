@@ -19,9 +19,16 @@ fn engine(d: Dialect) -> &'static str {
         "MySQL"
     } else if d.is_sqlite() {
         "SQLite"
+    } else if d.is_sqlserver() {
+        "SQL Server (T-SQL: TOP instead of LIMIT, [brackets] for names)"
     } else {
         "PostgreSQL"
     }
+}
+
+/// How to cap a list in this dialect, for the instructions.
+fn limit_hint(d: Dialect) -> &'static str {
+    if d.is_sqlserver() { "SELECT TOP 100" } else { "LIMIT 100" }
 }
 
 /// `schema.table(column type, …)` lines, tables mentioned in `hint` first, within the budget.
@@ -115,14 +122,15 @@ pub async fn ask(p: &AiProvider, key: Option<&str>, d: Dialect, snapshot: &Schem
          that a person can run to see the answer. The person may not know SQL and may write in any language.\n\n\
          Use only tables and columns from the schema. Prefer readable column aliases in the person's language. \
          Aggregate when the question asks for totals, counts, rankings or trends; order results meaningfully; \
-         add LIMIT 100 to lists unless the question asks for everything. Never modify data. \
+         add {limit} to lists unless the question asks for everything. Never modify data. \
          Write dates relative to today when the question says \"last month\" and similar.\n\n\
          `explanation`: one short sentence in the person's language saying what the result shows.\n\
          `chart`: how to draw the result. kind: line for trends over time, bar for comparing categories, \
          pie only for parts of a whole with at most 6 parts, number for a single value, none for plain lists. \
          x: the result column for categories or time (empty for number/none). y: the result columns with the numbers.\n\n\
          If the question can't be answered from this schema, return an empty sql and say why in explanation.",
-        engine = engine(d)
+        engine = engine(d),
+        limit = limit_hint(d)
     );
     let user = format!("Schema:\n{}\nToday is {today}.\n\nQuestion: {question}", describe_schema(snapshot, question));
     let text = complete_json(p, key, &system, &user, &ask_schema()).await?;

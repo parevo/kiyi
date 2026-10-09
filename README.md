@@ -35,7 +35,11 @@ Most database tools are built for people who already think in SQL. Kiyi is built
 - **Design tables without DDL.** Types in plain terms ("Money / exact number"), required and unique rules, defaults, relationships and indexes. Kiyi writes the right `ALTER` statements for your database, in the right order.
 - **Reach private databases.** SSH tunnels through a bastion (password, key file or ssh-agent, hosts picked from `~/.ssh/config`, jump hosts), AWS SSM port forwarding, Kubernetes `port-forward` and the Cloud SQL Auth Proxy, with every step of the connection test explained. Sign in to RDS with IAM, verify SSL against your own CA (the Amazon RDS bundle is fetched for you), or connect over a Unix socket. Databases running locally or in Docker are found automatically.
 - **Safe on production.** Production connections are read-only by default, edits wait for an explicit Save, and destructive changes are explained in plain language before they run.
-- **Import and export.** Any view to CSV or JSON; CSV in with column matching, in one all-or-nothing transaction.
+- **Ask questions, get charts.** "Monthly revenue this year" becomes a query you can see, run as a chart. AI also writes, explains and fixes SQL in the editor.
+- **Charts and summaries.** Any result as bars, a line, a pie or a single figure; group a table by any column (dates by day, month or year) without SQL.
+- **Import and export.** Excel, CSV and JSON out, from any view or query; Excel and CSV in (Turkish and other Excel encodings detected), batched, all or nothing.
+- **Work faster.** ⌘K to jump anywhere, query history and saved queries, saved table views, hidden/frozen/reordered columns, copy rows as CSV, Markdown, JSON or INSERTs, find and replace across a column.
+- **See and protect the whole database.** A schema diagram, readable query plans, backups and restores, and comparing two databases with the SQL that would align them.
 - **Developer mode.** The SQL behind every action, raw column types, and a SQL editor with schema-aware autocomplete.
 
 Passwords and API keys live in the system keychain. No account, no telemetry.
@@ -66,7 +70,7 @@ Download the latest version for **macOS** (Apple Silicon or Intel) or **Windows*
 | MySQL      | Supported   |
 | MariaDB    | Supported   |
 | SQLite     | Supported   |
-| SQL Server | Coming next |
+| SQL Server | Supported (2017 and later, Azure SQL) |
 
 New engines plug in through a driver and an entry in `crates/kiyi-core/src/catalog.rs`; the app itself doesn't change.
 
@@ -105,6 +109,18 @@ Test connections:
 | `postgres://kiyi:kiyi@localhost:55432/demo` | The "Acme Store" used for screenshots    |
 
 To try an SSH tunnel, use host `127.0.0.1`, port `52222`, user and password `kiyi`, and `postgres:5432` as the database host.
+
+### SQL Server
+
+SQL Server is optional in the dev setup (it's large and emulated on Apple Silicon):
+
+```sh
+docker compose -f dev/docker-compose.yml --profile sqlserver up -d --wait
+docker compose -f dev/docker-compose.yml exec sqlserver /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Kiyi_pass1 -i /seed/sqlserver.sql
+KIYI_LIVE_SQLSERVER=1 cargo test -p kiyi-core --test sqlserver_live
+```
+
+Connect in the app with `sqlserver://sa:Kiyi_pass1@localhost:51433/kiyi_test`. SQL Server has no read-only session setting, so Kiyi enforces read-only connections itself.
 
 ### Tests
 

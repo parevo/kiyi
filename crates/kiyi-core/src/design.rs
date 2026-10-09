@@ -164,6 +164,16 @@ pub fn validate(design: &TableDesign) -> Result<(), String> {
 
 fn column_def(d: Dialect, c: &ColumnDesign) -> String {
     let mut sql = format!("{} {}", d.ident(&c.name), c.data_type.trim());
+    if d.is_sqlserver() {
+        if c.auto_increment {
+            sql.push_str(" IDENTITY(1,1)");
+        }
+        sql.push_str(if c.nullable && !c.auto_increment { " NULL" } else { " NOT NULL" });
+        if let Some(def) = c.default.as_deref().filter(|_| !c.auto_increment) {
+            sql.push_str(&format!(" DEFAULT {def}"));
+        }
+        return sql;
+    }
     if d.is_sqlite() {
         // SQLite's auto-increment is an INTEGER PRIMARY KEY declared on the column itself.
         if c.auto_increment {
@@ -217,6 +227,119 @@ pub fn portable_serials(d: Dialect, des: &mut TableDesign) {
         c.auto_increment = true;
         c.default = None;
     }
+}
+
+/// `schema.table` as sp_rename and OBJECT_ID expect it (each part bracketed).
+fn qualified(schema: Option<&str>, table: &str) -> String {
+    let br = |s: &str| format!("[{}]", s.replace(']', "]]"));
+    match schema {
+        Some(s) if !s.is_empty() => format!("{}.{}", br(s), br(table)),
+        _ => br(table),
+    }
+}
+
+fn sp_rename(d: Dialect, object: &str, to: &str, kind: Option<&str>) -> String {
+    match kind {
+        Some(k) => format!("EXEC sp_rename {}, {}, {}", d.string(object), d.string(to), d.string(k)),
+        None => format!("EXEC sp_rename {}, {}", d.string(object), d.string(to)),
+    }
+}
+
+/// SQL Server keeps a column's default in a named constraint; it has to go before the column
+/// changes type or is dropped. The name is looked up when the statement runs.
+fn drop_default_sqlserver(d: Dialect, object: &str, column: &str) -> String {
+    format!(
+        "DECLARE @df sysname = (SELECT dc.name FROM sys.default_constraints dc JOIN sys.columns c ON c.default_object_id = dc.object_id \
+         WHERE dc.parent_object_id = OBJECT_ID({obj}) AND c.name = {col}); \
+         IF @df IS NOT NULL EXEC(N'ALTER TABLE ' + {objq} + N' DROP CONSTRAINT [' + @df + N']')",
+        obj = d.string(object),
+        col = d.string(column),
+        objq = d.string(object)
+    )
+}
+
+fn plan_alter_sqlserver(d: Dialect, schema: Option<&str>, old: &TableDesign, new: &TableDesign) -> Result<Vec<String>, String> {
+    let table = d.table(schema, &old.name);
+    let object = qualified(schema, &old.name);
+    let alter = |clause: String| format!("ALTER TABLE {table} {clause}");
+    let mut out = Vec::new();
+    let renames: HashMap<&str, &str> = new.columns.iter().filter_map(|c| c.original.as_deref().map(|o| (o, c.name.as_str()))).collect();
+    let map_cols = |cols: &[String]| -> Option<Vec<String>> { cols.iter().map(|c| renames.get(c.as_str()).map(|n| n.to_string())).collect() };
+    let kept_fk = |f: &ForeignKeyDesign| {
+        new.foreign_keys.iter().any(|n| {
+            n.original.as_deref() == Some(&f.name)
+                && n.name == f.name
+                && map_cols(&f.columns).as_ref() == Some(&n.columns)
+                && n.ref_table == f.ref_table
+                && n.ref_columns == f.ref_columns
+                && n.on_delete == f.on_delete
+                && n.on_update == f.on_update
+        })
+    };
+    let kept_index = |i: &IndexDesign| new.indexes.iter().any(|n| n.original.as_deref() == Some(&i.name) && n.name == i.name && n.unique == i.unique && map_cols(&i.columns).as_ref() == Some(&n.columns));
+
+    for f in old.foreign_keys.iter().filter(|f| !kept_fk(f)) {
+        out.push(alter(format!("DROP CONSTRAINT {}", d.ident(&f.name))));
+    }
+    for i in old.indexes.iter().filter(|i| !kept_index(i)) {
+        out.push(if i.is_constraint { alter(format!("DROP CONSTRAINT {}", d.ident(&i.name))) } else { format!("DROP INDEX {} ON {table}", d.ident(&i.name)) });
+    }
+    let (old_pk, new_pk) = (old.primary_key(), new.primary_key());
+    let pk_changed = map_cols(&old_pk).as_ref() != Some(&new_pk);
+    if pk_changed && !old_pk.is_empty() {
+        let name = old.primary_key_name.clone().unwrap_or_else(|| format!("PK_{}", old.name));
+        out.push(alter(format!("DROP CONSTRAINT {}", d.ident(&name))));
+    }
+    let survivors: HashSet<&str> = renames.keys().copied().collect();
+    for c in old.columns.iter().filter(|c| !survivors.contains(c.name.as_str())) {
+        if c.default.is_some() {
+            out.push(drop_default_sqlserver(d, &object, &c.name));
+        }
+        out.push(alter(format!("DROP COLUMN {}", d.ident(&c.name))));
+    }
+    let olds: HashMap<&str, &ColumnDesign> = old.columns.iter().map(|c| (c.name.as_str(), c)).collect();
+    for c in &new.columns {
+        match c.original.as_deref().and_then(|o| olds.get(o).copied()) {
+            Some(o) if !c.generated => {
+                if o.auto_increment != c.auto_increment {
+                    return Err(format!("SQL Server can't add or remove IDENTITY on an existing column (\"{}\"). Add a new column instead.", c.name));
+                }
+                if o.name != c.name {
+                    out.push(sp_rename(d, &format!("{object}.[{}]", o.name.replace(']', "]]")), &c.name, Some("COLUMN")));
+                }
+                let col = d.ident(&c.name);
+                let default_changed = o.default != c.default;
+                if default_changed && o.default.is_some() {
+                    out.push(drop_default_sqlserver(d, &object, &c.name));
+                }
+                if o.data_type != c.data_type || o.nullable != c.nullable {
+                    out.push(alter(format!("ALTER COLUMN {col} {} {}", c.data_type.trim(), if c.nullable { "NULL" } else { "NOT NULL" })));
+                }
+                if default_changed {
+                    if let Some(def) = &c.default {
+                        out.push(alter(format!("ADD DEFAULT {def} FOR {col}")));
+                    }
+                }
+            }
+            Some(_) => {}
+            None => out.push(alter(format!("ADD {}", column_def(d, c)))),
+        }
+    }
+    if pk_changed && !new_pk.is_empty() {
+        out.push(alter(format!("ADD CONSTRAINT {} PRIMARY KEY ({})", d.ident(&format!("PK_{}", new.name)), d.ident_list(&new_pk))));
+    }
+    let old_index_names: HashSet<&str> = old.indexes.iter().filter(|i| kept_index(i)).map(|i| i.name.as_str()).collect();
+    for i in new.indexes.iter().filter(|i| !i.original.as_deref().is_some_and(|o| old_index_names.contains(o))) {
+        out.push(create_index(d, schema, &old.name, i));
+    }
+    let old_fk_names: HashSet<&str> = old.foreign_keys.iter().filter(|f| kept_fk(f)).map(|f| f.name.as_str()).collect();
+    for f in new.foreign_keys.iter().filter(|f| !f.original.as_deref().is_some_and(|o| old_fk_names.contains(o))) {
+        out.push(alter(format!("ADD {}", fk_def(d, schema, f))));
+    }
+    if new.name != old.name {
+        out.push(sp_rename(d, &object, &new.name, None));
+    }
+    Ok(out)
 }
 
 pub(crate) fn fk_def(d: Dialect, schema: Option<&str>, f: &ForeignKeyDesign) -> String {
@@ -333,6 +456,9 @@ pub fn plan_alter(d: Dialect, schema: Option<&str>, old: &TableDesign, new: &Tab
     validate(new)?;
     if d.is_sqlite() {
         return plan_alter_sqlite(d, schema, old, new);
+    }
+    if d.is_sqlserver() {
+        return plan_alter_sqlserver(d, schema, old, new);
     }
     let table = d.table(schema, &old.name);
     let alter = |clause: String| format!("ALTER TABLE {table} {clause}");
@@ -503,6 +629,9 @@ pub enum TableAction {
 
 pub fn plan_action(d: Dialect, schema: Option<&str>, table: &str, is_view: bool, action: &TableAction) -> Vec<String> {
     let t = d.table(schema, table);
+    if let (true, TableAction::Rename { to }) = (d.is_sqlserver(), action) {
+        return vec![sp_rename(d, &qualified(schema, table), to, None)];
+    }
     vec![match action {
         TableAction::Drop if is_view => format!("DROP VIEW {t}"),
         TableAction::Drop => format!("DROP TABLE {t}"),

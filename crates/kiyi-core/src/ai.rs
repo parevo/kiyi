@@ -440,7 +440,15 @@ const OPS: &[&str] =
     &["eq", "ne", "lt", "gt", "le", "ge", "contains", "notContains", "startsWith", "endsWith", "isNull", "notNull", "in"];
 
 fn system_prompt(d: Dialect) -> String {
-    let engine = if d.is_mysql() { "MySQL" } else if d.is_sqlite() { "SQLite" } else { "PostgreSQL" };
+    let engine = if d.is_mysql() {
+        "MySQL"
+    } else if d.is_sqlite() {
+        "SQLite"
+    } else if d.is_sqlserver() {
+        "SQL Server (T-SQL)"
+    } else {
+        "PostgreSQL"
+    };
     format!(
         "You turn a person's request about one database table into filters for a data browser. \
          The person may not know SQL and may write in any language.\n\n\

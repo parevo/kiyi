@@ -1,10 +1,11 @@
 import { format } from "sql-formatter";
+import { formatterLanguage } from "./dialect";
 import type { DbKind } from "./types";
 
 /** SQL laid out readably (keywords upper case, one clause per line); unchanged if it can't be parsed. */
 export function prettySql(sql: string, kind: DbKind): string {
   try {
-    return format(sql, { language: kind === "mysql" ? "mysql" : kind === "sqlite" ? "sqlite" : "postgresql", keywordCase: "upper", tabWidth: 2 });
+    return format(sql, { language: formatterLanguage(kind), keywordCase: "upper", tabWidth: 2 });
   } catch {
     return sql;
   }

@@ -1,3 +1,4 @@
+import { quoteIdent } from "./dialect";
 import type { Cell, ColumnMeta, DbKind } from "./types";
 
 export type CopyFormat = "tsv" | "csv" | "markdown" | "json" | "insert";
@@ -15,15 +16,16 @@ function csvField(v: Cell, sep: string): string {
   return v.includes(sep) || v.includes('"') || v.includes("\n") || v.includes("\r") ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
-const ident = (kind: DbKind, name: string) => (kind === "mysql" ? `\`${name.replace(/`/g, "``")}\`` : `"${name.replace(/"/g, '""')}"`);
+const ident = quoteIdent;
 
 function literal(kind: DbKind, col: ColumnMeta, v: Cell): string {
   if (v === null) return "NULL";
   if (col.kind === "number" && /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(v)) return v;
-  if (col.kind === "bool" && (v === "true" || v === "false")) return kind === "mysql" ? (v === "true" ? "1" : "0") : v.toUpperCase();
+  if (col.kind === "bool" && (v === "true" || v === "false")) return kind === "mysql" || kind === "sqlserver" ? (v === "true" ? "1" : "0") : v.toUpperCase();
   let s = v.replace(/'/g, "''");
   if (kind === "mysql") s = s.replace(/\\/g, "\\\\");
-  return `'${s}'`;
+  // N'…' keeps Unicode text intact in SQL Server.
+  return kind === "sqlserver" ? `N'${s}'` : `'${s}'`;
 }
 
 function jsonValue(col: ColumnMeta, v: Cell): unknown {

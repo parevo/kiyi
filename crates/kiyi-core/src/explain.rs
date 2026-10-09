@@ -38,6 +38,8 @@ pub fn explain_sql(kind: DbKind, sql: &str) -> String {
         DbKind::Postgres => format!("EXPLAIN (FORMAT JSON) {sql}"),
         DbKind::Mysql => format!("EXPLAIN FORMAT=TREE {sql}"),
         DbKind::Sqlite => format!("EXPLAIN QUERY PLAN {sql}"),
+        // Run with SHOWPLAN_TEXT on (see the driver); the statement itself is sent as is.
+        DbKind::Sqlserver => sql.to_string(),
     }
 }
 
@@ -193,6 +195,44 @@ pub fn from_mysql_classic(columns: &[String], rows: &[Vec<Cell>]) -> Result<Plan
     })
 }
 
+// ---- SQL Server
+
+/// SHOWPLAN_TEXT rows: `|--Operator(arguments)`, nested by how far `|--` is indented.
+pub fn from_sqlserver_text(rows: &[Vec<Cell>]) -> Result<PlanNode, String> {
+    let mut stack: Vec<(usize, PlanNode)> = Vec::new();
+    let mut roots: Vec<PlanNode> = Vec::new();
+    for line in rows.iter().filter_map(|r| r.first().cloned().flatten()) {
+        let Some(at) = line.find("|--") else { continue };
+        let depth = line[..at].chars().count();
+        let body = line[at + 3..].trim();
+        let (op, args) = match body.find('(') {
+            Some(i) => (body[..i].trim(), Some(body[i + 1..].trim_end_matches(')').to_string())),
+            None => (body, None),
+        };
+        // OBJECT:([db].[schema].[table].[index]) names the table a scan reads.
+        let table = args.as_deref().and_then(|a| a.split("OBJECT:(").nth(1)).and_then(|o| o.split('.').nth(2)).map(|t| t.trim_matches(|c| c == '[' || c == ']').to_string());
+        let scan = matches!(op, "Table Scan" | "Clustered Index Scan") && args.as_deref().is_some_and(|a| !a.contains("SEEK:"));
+        let label = match &table {
+            Some(t) => format!("{op} on {t}"),
+            None => op.to_string(),
+        };
+        let node = PlanNode { label, detail: args, warning: if scan { table.map(|t| scan_warning(&t)) } else { None }, ..Default::default() };
+        while let Some((d, _)) = stack.last() {
+            if *d >= depth {
+                let (_, done) = stack.pop().unwrap();
+                attach(&mut stack, &mut roots, done);
+            } else {
+                break;
+            }
+        }
+        stack.push((depth, node));
+    }
+    while let Some((_, done)) = stack.pop() {
+        attach(&mut stack, &mut roots, done);
+    }
+    single_root(roots)
+}
+
 // ---- SQLite
 
 /// `EXPLAIN QUERY PLAN` rows: id, parent, notused, detail.
@@ -247,6 +287,19 @@ mod tests {
         assert_eq!(scan.label, "Table scan on orders");
         assert_eq!(scan.rows, Some(10000.0));
         assert!(scan.warning.is_some());
+    }
+
+    #[test]
+    fn sql_server_plans_nest_by_indentation() {
+        let row = |s: &str| vec![Some(s.to_string())];
+        let plan = from_sqlserver_text(&[
+            row("  |--Sort(ORDER BY:([o].[total] DESC))"),
+            row("       |--Clustered Index Scan(OBJECT:([shop].[dbo].[orders].[PK_orders] AS [o]), WHERE:([o].[total]>(100)))"),
+        ])
+        .unwrap();
+        assert_eq!(plan.label, "Sort");
+        assert_eq!(plan.children[0].label, "Clustered Index Scan on orders");
+        assert!(plan.children[0].warning.is_some());
     }
 
     #[test]

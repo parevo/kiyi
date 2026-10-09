@@ -10,6 +10,8 @@ pub enum DbKind {
     Mysql,
     /// A database file; `database` holds its path.
     Sqlite,
+    /// Microsoft SQL Server and Azure SQL.
+    Sqlserver,
 }
 
 impl DbKind {
@@ -18,6 +20,7 @@ impl DbKind {
             DbKind::Postgres => 5432,
             DbKind::Mysql => 3306,
             DbKind::Sqlite => 0,
+            DbKind::Sqlserver => 1433,
         }
     }
 }
@@ -195,11 +198,13 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
     let url = Url::parse(input).map_err(|e| Error::InvalidUrl(e.to_string()))?;
     let driver = match url.scheme() {
         "postgresql" => "postgres",
+        "mssql" => "sqlserver",
         other => other,
     };
     let kind = match url.scheme() {
         "postgres" | "postgresql" => DbKind::Postgres,
         "mysql" | "mariadb" => DbKind::Mysql,
+        "sqlserver" | "mssql" => DbKind::Sqlserver,
         other => return Err(Error::InvalidUrl(format!("unsupported scheme: {other}"))),
     };
     // libpq-style `?host=/tmp` (or MySQL's `?socket=`) points at a Unix socket.
