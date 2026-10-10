@@ -115,6 +115,20 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         "backup" => ws.backup(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), arg(a, "preferKiyi")?).await.map(ok).unwrap_or_else(fail),
         "restore" => ws.restore(&id()?, std::path::Path::new(&arg::<String>(a, "path")?)).await.map(ok).unwrap_or_else(fail),
         "schema_graph" => ws.schema_graph(&id()?).await.map(ok).unwrap_or_else(fail),
+        "list_objects" => ws.objects(&id()?).await.map(ok).unwrap_or_else(fail),
+        "object_source" => ws.object_source(&id()?, &arg(a, "object")?).await.map(ok).unwrap_or_else(fail),
+        "object_template" => {
+            let schema: Option<String> = arg(a, "schema")?;
+            ws.object_template(&id()?, arg(a, "kind")?, schema.as_deref()).map(ok).unwrap_or_else(fail)
+        }
+        "export_connections" => ws.export_connections(&arg::<Vec<String>>(a, "ids")?, std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
+        "import_connections" => ws.import_connections(std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
+        "create_sample" => ws.create_sample().await.map(ok).unwrap_or_else(fail),
+        "take_crash_report" => ok(Option::<String>::None),
+        "open_issue" => {
+            println!("open_issue: {}", arg::<String>(a, "title")?);
+            ok(())
+        }
         "explain" => ws.explain(&id()?, &arg::<String>(a, "sql")?).await.map(ok).unwrap_or_else(fail),
         "check_sql" => ws.check_sql(&id()?, &arg::<String>(a, "sql")?).map(ok).unwrap_or_else(fail),
         "ai_filters" => {

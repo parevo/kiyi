@@ -217,3 +217,67 @@ async fn sql_server_backup_restores_and_compares_equal() {
     master.execute_script(&[format!("ALTER DATABASE {fresh} SET SINGLE_USER WITH ROLLBACK IMMEDIATE"), format!("DROP DATABASE {fresh}")], false, false).await.unwrap();
     let _ = std::fs::remove_file(&path);
 }
+
+#[tokio::test]
+async fn objects_definitions_and_drops() {
+    use kiyi_core::objects::{self, ObjectKind};
+    if !live() {
+        return;
+    }
+    let db = open("kiyi_test").await;
+    // As the SQL editor runs them: each script as one plain batch.
+    let run = |sql: &str| {
+        let db = db.clone();
+        let sql = sql.to_string();
+        async move { db.execute(&sql, &|_| {}, &|_| {}).await.unwrap_or_else(|e| panic!("{sql}: {e}")) }
+    };
+    for sql in [
+        "DROP TRIGGER IF EXISTS dbo.obj_touch",
+        "DROP TABLE IF EXISTS dbo.obj_notes",
+        "DROP FUNCTION IF EXISTS dbo.obj_add",
+        "DROP PROCEDURE IF EXISTS dbo.obj_clean",
+        "DROP SEQUENCE IF EXISTS dbo.obj_invoice",
+        "DROP USER IF EXISTS obj_reader",
+        "CREATE TABLE dbo.obj_notes (id int IDENTITY PRIMARY KEY, body nvarchar(100), updated_at datetime2)",
+        "CREATE FUNCTION dbo.obj_add(@a int, @b int) RETURNS int AS BEGIN RETURN @a + @b; END",
+        "CREATE PROCEDURE dbo.obj_clean @days int AS SELECT @days",
+        "CREATE TRIGGER dbo.obj_touch ON dbo.obj_notes AFTER UPDATE AS SET NOCOUNT ON",
+        "CREATE SEQUENCE dbo.obj_invoice AS bigint START WITH 1000",
+        "CREATE USER obj_reader WITHOUT LOGIN",
+        "GRANT SELECT ON dbo.obj_notes TO obj_reader",
+        "ALTER ROLE db_datareader ADD MEMBER obj_reader",
+    ] {
+        run(sql).await;
+    }
+
+    let list = objects::list(db.as_ref()).await;
+    assert!(list.notes.is_empty(), "{:?}", list.notes);
+    let find = |kind: ObjectKind, name: &str| list.objects.iter().find(|o| o.kind == kind && o.name == name).cloned().unwrap_or_else(|| panic!("no {name}: {:#?}", list.objects));
+    let f = find(ObjectKind::Function, "obj_add");
+    assert_eq!(f.detail, "returns a value");
+    let p = find(ObjectKind::Procedure, "obj_clean");
+    let t = find(ObjectKind::Trigger, "obj_touch");
+    assert_eq!(t.detail, "on obj_notes");
+    let seq = find(ObjectKind::Sequence, "obj_invoice");
+    assert_eq!(seq.detail, "at 1000");
+    let user = find(ObjectKind::User, "obj_reader");
+
+    assert!(objects::source(db.as_ref(), &f).await.unwrap().definition.contains("CREATE FUNCTION dbo.obj_add"));
+    let src = objects::source(db.as_ref(), &seq).await.unwrap();
+    assert!(src.definition.contains("START WITH 1000") && src.definition.contains("AS bigint"), "{}", src.definition);
+    let src = objects::source(db.as_ref(), &user).await.unwrap();
+    assert!(src.definition.contains("ALTER ROLE [db_datareader] ADD MEMBER [obj_reader];"), "{}", src.definition);
+    assert!(src.definition.contains("GRANT SELECT ON [dbo].[obj_notes] TO [obj_reader];"), "{}", src.definition);
+    assert_eq!(src.drop, "DROP USER [obj_reader];");
+
+    for o in [&t, &f, &p, &seq, &user] {
+        let drop = objects::source(db.as_ref(), o).await.unwrap().drop;
+        run(&drop).await;
+    }
+    run("DROP TABLE dbo.obj_notes").await;
+    let list = objects::list(db.as_ref()).await;
+    assert!(!list.objects.iter().any(|o| o.name.starts_with("obj_")), "{:#?}", list.objects);
+    let tpl = objects::template(db.dialect(), ObjectKind::Function, Some("dbo"));
+    run(&tpl).await;
+    run("DROP FUNCTION [dbo].[add_numbers]").await;
+}

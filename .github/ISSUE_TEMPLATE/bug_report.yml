@@ -1,0 +1,41 @@
+name: Something isn't working
+description: Kiyi did something unexpected, showed an error, or closed.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tip: **Settings → About & updates → Report a problem** in Kiyi fills in your version and log for you.
+        Please don't include passwords or data you can't share.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What were you doing, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we make it happen?
+      placeholder: |
+        1. Connect to a PostgreSQL 16 database through an SSH tunnel
+        2. Open the orders table
+        3. …
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      multiple: true
+      options: [PostgreSQL, MySQL, MariaDB, SQLite, SQL Server, Not database-specific]
+  - type: input
+    id: version
+    attributes:
+      label: Kiyi version and system
+      placeholder: Kiyi 0.2.0 on macOS 15 (Apple Silicon)
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: From Settings → About & updates → Copy diagnostics. It never contains passwords, keys or SQL text.
+      render: text

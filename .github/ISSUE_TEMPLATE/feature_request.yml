@@ -1,0 +1,16 @@
+name: An idea
+description: Something Kiyi could do, or do better.
+labels: [idea]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What were you trying to do?
+      description: The task, and where Kiyi got in the way. "I wanted to X, and had to Y" is perfect.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: Optional. How you imagine it working.

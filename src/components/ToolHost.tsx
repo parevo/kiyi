@@ -5,8 +5,9 @@ import { useUi } from "../state/ui";
 import { BackupView } from "./BackupView";
 import { CompareView } from "./CompareView";
 import { DiagramView } from "./DiagramView";
+import { ObjectsView } from "./ObjectsView";
 
-/** Full-workspace tools (diagram, compare, backup), drawn over the tabs; Escape closes them. */
+/** Full-workspace tools (diagram, objects, compare, backup), drawn over the tabs; Escape closes them. */
 export function ToolHost({ tool }: { tool: Tool }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -17,5 +18,5 @@ export function ToolHost({ tool }: { tool: Tool }) {
   }, []);
   const main = document.querySelector("main");
   if (!main) return null;
-  return createPortal(tool === "diagram" ? <DiagramView /> : tool === "backup" ? <BackupView /> : <CompareView />, main);
+  return createPortal(tool === "diagram" ? <DiagramView /> : tool === "objects" ? <ObjectsView /> : tool === "backup" ? <BackupView /> : <CompareView />, main);
 }

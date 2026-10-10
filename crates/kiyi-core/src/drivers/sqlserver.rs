@@ -210,9 +210,32 @@ fn cell(data: &ColumnData<'static>) -> Cell {
     }
 }
 
+/// CREATE PROCEDURE, FUNCTION, TRIGGER and VIEW must be alone in their batch, so nothing can be
+/// added after them and they can't go through sp_executesql.
+fn defines_module(sql: &str) -> bool {
+    let words: Vec<String> = sql
+        .lines()
+        .map(|l| l.split("--").next().unwrap_or(""))
+        .flat_map(str::split_whitespace)
+        .take(4)
+        .map(str::to_ascii_uppercase)
+        .collect();
+    let w: Vec<&str> = words.iter().map(String::as_str).collect();
+    let object = match w.as_slice() {
+        ["CREATE", "OR", "ALTER", o, ..] => *o,
+        ["CREATE" | "ALTER", o, ..] => *o,
+        _ => return false,
+    };
+    matches!(object, "PROCEDURE" | "PROC" | "FUNCTION" | "TRIGGER" | "VIEW")
+}
+
 /// Runs one statement as a plain SQL batch and returns the rows it changed. `execute` would wrap
 /// it in sp_executesql, whose scope undoes session settings such as SET IDENTITY_INSERT.
 async fn batch(client: &mut Client, sql: &str) -> std::result::Result<u64, tiberius::error::Error> {
+    if defines_module(sql) {
+        client.simple_query(sql).await?.into_results().await?;
+        return Ok(0);
+    }
     let results = client.simple_query(format!("{sql};\nSELECT CAST(@@ROWCOUNT AS bigint)")).await?.into_results().await?;
     Ok(results.last().and_then(|rows| rows.first()).and_then(|r| r.get::<i64, _>(0)).unwrap_or(0) as u64)
 }
@@ -220,7 +243,8 @@ async fn batch(client: &mut Client, sql: &str) -> std::result::Result<u64, tiber
 /// Scripts with no statement that can return rows run through `execute`, which reports rows affected.
 fn only_changes(sql: &str) -> bool {
     let statements = crate::dml::split_sql(sql);
-    !statements.is_empty()
+    !defines_module(sql)
+        && !statements.is_empty()
         && statements.iter().all(|s| {
             let first = s.split_whitespace().next().unwrap_or("").to_ascii_uppercase();
             matches!(first.as_str(), "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "CREATE" | "ALTER" | "DROP" | "TRUNCATE" | "GRANT" | "REVOKE")
@@ -602,6 +626,16 @@ async fn run(client: &mut Client, sql: &str, sink: &Sink<'_>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn module_definitions_run_alone() {
+        assert!(super::defines_module("CREATE PROCEDURE dbo.p @a int AS SELECT @a"));
+        assert!(super::defines_module("-- note\ncreate or alter function f() returns int as begin return 1 end"));
+        assert!(super::defines_module("ALTER VIEW v AS SELECT 1"));
+        assert!(!super::defines_module("CREATE TABLE t (a int)"));
+        assert!(!super::defines_module("UPDATE t SET a = 1"));
+    }
+
     #[test]
     fn scripts_that_only_change_data_report_counts() {
         assert!(super::only_changes("UPDATE t SET a = 1; DELETE FROM u"));

@@ -1,6 +1,10 @@
 // One icon set (Lucide) everywhere, at consistent sizes, so the app reads as a single product.
 import {
   AlertTriangle,
+  Binary,
+  FlaskConical,
+  Shapes,
+  Upload,
   ArrowDownUp,
   ArrowRight,
   Check,
@@ -92,6 +96,10 @@ export const LineChartIcon = make(ChartLine);
 export const PieChartIcon = make(ChartPie);
 export const CommandIcon = make(Command);
 export const DiagramIcon = make(Network);
+export const ObjectsIcon = make(Shapes);
+export const UploadIcon = make(Upload);
+export const SampleIcon = make(FlaskConical);
+export const BinaryIcon = make(Binary);
 export const ArchiveIcon = make(Archive);
 export const CompareIcon = make(GitCompare);
 export const WandIcon = make(WandSparkles);

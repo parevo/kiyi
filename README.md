@@ -126,7 +126,7 @@ Connect in the app with `sqlserver://sa:Kiyi_pass1@localhost:51433/kiyi_test`. S
 
 ```sh
 cargo test --workspace                           # unit tests
-KIYI_LIVE=1 cargo test -p kiyi-core --test live  # drivers, tunnels, import/export against the Docker databases
+KIYI_LIVE=1 cargo test -p kiyi-core --test live --test objects  # drivers, tunnels, objects, import/export against the Docker databases
 pnpm typecheck
 pnpm test                                        # interface logic (Vitest)
 cargo audit                                      # known vulnerabilities; accepted ones are explained in .cargo/audit.toml

@@ -3,7 +3,7 @@ import { create } from "zustand";
 export type SettingsSection = "general" | "ai" | "about";
 
 /** Full-window tools that open over the workspace. */
-export type Tool = "diagram" | "compare" | "backup";
+export type Tool = "diagram" | "compare" | "backup" | "objects";
 
 interface UiState {
   /** Which settings section is open, or null when the window is closed. */

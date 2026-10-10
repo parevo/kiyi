@@ -29,6 +29,23 @@ describe("splitStatements", () => {
     expect(texts(String.raw`SELECT 'it\'s; one'; # x;y` + "\nSELECT 2", true)).toEqual([String.raw`SELECT 'it\'s; one'`, "# x;y\nSELECT 2"]);
   });
 
+  it("keeps BEGIN … END blocks whole", () => {
+    // SQL Server function, MySQL procedure with nested blocks, SQLite trigger.
+    expect(texts("CREATE FUNCTION f(@a int) RETURNS int AS BEGIN DECLARE @b int; SET @b = @a; RETURN @b; END; SELECT dbo.f(1)")).toHaveLength(2);
+    expect(
+      texts("CREATE PROCEDURE p() BEGIN DECLARE i INT; IF i > 0 THEN SET i = 1; END IF; WHILE i < 3 DO SET i = i + 1; END WHILE; END; CALL p()", true),
+    ).toEqual(["CREATE PROCEDURE p() BEGIN DECLARE i INT; IF i > 0 THEN SET i = 1; END IF; WHILE i < 3 DO SET i = i + 1; END WHILE; END", "CALL p()"]);
+    expect(texts("CREATE TRIGGER t AFTER UPDATE ON x BEGIN UPDATE x SET a = 1; UPDATE x SET b = 2; END; SELECT 1")).toHaveLength(2);
+    expect(texts("BEGIN TRY SELECT 1; END TRY BEGIN CATCH SELECT 2; END CATCH; SELECT 3")).toHaveLength(2);
+  });
+
+  it("still splits transactions and CASE expressions", () => {
+    expect(texts("BEGIN; UPDATE t SET a = 1; COMMIT;")).toEqual(["BEGIN", "UPDATE t SET a = 1", "COMMIT"]);
+    expect(texts("BEGIN TRANSACTION; DELETE FROM t; COMMIT")).toHaveLength(3);
+    expect(texts("SELECT CASE WHEN a THEN 1 ELSE 2 END AS x FROM t; SELECT 2")).toHaveLength(2);
+    expect(texts("SELECT backend, ends, cased FROM t; SELECT 2")).toHaveLength(2);
+  });
+
   it("finds the statement under the cursor", () => {
     const sql = "SELECT 1;\n\nSELECT 2;";
     expect(statementAt(sql, 3)?.text).toBe("SELECT 1");

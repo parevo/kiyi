@@ -10,6 +10,8 @@ import { useTabs } from "../state/tabs";
 import { useUi } from "../state/ui";
 import { BookmarkIcon, CodeIcon, CommandIcon, DatabaseIcon, SettingsIcon, SparklesIcon, TableIcon, ViewIcon } from "./icons";
 import s from "./CommandPalette.module.css";
+import { exportConnections, importConnections, openSample } from "../lib/connectionFiles";
+import { reportProblem } from "../lib/report";
 
 interface Command {
   id: string;
@@ -65,8 +67,13 @@ export function CommandPalette({ onNewConnection, onOpenSql }: { onNewConnection
       { id: "new-query", title: "New SQL query", hint: kbd("T"), group: "Commands", icon: <CodeIcon size={15} />, run: () => activeId && useTabs.getState().open({ connectionId: activeId }) },
       { id: "new-connection", title: "New connection", hint: kbd("N"), group: "Commands", icon: <DatabaseIcon size={15} />, run: onNewConnection },
       { id: "diagram", title: "Show schema diagram", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("diagram") },
+      { id: "objects", title: "Functions, triggers, sequences and users", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("objects") },
       { id: "compare", title: "Compare with another database", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("compare") },
       { id: "backup", title: "Back up or restore", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("backup") },
+      { id: "sample", title: "Open the sample database", hint: "recreated fresh", group: "Commands", icon: <DatabaseIcon size={15} />, run: () => openSample() },
+      { id: "export-connections", title: "Export connections", group: "Commands", icon: <DatabaseIcon size={15} />, run: () => exportConnections() },
+      { id: "import-connections", title: "Import connections", group: "Commands", icon: <DatabaseIcon size={15} />, run: () => importConnections() },
+      { id: "report", title: "Report a problem", group: "Commands", icon: <SettingsIcon size={15} />, run: () => reportProblem("").catch(() => {}) },
       { id: "settings", title: "Settings", hint: kbd(","), group: "Commands", icon: <SettingsIcon size={15} />, run: () => ui.openSettings() },
       { id: "ai", title: "Set up AI", group: "Commands", icon: <SettingsIcon size={15} />, run: () => ui.openSettings("ai") },
       { id: "dev", title: developerMode ? "Turn off developer mode" : "Turn on developer mode", group: "Commands", icon: <SettingsIcon size={15} />, run: () => settings.set({ developerMode: !developerMode }) },

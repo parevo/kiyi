@@ -105,6 +105,49 @@ pub async fn schema_graph(ws: Ws<'_>, id: String) -> CmdResult<kiyi_core::graph:
 }
 
 #[tauri::command]
+pub async fn list_objects(ws: Ws<'_>, id: String) -> CmdResult<kiyi_core::objects::ObjectList> {
+    Ok(ws.objects(&id).await?)
+}
+
+#[tauri::command]
+pub async fn object_source(ws: Ws<'_>, id: String, object: kiyi_core::objects::DbObject) -> CmdResult<kiyi_core::objects::ObjectSource> {
+    Ok(ws.object_source(&id, &object).await?)
+}
+
+#[tauri::command]
+pub fn object_template(ws: Ws<'_>, id: String, kind: kiyi_core::objects::ObjectKind, schema: Option<String>) -> CmdResult<String> {
+    Ok(ws.object_template(&id, kind, schema.as_deref())?)
+}
+
+#[tauri::command]
+pub fn export_connections(ws: Ws<'_>, ids: Vec<String>, path: String) -> CmdResult<usize> {
+    Ok(ws.export_connections(&ids, std::path::Path::new(&path))?)
+}
+
+#[tauri::command]
+pub fn import_connections(ws: Ws<'_>, path: String) -> CmdResult<Vec<ConnectionConfig>> {
+    Ok(ws.import_connections(std::path::Path::new(&path))?)
+}
+
+#[tauri::command]
+pub async fn create_sample(ws: Ws<'_>) -> CmdResult<ConnectionConfig> {
+    Ok(ws.create_sample().await?)
+}
+
+/// What went wrong the last time Kiyi closed unexpectedly, once; None after a normal exit.
+#[tauri::command]
+pub fn take_crash_report(log: State<'_, crate::logging::LogFile>) -> Option<String> {
+    crate::logging::take_crash(&log.0)
+}
+
+/// Opens a new GitHub issue in the browser with the title and text filled in. Nothing is sent
+/// until the person submits it there.
+#[tauri::command]
+pub fn open_issue(title: String, body: String) -> CmdResult<()> {
+    crate::logging::open_issue(&title, &body).map_err(|e| ErrorInfo::from(kiyi_core::error::Error::Io(e)))
+}
+
+#[tauri::command]
 pub async fn explain(ws: Ws<'_>, id: String, sql: String) -> CmdResult<kiyi_core::explain::PlanNode> {
     Ok(ws.explain(&id, &sql).await?)
 }

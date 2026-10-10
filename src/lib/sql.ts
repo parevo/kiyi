@@ -17,15 +17,24 @@ export interface StatementRange {
   text: string;
 }
 
+const isWordChar = (c: string | undefined) => !!c && /[A-Za-z0-9_$@#]/.test(c);
+
+/** BEGIN that starts a transaction rather than a block of statements. */
+const TRANSACTION_BEGIN = /^\s*(;|$|TRAN\b|TRANSACTION\b|WORK\b|DEFERRED\b|IMMEDIATE\b|EXCLUSIVE\b|ISOLATION\b|READ\b|DISTRIBUTED\b)/i;
+/** END IF / END LOOP… close blocks that weren't opened by a counted BEGIN or CASE. */
+const UNCOUNTED_END = /^\s+(IF|LOOP|WHILE|REPEAT|FOR)\b/i;
+
 /**
  * Splits SQL into statements on top-level semicolons, skipping over strings, quoted
- * identifiers, comments and Postgres dollar-quoted bodies.
+ * identifiers, comments, Postgres dollar-quoted bodies, and BEGIN … END blocks (MySQL and
+ * SQL Server routines, SQLite triggers, CASE … END).
  */
 export function splitStatements(sql: string, mysql = false): StatementRange[] {
   const out: StatementRange[] = [];
   let start = 0;
   let i = 0;
   const n = sql.length;
+  let depth = 0;
 
   const push = (end: number) => {
     const raw = sql.slice(start, end);
@@ -63,10 +72,18 @@ export function splitStatements(sql: string, mysql = false): StatementRange[] {
         const end = sql.indexOf(tag[0], i + tag[0].length);
         i = end === -1 ? n : end + tag[0].length;
       } else i++;
-    } else if (c === ";") {
+    } else if (c === ";" && depth === 0) {
       push(i);
       start = i + 1;
       i++;
+    } else if (/[A-Za-z]/.test(c) && !isWordChar(sql[i - 1])) {
+      let end = i;
+      while (isWordChar(sql[end])) end++;
+      const word = sql.slice(i, end).toUpperCase();
+      const rest = sql.slice(end, end + 24);
+      if ((word === "BEGIN" && !TRANSACTION_BEGIN.test(rest)) || word === "CASE") depth++;
+      else if (word === "END" && depth > 0 && !UNCOUNTED_END.test(rest)) depth--;
+      i = end;
     } else i++;
   }
   push(n);

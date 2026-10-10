@@ -2,6 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useState } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { errorMessage, ipc } from "../lib/ipc";
+import { reportProblem } from "../lib/report";
 import type { AiProvider, AiSettings, ProviderPreset, ProviderView } from "../lib/types";
 import { useSettings } from "../state/settings";
 import { toast } from "../state/toasts";
@@ -73,7 +74,7 @@ function General() {
         <div className={s.row}>
           <div>
             <div className={f.label}>Developer mode</div>
-            <p className={f.help}>Shows the SQL behind every action, raw column types, and the SQL editor.</p>
+            <p className={f.help}>Shows the SQL behind every action and raw column types, and adds “Query with SQL” to tables.</p>
           </div>
           <Switch isSelected={settings.developerMode} onChange={(developerMode) => settings.set({ developerMode })}>
             <span className={s.srOnly}>Developer mode</span>
@@ -116,7 +117,8 @@ function About() {
         <p className={f.help}>Kiyi checks for updates in the background and asks before restarting. Beta gets new features first.</p>
         <div className={f.field}>
           <span className={f.label}>Something not working?</span>
-          <div>
+          <div className={s.buttons}>
+            <Button onPress={() => reportProblem("").catch((e) => toast.error(errorMessage(e)))}>Report a problem</Button>
             <Button
               onPress={async () => {
                 try {
@@ -130,7 +132,10 @@ function About() {
               Copy diagnostics
             </Button>
           </div>
-          <span className={f.help}>Your Kiyi version, system and recent log, kept only on this computer. Passwords and keys are never logged.</span>
+          <span className={f.help}>
+            Report a problem opens a new issue on GitHub with your Kiyi version, system and the end of the log filled in, for you to read before sending. Diagnostics are kept only on this
+            computer; passwords and keys are never logged.
+          </span>
         </div>
       </div>
     </section>

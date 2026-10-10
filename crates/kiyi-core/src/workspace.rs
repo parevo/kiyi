@@ -409,6 +409,76 @@ impl Workspace {
         Ok(crate::graph::from_rows(kind, &rows))
     }
 
+    /// Functions, procedures, triggers, sequences and users of the open database.
+    pub async fn objects(&self, id: &str) -> Result<crate::objects::ObjectList> {
+        Ok(crate::objects::list(self.driver(id)?.as_ref()).await)
+    }
+
+    pub async fn object_source(&self, id: &str, object: &crate::objects::DbObject) -> Result<crate::objects::ObjectSource> {
+        crate::objects::source(self.driver(id)?.as_ref(), object).await
+    }
+
+    pub fn object_template(&self, id: &str, kind: crate::objects::ObjectKind, schema: Option<&str>) -> Result<String> {
+        Ok(crate::objects::template(self.driver(id)?.dialect(), kind, schema))
+    }
+
+    /// Writes saved connections (all of them when `ids` is empty) to a file. Returns how many.
+    /// The sample database is left out: every computer makes its own.
+    pub fn export_connections(&self, ids: &[String], path: &Path) -> Result<usize> {
+        let sample = self.dir.join(crate::sample::FILE_NAME).to_string_lossy().into_owned();
+        let items: Vec<ConnectionConfig> = self
+            .list()
+            .into_iter()
+            .filter(|c| (ids.is_empty() || ids.contains(&c.id)) && c.database.as_deref() != Some(sample.as_str()))
+            .collect();
+        crate::store::write_export(path, &items)?;
+        Ok(items.len())
+    }
+
+    /// Adds the connections from an exported file and returns the ones added. Connections already
+    /// saved are skipped; passwords aren't in the file, so they're asked for when connecting.
+    pub fn import_connections(&self, path: &Path) -> Result<Vec<ConnectionConfig>> {
+        let incoming = crate::store::read_export(path)?;
+        let mut store = self.store.lock().unwrap();
+        let mut added = Vec::new();
+        for mut c in incoming {
+            if store.list().iter().any(|e| crate::store::same_target(e, &c)) {
+                continue;
+            }
+            c.id = uuid::Uuid::new_v4().to_string();
+            if store.list().iter().any(|e| e.name == c.name) {
+                c.name = format!("{} (imported)", c.name);
+            }
+            store.upsert(c.clone())?;
+            added.push(c);
+        }
+        Ok(added)
+    }
+
+    /// Creates the sample database in Kiyi's own folder, from scratch every time, and saves a
+    /// connection to it (the same one again if it was saved before).
+    pub async fn create_sample(&self) -> Result<ConnectionConfig> {
+        let path = self.dir.join(crate::sample::FILE_NAME);
+        let path_text = path.to_string_lossy().into_owned();
+        let existing = self.list().into_iter().find(|c| c.kind == crate::config::DbKind::Sqlite && c.database.as_deref() == Some(path_text.as_str()));
+        if let Some(c) = &existing {
+            self.disconnect(&c.id).await;
+        }
+        std::fs::create_dir_all(&self.dir)?;
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let _ = std::fs::remove_file(format!("{path_text}{suffix}"));
+        }
+        let mut config = crate::sample::config(&path_text);
+        let driver = Self::open_driver(&config, None).await?;
+        let seeded = driver.execute_script(&crate::sample::statements(), true, false).await;
+        driver.close().await;
+        seeded?;
+        if let Some(c) = existing {
+            config.id = c.id;
+        }
+        self.save(config, None, None)
+    }
+
     /// The estimated plan for one statement; nothing is executed.
     pub async fn explain(&self, id: &str, sql: &str) -> Result<crate::explain::PlanNode> {
         use crate::config::DbKind;

@@ -15,6 +15,8 @@ pub mod drivers;
 pub mod error;
 pub mod explain;
 pub mod graph;
+pub mod objects;
+pub mod sample;
 pub mod secrets;
 pub mod ssh_config;
 pub mod store;

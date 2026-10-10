@@ -410,6 +410,24 @@ export interface SchemaGraph {
   relations: Relation[];
 }
 
+export type ObjectKind = "function" | "procedure" | "trigger" | "sequence" | "user";
+export interface DbObject {
+  kind: ObjectKind;
+  schema: string | null;
+  name: string;
+  detail: string;
+  key: string;
+}
+export interface ObjectList {
+  kinds: ObjectKind[];
+  objects: DbObject[];
+  notes: string[];
+}
+export interface ObjectSource {
+  definition: string;
+  drop: string;
+}
+
 export interface BackupTools {
   backup: string | null;
   restore: string | null;

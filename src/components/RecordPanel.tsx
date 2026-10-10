@@ -1,6 +1,8 @@
 import type { Cell, ColumnMeta, DriverInfo, ForeignKeyDesign, TableDetails } from "../lib/types";
-import { columnTypeLabel } from "../state/catalog";
+import { useState } from "react";
+import { categorise, columnTypeLabel } from "../state/catalog";
 import { FieldInput } from "./FieldInput";
+import { ValueViewer, type ViewedValue } from "./ValueViewer";
 import { ArrowIcon, ChevronIcon, ChevronLeftIcon, KeyIcon, LinkIcon } from "./icons";
 import s from "./RecordPanel.module.css";
 
@@ -27,6 +29,7 @@ interface Props {
 export function RecordPanel(props: Props) {
   const { details, driver, columns, row } = props;
   const design = details.design;
+  const [viewed, setViewed] = useState<ViewedValue | null>(null);
 
   if (row === null || row >= props.rowCount) {
     const total = props.total ?? details.rowEstimate;
@@ -77,6 +80,10 @@ export function RecordPanel(props: Props) {
   }
 
   const linkOf = (name: string) => design.foreignKeys.find((f) => f.columns.length === 1 && f.columns[0] === name);
+  const viewable = (dataType: string | undefined, kind: string) => {
+    const category = dataType ? categorise(dataType, driver) : null;
+    return category === "json" || kind === "json" ? "json" : category === "binary" || kind === "binary" ? "binary" : null;
+  };
 
   return (
     <aside className={s.panel} aria-label="Row details">
@@ -117,6 +124,11 @@ export function RecordPanel(props: Props) {
               ) : (
                 <div className={s.readonly}>{value ?? "NULL"}</div>
               )}
+              {value !== null && viewable(d?.dataType, meta.kind) && (
+                <button className={s.textButton} onClick={() => setViewed({ column: meta.name, kind: viewable(d?.dataType, meta.kind)!, value })}>
+                  {viewable(d?.dataType, meta.kind) === "json" ? "View as a tree" : "View contents"} <ArrowIcon size={13} />
+                </button>
+              )}
               {link && value !== null && (
                 <button className={s.textButton} onClick={() => props.onFollow(link, value)}>
                   Open in {link.refTable} <ArrowIcon size={13} />
@@ -126,6 +138,7 @@ export function RecordPanel(props: Props) {
           );
         })}
       </div>
+      <ValueViewer viewed={viewed} onClose={() => setViewed(null)} />
     </aside>
   );
 }

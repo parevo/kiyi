@@ -18,6 +18,9 @@ import { useUi } from "./state/ui";
 import { useTabs } from "./state/tabs";
 import s from "./App.module.css";
 import { isMod } from "./lib/platform";
+import { ipc } from "./lib/ipc";
+import { reportProblem } from "./lib/report";
+import { toast } from "./state/toasts";
 
 export function App() {
   const loadConnections = useConnections((st) => st.load);
@@ -36,6 +39,19 @@ export function App() {
     loadConnections();
     useCatalog.getState().load();
   }, [loadConnections]);
+
+  // After a crash, offer (once) to report it. Nothing is sent unless the person submits the issue.
+  useEffect(() => {
+    ipc.takeCrashReport().then(
+      (crash) =>
+        crash &&
+        toast.ask("Kiyi closed unexpectedly last time. Would you like to report it?", {
+          label: "Report",
+          run: () => reportProblem("Kiyi closed unexpectedly", crash).catch(() => {}),
+        }),
+      () => {},
+    );
+  }, []);
 
   useEffect(() => applyTheme(theme), [theme]);
 

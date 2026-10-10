@@ -69,7 +69,7 @@ jobs:
       - run: ./dev/setup-ssh-key.sh && docker compose -f dev/docker-compose.yml up -d --wait
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: KIYI_LIVE=1 cargo test -p kiyi-core --test live
+      - run: KIYI_LIVE=1 cargo test -p kiyi-core --test live --test objects
       - name: SQL Server
         run: |
           docker compose -f dev/docker-compose.yml --profile sqlserver up -d --wait sqlserver

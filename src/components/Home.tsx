@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { askQuestion } from "../lib/askAi";
+import { exportConnections, importConnections, openSample } from "../lib/connectionFiles";
 import { ipc } from "../lib/ipc";
 import type { DriverInfo, LocalDatabase } from "../lib/types";
 import { connectionWhere, driverFor, useCatalog } from "../state/catalog";
@@ -7,7 +8,7 @@ import { useActiveConnection, useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
 import { useUi } from "../state/ui";
-import { ArchiveIcon, CompareIcon, DatabaseIcon, DiagramIcon, LinkIcon, PlusIcon, RefreshIcon, SearchIcon, SparklesIcon, Spinner, TableIcon, ViewIcon } from "./icons";
+import { ArchiveIcon, ArrowIcon, CompareIcon, DatabaseIcon, DiagramIcon, DownloadIcon, ObjectsIcon, SampleIcon, UploadIcon, LinkIcon, PlusIcon, RefreshIcon, SearchIcon, SparklesIcon, Spinner, TableIcon, ViewIcon } from "./icons";
 import { Button } from "./ui";
 import s from "./Home.module.css";
 
@@ -69,6 +70,9 @@ export function Overview() {
         <div className={s.headerActions}>
           <Button variant="ghost" onPress={() => useUi.getState().openTool("diagram")}>
             <DiagramIcon size={14} /> Diagram
+          </Button>
+          <Button variant="ghost" onPress={() => useUi.getState().openTool("objects")}>
+            <ObjectsIcon size={14} /> Objects
           </Button>
           <Button variant="ghost" onPress={() => useUi.getState().openTool("compare")}>
             <CompareIcon size={14} /> Compare
@@ -151,6 +155,14 @@ export function ConnectionsHome({ onNew }: { onNew(): void }) {
           <h1 className={s.title}>Connections</h1>
           <p className={s.meta}>Open a database to browse and edit its tables.</p>
         </div>
+        <div className={s.headerActions}>
+          <Button variant="ghost" onPress={() => importConnections()}>
+            <UploadIcon size={14} /> Import
+          </Button>
+          <Button variant="ghost" isDisabled={connections.length === 0} onPress={() => exportConnections()}>
+            <DownloadIcon size={14} /> Export
+          </Button>
+        </div>
       </div>
       <div className={s.grid}>
         {connections.map((c) => (
@@ -199,15 +211,24 @@ export function Welcome({ onConnect }: { onConnect(init: ConnectInit): void }) {
         <h1 className={s.headline}>Welcome to Kiyi</h1>
         <p className={s.lede}>Connect a database to browse, search and edit its data like a spreadsheet. No SQL needed.</p>
 
+        <button className={s.sample} onClick={() => openSample()}>
+          <SampleIcon size={20} />
+          <span className={s.foundMain}>
+            <span className={s.foundName}>Try the sample database</span>
+            <span className={s.sampleText}>A small store with customers, products and orders to explore. Nothing to install.</span>
+          </span>
+          <ArrowIcon size={16} />
+        </button>
+
         <div className={s.panel}>
           <div className={s.panelHead}>
-            <span className={s.panelTitle}>Found on this Mac</span>
+            <span className={s.panelTitle}>Found on this computer</span>
             <button className={s.rescan} onClick={scan} disabled={found === null}>
               {found === null ? <Spinner size={12} /> : <RefreshIcon size={13} />}
               {found === null ? "Looking…" : "Look again"}
             </button>
           </div>
-          {found === null && <p className={s.panelEmpty}>Looking for databases running on this Mac…</p>}
+          {found === null && <p className={s.panelEmpty}>Looking for databases running on this computer…</p>}
           {found?.length === 0 && <p className={s.panelEmpty}>No local databases found. Paste a connection URL below, or set one up by hand.</p>}
           {found?.map((db) => {
             const driver = drivers.find((d) => d.id === db.driver);
@@ -257,9 +278,14 @@ export function Welcome({ onConnect }: { onConnect(init: ConnectInit): void }) {
           ))}
         </div>
 
-        <button className={s.aiHint} onClick={() => openSettings("ai")}>
-          <SparklesIcon size={14} /> Want to ask for rows in plain words? Set up AI (optional)
-        </button>
+        <div className={s.hints}>
+          <button className={s.aiHint} onClick={() => openSettings("ai")}>
+            <SparklesIcon size={14} /> Want to ask for rows in plain words? Set up AI (optional)
+          </button>
+          <button className={s.aiHint} onClick={() => importConnections()}>
+            <UploadIcon size={14} /> Import connections from another computer
+          </button>
+        </div>
       </div>
     </div>
   );
