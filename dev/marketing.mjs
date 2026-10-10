@@ -1,6 +1,6 @@
 // Captures the website's product screenshots from the real UI, in dark and light, at 2x.
 // Needs Vite (:1420), kiyi-devbridge (:1421), the dev databases with the `demo` seed
-// (dev/seed/demo.sql), and cwebp.
+// (dev/seed/demo.sql) and the Move data pair (dev/seed/move-legacy.sql, move-target.sql), and cwebp.
 //
 //   node dev/marketing.mjs site/assets/shots
 //
@@ -74,7 +74,7 @@ async function capture(theme) {
   await page.goto("http://localhost:1420");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.getByText("Found on this Mac").waitFor();
+  await page.getByText("Found on this computer").waitFor();
   await page.waitForTimeout(1800);
   await shot("welcome");
 
@@ -140,6 +140,52 @@ async function capture(theme) {
   await page.getByText("refunds left out").waitFor({ timeout: 15000 });
   await page.waitForTimeout(1200);
   await shot("chart");
+
+  // Move data: another company's CRM (PostgreSQL) into "My shop" (MySQL).
+  const legacy = await call("parse_connection_url", { url: "postgres://kiyi:kiyi@localhost:55432/kiyi_legacy" });
+  await call("save_connection", { config: { ...legacy.config, name: "Acme legacy CRM" }, password: "kiyi", tunnelSecret: null });
+  const shop = await call("parse_connection_url", { url: "mysql://root:kiyi@localhost:53306/kiyi_move" });
+  await call("save_connection", { config: { ...shop.config, name: "My shop", env: "local" }, password: "kiyi", tunnelSecret: null });
+  await page.reload();
+  await page.waitForTimeout(1500);
+  await page.keyboard.press("Meta+k");
+  await page.keyboard.type("My shop");
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Enter");
+  await page.locator("main").getByRole("button", { name: "Move data" }).click();
+  await page.getByLabel("Move data from").selectOption({ label: "Acme legacy CRM" });
+  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: "Suggest a plan" }).click();
+  await page.locator("nav").getByText("customers", { exact: true }).waitFor();
+  await page.locator("nav").getByText("customers", { exact: true }).click();
+  const status = page.locator("tr", { has: page.locator("text=status") }).first();
+  await status.getByLabel("Add a step").selectOption("map");
+  await status.getByLabel("Value", { exact: true }).first().fill("A");
+  await status.getByLabel("Becomes").first().fill("active");
+  await status.getByRole("button", { name: "Add a value" }).click();
+  await status.getByLabel("Value", { exact: true }).nth(1).fill("P");
+  await status.getByLabel("Becomes").nth(1).fill("passive");
+  await status.getByRole("button", { name: /Change 2 values/ }).click();
+  const orders = async (f) => {
+    await page.locator("nav").getByText("orders", { exact: true }).click();
+    await page.waitForTimeout(500);
+    await f();
+  };
+  await orders(async () => {
+    await page.locator("tr", { has: page.locator("text=ordered_at") }).getByLabel("Value from").selectOption("col:placed");
+    const refunded = page.locator("tr", { has: page.locator("text=refunded") });
+    await refunded.getByLabel("Value from").selectOption("col:status");
+    await refunded.getByLabel("Add a step").selectOption("map");
+    await refunded.getByLabel("Value", { exact: true }).first().fill("refunded");
+    await refunded.getByLabel("Becomes").first().fill("yes");
+    await refunded.getByLabel("Anything else").selectOption("value");
+    await refunded.getByLabel("Other values become").fill("no");
+  });
+  await page.locator("nav").getByText("customers", { exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await page.getByText("checked, ready to move").waitFor({ timeout: 20000 });
+  await page.waitForTimeout(800);
+  await shot("move");
 
   await browser.close();
 }

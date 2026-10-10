@@ -50,6 +50,8 @@
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 80px;
+  /* The floating notes beside the hero screenshot may reach past the edge; never scroll sideways for them. */
+  overflow-x: clip;
 }
 
 body {
@@ -455,6 +457,14 @@ h3 {
 }
 .eyebrow.ai {
   color: var(--ai);
+}
+.eyebrow .new {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sea) 18%, transparent);
+  color: var(--sea);
+  font-size: 11px;
+  letter-spacing: 0.08em;
 }
 .muted {
   color: var(--muted);

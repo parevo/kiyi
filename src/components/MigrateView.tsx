@@ -40,7 +40,9 @@ interface TableRef {
 
 /** Tables of a database, the connection's own schema first. */
 function tablesOf(snapshot: SchemaSnapshot | undefined, kind: DbKind, includeViews: boolean): TableRef[] {
-  const schemas = [...(snapshot?.schemas ?? [])].sort((a, b) => Number(b.name === snapshot?.defaultSchema) - Number(a.name === snapshot?.defaultSchema));
+  // On MySQL each schema is a separate database; the connection's own is the one that matters.
+  const own = kind === "mysql" && snapshot?.defaultSchema ? snapshot.schemas.filter((x) => x.name === snapshot.defaultSchema) : null;
+  const schemas = [...(own ?? snapshot?.schemas ?? [])].sort((a, b) => Number(b.name === snapshot?.defaultSchema) - Number(a.name === snapshot?.defaultSchema));
   return schemas.flatMap((sc) =>
     sc.tables.filter((t) => includeViews || t.kind === "table").map((t) => ({ schema: schemaOf(kind, sc.name), name: t.name, columns: t.columns.map((c) => c.name) })),
   );

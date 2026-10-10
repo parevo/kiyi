@@ -271,10 +271,14 @@ pub async fn suggest(source: &dyn DbDriver, target: &dyn DbDriver, source_id: &s
     let t_kind = target.dialect().kind;
     // SQLite has one unnamed schema; elsewhere tables are named with theirs.
     let named = |kind: DbKind, s: &crate::types::SchemaInfo| if kind == DbKind::Sqlite { None } else { Some(s.name.clone()) };
-    let sources: Vec<(Option<String>, String)> = s_snap.schemas.iter().flat_map(|s| s.tables.iter().map(move |t| (named(s_kind, s), t.name.clone()))).collect();
+    // On MySQL each schema is a separate database; only the connection's own is considered.
+    let own = |kind: DbKind, snap: &crate::types::SchemaSnapshot, s: &crate::types::SchemaInfo| kind != DbKind::Mysql || snap.default_schema.is_none() || snap.default_schema.as_deref() == Some(s.name.as_str());
+    let sources: Vec<(Option<String>, String)> =
+        s_snap.schemas.iter().filter(|s| own(s_kind, &s_snap, s)).flat_map(|s| s.tables.iter().map(move |t| (named(s_kind, s), t.name.clone()))).collect();
     let targets: Vec<(Option<String>, String)> = t_snap
         .schemas
         .iter()
+        .filter(|s| own(t_kind, &t_snap, s))
         .flat_map(|s| s.tables.iter().filter(|t| t.kind == crate::types::TableKind::Table).map(move |t| (named(t_kind, s), t.name.clone())))
         .collect();
 
