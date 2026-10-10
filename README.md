@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Your database, finally friendly.</b><br />
-  Browse, search and edit PostgreSQL, MySQL, MariaDB and SQLite like a spreadsheet, and ask for data in plain words.
+  Browse, search and edit PostgreSQL, MySQL, MariaDB, SQLite and SQL Server like a spreadsheet, and ask for data in plain words.
 </p>
 
 <p align="center">
@@ -48,13 +48,13 @@ Passwords and API keys live in the system keychain. No account, no telemetry.
 
 | | |
 | --- | --- |
-| Download | 8.6 MB |
+| Download | 12 MB |
 | Launch to window | 0.31 s |
 | Memory at idle | 79 MB |
 | Open, sort or filter a 1M-row table | ~1 ms |
 | Read all 1M rows | 0.77 s on PostgreSQL, 0.68 s on MySQL (faster than `psql` and `mysql` themselves) |
 
-Measured on an M1 Pro MacBook Pro. Full results and how to reproduce them: [docs/benchmarks.md](docs/benchmarks.md).
+Download size of Kiyi 0.2.0 for Apple Silicon; the rest measured with 0.1.0 on an M1 Pro MacBook Pro. Full results and how to reproduce them: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Install
 

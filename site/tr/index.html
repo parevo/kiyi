@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiyi — Herkes için veritabanı uygulaması</title>
-    <meta name="description" content="PostgreSQL, MySQL, MariaDB ve SQLite veritabanlarını bir tablo gibi gez, ara, düzenle; istediğin veriyi kendi cümlelerinle sor. Ücretsiz, açık kaynak, Rust ile yazıldı." />
+    <meta name="description" content="PostgreSQL, MySQL, MariaDB, SQLite ve SQL Server veritabanlarını bir tablo gibi gez, ara, düzenle; istediğin veriyi kendi cümlelerinle sor. Ücretsiz, açık kaynak, Rust ile yazıldı." />
     <meta name="theme-color" content="#0e1013" />
     <link rel="icon" href="../assets/icon.svg" type="image/svg+xml" />
     <meta property="og:title" content="Kiyi — Herkes için veritabanı uygulaması" />
@@ -32,6 +32,10 @@
         <symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18" /></symbol>
         <symbol id="i-transfer" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" /></symbol>
         <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16" /><path d="m19 9-5 5-4-4-3 3" /></symbol>
+        <symbol id="i-diagram" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2" /><path d="M7 11v4a2 2 0 0 0 2 2h4" /><rect width="8" height="8" x="13" y="13" rx="2" /></symbol>
+        <symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1" /><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4" /></symbol>
+        <symbol id="i-command" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" /></symbol>
         <symbol id="i-code" viewBox="0 0 24 24"><path d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16" /></symbol>
         <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
         <symbol id="i-laptop" viewBox="0 0 24 24"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16" /></symbol>
@@ -66,10 +70,10 @@
       <section class="hero">
         <div class="horizon" aria-hidden="true"><span class="moon"></span><span class="sea"></span><span class="sand"></span></div>
         <div class="hero-copy reveal">
-          <a class="pill" href="https://github.com/parevo/kiyi/releases/latest" data-release-pill><span class="dot"></span><span><span data-version>v0.1.0</span> yayında · Ücretsiz ve açık kaynak</span> <svg class="ic"><use href="#i-arrow" /></svg></a>
+          <a class="pill" href="https://github.com/parevo/kiyi/releases/latest" data-release-pill><span class="dot"></span><span><span data-version>v0.2.0</span> yayında · Ücretsiz ve açık kaynak</span> <svg class="ic"><use href="#i-arrow" /></svg></a>
           <h1>Veritabanın,<br /><span class="gradient">nihayet dost canlısı.</span></h1>
           <p class="lede">
-            Kiyi ile herkes PostgreSQL, MySQL, MariaDB ve SQLite veritabanlarını bir hesap tablosu gibi gezip arayabilir, düzenleyebilir; istediği veriyi kendi cümleleriyle sorabilir. SQL bilmek gerekmez. İhtiyacın olan her şey, istediğin anda elinin altında.
+            Kiyi ile herkes PostgreSQL, MySQL, MariaDB, SQLite ve SQL Server veritabanlarını bir hesap tablosu gibi gezip arayabilir, düzenleyebilir; istediği veriyi kendi cümleleriyle sorabilir. SQL bilmek gerekmez. İhtiyacın olan her şey, istediğin anda elinin altında.
           </p>
           <div class="cta">
             <a class="btn" href="#download" data-primary-download><svg class="ic"><use href="#i-download" /></svg> <span data-primary-label>Kiyi'yi indir</span></a>
@@ -95,7 +99,7 @@
       <section class="strip reveal" aria-label="Desteklenen veritabanları ve AI sağlayıcıları">
         <div>
           <span class="strip-label">Desteklenenler</span>
-          <span class="chip">PostgreSQL</span><span class="chip">MySQL</span><span class="chip">MariaDB</span><span class="chip">SQLite</span><span class="chip muted">SQL Server · yakında</span>
+          <span class="chip">PostgreSQL</span><span class="chip">MySQL</span><span class="chip">MariaDB</span><span class="chip">SQLite</span><span class="chip">SQL Server</span>
         </div>
         <div>
           <span class="strip-label">AI'ını sen seç</span>
@@ -123,6 +127,25 @@
         </div>
       </section>
 
+      <section class="split reverse" id="charts">
+        <div class="split-copy reveal">
+          <span class="eyebrow ai"><svg class="ic"><use href="#i-chart" /></svg> Sorular ve grafikler</span>
+          <h2>Bir soru sor, grafiğini al.</h2>
+          <p>“Son bir yılın aylık cirosu” yaz, hangi dilde olursa. Kiyi salt okunur tek bir sorgu yazar, çalıştırır ve cevabı çizer. SQL de hemen orada: okuyabilir, değiştirebilir, kaydedebilirsin.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Her sonuç bir grafik olabilir.</b> Çubuk, çizgi, pasta ya da tek bir sayı; sütunlara göre seçilir, istersen değiştirirsin.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>SQL'siz özetler.</b> Bir tabloyu istediğin sütuna göre grupla, tarihleri gün, ay ya da yıla göre; adetleri, toplamları ve ortalamaları gör.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>SQL editöründe AI.</b> Tarif ettiğin sorguyu yazdır, bir sorguyu sade dille açıklat ya da son hatayı düzelttir.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="../assets/shots/chart-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="../assets/shots/chart-dark.webp" width="2880" height="1800" loading="lazy" alt="Bir sorudan yazılan SQL sorgusu ve aylık ciroyu gösteren çizgi grafik" />
+          </picture>
+        </div>
+      </section>
+
       <section id="speed" class="speed">
         <div class="section-head reveal">
           <span class="eyebrow"><svg class="ic"><use href="#i-zap" /></svg> Hız</span>
@@ -132,7 +155,7 @@
         <div class="stats reveal">
           <div class="stat"><b>0,31<small> sn</small></b><span>tıklamadan pencereye</span></div>
           <div class="stat"><b>79<small> MB</small></b><span>boştayken bellek</span></div>
-          <div class="stat"><b>8,6<small> MB</small></b><span>indirme boyutu</span></div>
+          <div class="stat"><b>12<small> MB</small></b><span>indirme boyutu</span></div>
           <div class="stat"><b>~1<small> ms</small></b><span>1 milyon satırlık tabloyu açmak, sıralamak, filtrelemek</span></div>
         </div>
         <div class="race reveal" role="img" aria-label="Bir milyon satırı okumak: PostgreSQL'de Kiyi 0,77 saniye, psql 0,92 saniye; MySQL'de Kiyi 0,68 saniye, mysql 0,98 saniye">
@@ -180,12 +203,12 @@
           <article class="card reveal">
             <svg class="ic big"><use href="#i-network" /></svg>
             <h3>Özel ağlar</h3>
-            <p>Bastion üzerinden SSH tüneli ya da hiçbir port açmadan AWS Systems Manager.</p>
+            <p>Bastion üzerinden SSH tüneli, AWS Systems Manager, Kubernetes port-forward ya da Cloud SQL Auth Proxy.</p>
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-transfer" /></svg>
             <h3>İçe ve dışa aktarma</h3>
-            <p>Her görünümü CSV ya da JSON olarak dışa aktar. CSV'yi sütun eşleştirmeyle, tek bir ya hep ya hiç işlemiyle içe al.</p>
+            <p>Her görünümü ya da sorgu sonucunu Excel, CSV veya JSON olarak dışa aktar. Excel ve CSV'yi sütun eşleştirmeyle, tek bir ya hep ya hiç işlemiyle içe al.</p>
           </article>
           <article class="card wide reveal">
             <svg class="ic big"><use href="#i-shield" /></svg>
@@ -194,8 +217,33 @@
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-code" /></svg>
-            <h3>Geliştirici modu</h3>
-            <p>Her işlemin arkasındaki SQL'i, ham tipleri ve şemayı tanıyan otomatik tamamlamalı bir SQL editörünü gör.</p>
+            <h3>Gerçek bir SQL editörü</h3>
+            <p>Şemayı tanıyan otomatik tamamlama, biçimlendirme, okunabilir sorgu planları, geçmiş ve kayıtlı sorgular; Geliştirici modunda her işlemin arkasındaki SQL.</p>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-chart" /></svg>
+            <h3>Grafikler ve özetler</h3>
+            <p>Her sonucu çubuk, çizgi, pasta ya da tek bir sayı olarak gör. Bir tabloyu SQL yazmadan istediğin sütuna göre grupla.</p>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-diagram" /></svg>
+            <h3>Diyagram ve karşılaştırma</h3>
+            <p>Tüm tabloları ve aralarındaki bağları gör. İki veritabanını karşılaştır, onları eşitleyecek SQL'i al.</p>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-archive" /></svg>
+            <h3>Yedekle ve geri yükle</h3>
+            <p>Kuruluysa pg_dump ya da mysqldump ile, değilse Kiyi'nin kendi yedeğiyle. Geri yüklemeden önce veritabanının adını sorar.</p>
+          </article>
+          <article class="card wide reveal">
+            <svg class="ic big"><use href="#i-command" /></svg>
+            <h3>Daha hızlı çalış</h3>
+            <p>⌘K ile her tabloya, sorguya ya da bağlantıya atla. Kayıtlı görünümler, gizlenen ve sabitlenen sütunlar, seçili hücrelerin toplamı; satırları CSV, Markdown, JSON ya da INSERT olarak kopyala, bir sütunda bul ve değiştir.</p>
+          </article>
+          <article class="card reveal">
+            <svg class="ic big"><use href="#i-sparkles" /></svg>
+            <h3>Senin dilini konuşur</h3>
+            <p>Türkçe, İngilizce, Almanca ya da hangi dilde istersen sor. Türkçe ve diğer kodlamalardaki Excel ve CSV dosyaları doğru içeri gelir.</p>
           </article>
         </div>
       </section>
@@ -227,6 +275,7 @@
           <ul class="ticks">
             <li><svg class="ic"><use href="#i-check" /></svg> <span><b>SSH:</b> şifre, anahtar dosyası ya da ssh-agent; sunucunun kimliği hatırlanır ve doğrulanır.</span></li>
             <li><svg class="ic"><use href="#i-check" /></svg> <span><b>AWS SSM:</b> SSH portu açık olmayan bir EC2 üzerinden RDS'e ulaş.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Kubernetes ve Cloud SQL:</b> bir servise ya da pod'a port-forward yap ya da Cloud SQL Auth Proxy üzerinden bağlan.</span></li>
             <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Keychain:</b> şifreler ve anahtarlar bir dosyada değil, sistemin anahtar zincirinde durur.</span></li>
           </ul>
         </div>
@@ -252,7 +301,7 @@
       <section id="download" class="download">
         <div class="section-head reveal">
           <span class="eyebrow"><svg class="ic"><use href="#i-download" /></svg> İndir</span>
-          <h2>Kiyi <span data-version>v0.1.0</span> sürümünü indir</h2>
+          <h2>Kiyi <span data-version>v0.2.0</span> sürümünü indir</h2>
           <p class="muted">Ücretsiz. Arka planda kendini günceller, yeniden başlatmadan önce sorar.</p>
         </div>
         <div class="downloads">
@@ -279,7 +328,7 @@
         <div class="faq-list reveal">
           <details>
             <summary>SQL bilmem gerekiyor mu?</summary>
-            <p>Hayır. Gezinme, arama, filtreleme, düzenleme, içe aktarma ve tablo tasarlama; hepsi butonlarla ve sade bir dille çalışır. SQL biliyorsan Geliştirici modunu aç: SQL editörüne erişir, her işlemin arkasındaki komutları görürsün.</p>
+            <p>Hayır. Gezinme, arama, filtreleme, düzenleme, içe aktarma, grafik çizme ve tablo tasarlama; hepsi butonlarla ve sade bir dille çalışır, sorularını da istediğin dilde sorabilirsin. SQL biliyorsan SQL editörü bir tık uzağında; Geliştirici modu da her işlemin arkasındaki komutları gösterir.</p>
           </details>
           <details>
             <summary>AI verilerimi görüyor mu?</summary>
@@ -291,11 +340,11 @@
           </details>
           <details>
             <summary>Özel ağdaki bir veritabanına nasıl bağlanırım?</summary>
-            <p>Bir bastion sunucusu üzerinden geçmek için “SSH tunnel”, Systems Manager ile bir EC2 üzerinden geçmek için “AWS SSM” seç. Bağlantı testi her adımı gösterir: tünel, giriş, yönlendirme, veritabanı.</p>
+            <p>“Connect through” altında bir bastion sunucusu üzerinden geçmek için SSH, Systems Manager ile bir EC2 üzerinden geçmek için AWS SSM, bir servise port-forward için Kubernetes ya da Cloud SQL Auth Proxy için Cloud SQL seç. Bağlantı testi her adımı gösterir: tünel, giriş, yönlendirme, veritabanı.</p>
           </details>
           <details>
             <summary>Hangi veritabanları destekleniyor?</summary>
-            <p>Bugün PostgreSQL, MySQL, MariaDB ve SQLite. Sırada SQL Server var. Kiyi'nin çekirdeği, yeni veritabanları uygulamayı değiştirmeden eklenebilecek şekilde tasarlandı.</p>
+            <p>PostgreSQL, MySQL, MariaDB, SQLite ve SQL Server (2017 ve sonrası, Azure SQL dahil). Kiyi'nin çekirdeği, yeni veritabanları uygulamayı değiştirmeden eklenebilecek şekilde tasarlandı.</p>
           </details>
           <details>
             <summary>Ücreti ne kadar?</summary>

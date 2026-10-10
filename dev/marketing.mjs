@@ -24,13 +24,19 @@ const AI_ANSWER = {
   condition: "",
   explanation: "Pro customers in Germany who spent over $1,000, biggest spenders first",
 };
+const ASK_ANSWER = {
+  sql: "SELECT date_trunc('month', placed_at)::date AS month_start, sum(total) AS revenue FROM orders WHERE status <> 'refunded' AND placed_at >= date_trunc('month', now()) - interval '12 months' AND placed_at < date_trunc('month', now()) GROUP BY 1 ORDER BY 1",
+  explanation: "Revenue per month over the last 12 months, refunds left out",
+  chart: { kind: "line", x: "month_start", y: ["revenue"] },
+};
 const stub = createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", () => {
     res.setHeader("content-type", "application/json");
     if (req.url.endsWith("/models")) return res.end(JSON.stringify({ data: [{ id: "llama3.2" }] }));
-    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(AI_ANSWER) } }] }));
+    const answer = body.includes("ONE read-only SQL query") ? ASK_ANSWER : AI_ANSWER;
+    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(answer) } }] }));
   });
 }).listen(8787);
 
@@ -108,14 +114,14 @@ async function capture(theme) {
   await page.waitForTimeout(400);
   await dialog.getByLabel("Name", { exact: true }).fill("Acme Store (production)");
   await dialog.getByRole("radio", { name: "Production" }).click();
-  await dialog.getByRole("radio", { name: "SSH tunnel" }).click();
+  await dialog.getByRole("radio", { name: "SSH", exact: true }).click();
   await dialog.getByLabel("SSH host").fill("127.0.0.1");
   await dialog.getByLabel("SSH port").fill("52222");
   await dialog.getByLabel("SSH user").fill("kiyi");
-  await dialog.getByRole("radio", { name: "Password" }).last().click();
+  await dialog.getByRole("radio", { name: "Password" }).first().click();
   await dialog.getByLabel("SSH password").fill("kiyi");
   await dialog.getByRole("button", { name: "Test connection" }).click();
-  await dialog.getByText("Signed in as kiyi").waitFor({ timeout: 20000 });
+  await dialog.getByText("Signed in to 127.0.0.1 as kiyi").waitFor({ timeout: 20000 });
   await dialog.evaluate((el) => el.closest("[class*=modal]")?.scrollTo(0, 10_000));
   await shot("connect");
   await dialog.getByRole("button", { name: "Close" }).click();
@@ -125,6 +131,15 @@ async function capture(theme) {
   await page.getByRole("button", { name: "AI", exact: true }).click();
   await page.waitForTimeout(600);
   await shot("settings-ai");
+  await page.keyboard.press("Escape");
+
+  // Ask a question, get a chart.
+  await page.locator("aside").first().getByRole("button", { name: "Overview" }).click();
+  await page.getByLabel("Ask a question").fill("monthly revenue over the last year");
+  await page.keyboard.press("Enter");
+  await page.getByText("refunds left out").waitFor({ timeout: 15000 });
+  await page.waitForTimeout(1200);
+  await shot("chart");
 
   await browser.close();
 }

@@ -794,6 +794,9 @@ details p {
   .bento {
     grid-template-columns: 1fr 1fr;
   }
+  .bento > .card:last-child {
+    grid-column: span 2;
+  }
   .privacy-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -823,7 +826,8 @@ details p {
   .privacy-grid {
     grid-template-columns: 1fr;
   }
-  .card.wide {
+  .card.wide,
+  .bento > .card:last-child {
     grid-column: auto;
   }
   .privacy {
