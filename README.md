@@ -37,9 +37,9 @@ Most database tools are built for people who already think in SQL. Kiyi is built
 - **Safe on production.** Production connections are read-only by default, edits wait for an explicit Save, and destructive changes are explained in plain language before they run.
 - **Ask questions, get charts.** "Monthly revenue this year" becomes a query you can see, run as a chart. AI also writes, explains and fixes SQL in the editor.
 - **Charts and summaries.** Any result as bars, a line, a pie or a single figure; group a table by any column (dates by day, month or year) without SQL.
-- **Import and export.** Excel, CSV and JSON out, from any view or query; Excel and CSV in (Turkish and other Excel encodings detected), batched, all or nothing.
+- **Import and export.** Excel, CSV and JSON out, from any view or query; Excel and CSV in (Turkish and other Excel encodings detected), batched, all or nothing. Move your saved connections to another computer, without their passwords.
 - **Work faster.** ⌘K to jump anywhere, query history and saved queries, saved table views, hidden/frozen/reordered columns, copy rows as CSV, Markdown, JSON or INSERTs, find and replace across a column.
-- **See and protect the whole database.** A schema diagram, readable query plans, backups and restores, and comparing two databases with the SQL that would align them.
+- **See and protect the whole database.** A schema diagram; functions, procedures, triggers, sequences, users and roles with the SQL behind them; readable query plans; backups and restores; and comparing two databases with the SQL that would align them.
 - **Developer mode.** The SQL behind every action, raw column types, and a SQL editor with schema-aware autocomplete.
 
 Passwords and API keys live in the system keychain. No account, no telemetry.
@@ -59,6 +59,8 @@ Download size of Kiyi 0.2.0 for Apple Silicon; the rest measured with 0.1.0 on a
 ## Install
 
 Download the latest version for **macOS** (Apple Silicon or Intel) or **Windows** (64-bit) from the [website](https://parevo.github.io/kiyi/#download) or the [releases page](https://github.com/parevo/kiyi/releases/latest). Kiyi updates itself in the background and asks before restarting.
+
+No database handy? Choose **Try the sample database** on the welcome screen to explore a small store with customers, products and orders.
 
 > The macOS app is signed with a Developer ID and notarized by Apple. The Windows installer isn't code-signed yet: if SmartScreen asks, choose **More info → Run anyway**.
 
@@ -154,7 +156,7 @@ Providers are managed in **Settings → AI**. Kiyi speaks the Anthropic Messages
 
 ### Troubleshooting
 
-Kiyi writes a log to `~/Library/Logs/com.parevo.kiyi/kiyi.log` on macOS and `%LOCALAPPDATA%\com.parevo.kiyi\logs\kiyi.log` on Windows. **Settings → About & updates → Copy diagnostics** copies the version, platform and recent log for a bug report. SQL text, passwords and keys are never logged.
+Kiyi writes a log to `~/Library/Logs/com.parevo.kiyi/kiyi.log` on macOS and `%LOCALAPPDATA%\com.parevo.kiyi\logs\kiyi.log` on Windows. **Settings → About & updates → Report a problem** opens a GitHub issue with the version, platform and recent log filled in, for you to read before sending; **Copy diagnostics** copies the same to paste anywhere. SQL text, passwords and keys are never logged. See also [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## Releases
 

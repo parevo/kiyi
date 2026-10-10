@@ -2,7 +2,7 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
-## Unreleased
+## 0.3.0 (2026-10-10)
 
 ### New
 - **Objects.** Functions, procedures, triggers, sequences, and users and roles, next to the schema diagram. See the SQL that defines each one, open it in the SQL editor, drop it, or start a new one from a template. Changes go through the SQL editor, so production connections get their usual review.
