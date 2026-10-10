@@ -68,6 +68,7 @@ export function CommandPalette({ onNewConnection, onOpenSql }: { onNewConnection
       { id: "new-connection", title: "New connection", hint: kbd("N"), group: "Commands", icon: <DatabaseIcon size={15} />, run: onNewConnection },
       { id: "diagram", title: "Show schema diagram", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("diagram") },
       { id: "objects", title: "Functions, triggers, sequences and users", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("objects") },
+      { id: "migrate", title: "Move data from another database", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("migrate") },
       { id: "compare", title: "Compare with another database", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("compare") },
       { id: "backup", title: "Back up or restore", group: "Commands", icon: <CommandIcon size={15} />, run: () => ui.openTool("backup") },
       { id: "sample", title: "Open the sample database", hint: "recreated fresh", group: "Commands", icon: <DatabaseIcon size={15} />, run: () => openSample() },

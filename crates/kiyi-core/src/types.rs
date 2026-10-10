@@ -57,7 +57,7 @@ pub struct ColumnInfo {
     pub nullable: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TableKind {
     Table,

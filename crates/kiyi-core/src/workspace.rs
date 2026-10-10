@@ -108,6 +108,13 @@ impl Drop for AbortOnDrop {
 const IAM_REFRESH: Duration = Duration::from_secs(10 * 60);
 const RDS_CA_URL: &str = "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem";
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationSuggestion {
+    pub plan: crate::migrate::MigrationPlan,
+    pub explanation: String,
+}
+
 pub struct Workspace {
     dir: PathBuf,
     store: Mutex<ConnectionStore>,
@@ -115,6 +122,8 @@ pub struct Workspace {
     known_hosts: crate::tunnel::KnownHosts,
     live: RwLock<HashMap<String, Live>>,
     running: Arc<Mutex<HashMap<String, Running>>>,
+    /// Data moves in progress, by id, with the flag that stops them.
+    moves: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
 
 impl Workspace {
@@ -126,6 +135,7 @@ impl Workspace {
             known_hosts: crate::tunnel::KnownHosts::load(config_dir.join("known_hosts.json")),
             live: RwLock::new(HashMap::new()),
             running: Arc::new(Mutex::new(HashMap::new())),
+            moves: Mutex::new(HashMap::new()),
         })
     }
 
@@ -477,6 +487,51 @@ impl Workspace {
             config.id = c.id;
         }
         self.save(config, None, None)
+    }
+
+    /// A first plan for moving `source`'s data into `target`, from names, types and links.
+    pub async fn migration_suggest(&self, source: &str, target: &str) -> Result<crate::migrate::MigrationPlan> {
+        let (s, t) = (self.driver(source)?, self.driver(target)?);
+        let mut plan = crate::migrate::suggest(s.as_ref(), t.as_ref(), source, target).await?;
+        plan.source_name = self.config(source)?.name;
+        plan.target_name = self.config(target)?.name;
+        Ok(plan)
+    }
+
+    /// The plan improved by the AI. `examples` lets it see three rows of each source table.
+    pub async fn migration_ai(&self, plan: &crate::migrate::MigrationPlan, examples: bool) -> Result<MigrationSuggestion> {
+        let (p, key) = self.ai_provider()?;
+        let (s, t) = (self.driver(&plan.source)?, self.driver(&plan.target)?);
+        let (plan, explanation) = crate::migrate::improve_with_ai(&p, key.as_deref(), s.as_ref(), t.as_ref(), plan, examples).await?;
+        Ok(MigrationSuggestion { plan, explanation })
+    }
+
+    pub async fn migration_check(&self, plan: &crate::migrate::MigrationPlan) -> Result<crate::migrate::MigrationCheck> {
+        let (s, t) = (self.driver(&plan.source)?, self.driver(&plan.target)?);
+        crate::migrate::check(s.as_ref(), t.as_ref(), plan).await
+    }
+
+    /// Moves the data (or, with `test_run`, writes it all and rolls back). Stop it with `migration_cancel(run_id)`.
+    pub async fn migration_run(
+        &self,
+        plan: &crate::migrate::MigrationPlan,
+        test_run: bool,
+        run_id: &str,
+        progress: Arc<dyn Fn(crate::migrate::Progress) + Send + Sync>,
+    ) -> Result<crate::migrate::MigrationReport> {
+        self.ensure_writable(&plan.target)?;
+        let (s, t) = (self.driver(&plan.source)?, self.driver(&plan.target)?);
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.moves.lock().unwrap().insert(run_id.to_string(), cancel.clone());
+        let result = crate::migrate::run(s.as_ref(), t.as_ref(), plan, test_run, &std::env::temp_dir(), progress.as_ref(), &cancel).await;
+        self.moves.lock().unwrap().remove(run_id);
+        result
+    }
+
+    pub fn migration_cancel(&self, run_id: &str) {
+        if let Some(flag) = self.moves.lock().unwrap().get(run_id) {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     /// The estimated plan for one statement; nothing is executed.

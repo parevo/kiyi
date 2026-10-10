@@ -461,3 +461,78 @@ export interface Comparison {
   migration: string[] | null;
   note: string | null;
 }
+
+// ---- moving data between databases
+
+export type IdMode = "keep" | "renumber";
+export type WriteMode = "insert" | "skip" | "update";
+export type ValueSource =
+  | { type: "column"; column: string }
+  | { type: "combine"; columns: string[]; separator: string }
+  | { type: "fixed"; value: string | null }
+  | { type: "reference"; column: string; schema: string | null; table: string }
+  | { type: "default" };
+export type Otherwise = { type: "keep" } | { type: "null" } | { type: "value"; value: string };
+export type MigrationStep =
+  | { type: "trim" }
+  | { type: "lower" }
+  | { type: "upper" }
+  | { type: "replace"; find: string; with: string }
+  | { type: "split"; separator: string; part: number; rest: boolean }
+  | { type: "map"; pairs: { from: string; to: string | null }[]; otherwise: Otherwise }
+  | { type: "ifEmpty"; value: string | null };
+export interface ColumnMapping {
+  target: string;
+  source: ValueSource;
+  steps: MigrationStep[];
+}
+export interface TableMapping {
+  enabled: boolean;
+  sourceSchema: string | null;
+  sourceTable: string;
+  targetSchema: string | null;
+  targetTable: string;
+  columns: ColumnMapping[];
+  ids: IdMode;
+  write: WriteMode;
+  matchOn: string[];
+}
+export interface MigrationPlan {
+  source: string;
+  target: string;
+  sourceName: string;
+  targetName: string;
+  tables: TableMapping[];
+}
+export interface MigrationIssue {
+  severity: "error" | "warning";
+  table: string;
+  column: string | null;
+  message: string;
+}
+export interface MigrationTableCheck {
+  source: string;
+  target: string;
+  rows: number;
+  columns: string[];
+  preview: Cell[][];
+  issues: MigrationIssue[];
+}
+export interface MigrationCheck {
+  tables: MigrationTableCheck[];
+  issues: MigrationIssue[];
+  order: string[];
+  ready: boolean;
+}
+export interface MigrationProgress {
+  stage: "preparing" | "reading" | "writing";
+  table: string;
+  done: number;
+  total: number;
+}
+export interface MigrationReport {
+  tables: { target: string; rows: number }[];
+  rows: number;
+  testRun: boolean;
+  seconds: number;
+}

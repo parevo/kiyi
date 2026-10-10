@@ -17,6 +17,10 @@ import type {
   ObjectKind,
   ObjectList,
   ObjectSource,
+  MigrationCheck,
+  MigrationPlan,
+  MigrationProgress,
+  MigrationReport,
   BackupTools,
   Comparison,
   BackupReport,
@@ -94,6 +98,17 @@ export const ipc = {
   restore: (id: string, path: string) => invoke<RestoreReport>("restore", { id, path }),
   schemaGraph: (id: string) => invoke<SchemaGraph>("schema_graph", { id }),
   listObjects: (id: string) => invoke<ObjectList>("list_objects", { id }),
+  migrationSuggest: (source: string, target: string) => invoke<MigrationPlan>("migration_suggest", { source, target }),
+  migrationAi: (plan: MigrationPlan, examples: boolean) => invoke<{ plan: MigrationPlan; explanation: string }>("migration_ai", { plan, examples }),
+  migrationCheck: (plan: MigrationPlan) => invoke<MigrationCheck>("migration_check", { plan }),
+  migrationRun(plan: MigrationPlan, testRun: boolean, runId: string, onProgress: (p: MigrationProgress) => void) {
+    const channel = new Channel<MigrationProgress>();
+    channel.onmessage = onProgress;
+    return invoke<MigrationReport>("migration_run", { plan, testRun, runId, onProgress: channel });
+  },
+  migrationCancel: (runId: string) => invoke<void>("migration_cancel", { runId }),
+  migrationSave: (plan: MigrationPlan, path: string) => invoke<void>("migration_save", { plan, path }),
+  migrationOpen: (path: string) => invoke<MigrationPlan>("migration_open", { path }),
   objectSource: (id: string, object: DbObject) => invoke<ObjectSource>("object_source", { id, object }),
   objectTemplate: (id: string, kind: ObjectKind, schema: string | null) => invoke<string>("object_template", { id, kind, schema }),
   exportConnections: (ids: string[], path: string) => invoke<number>("export_connections", { ids, path }),

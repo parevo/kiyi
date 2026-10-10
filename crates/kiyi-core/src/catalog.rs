@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::config::DbKind;
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TypeCategory {
     Text,
@@ -245,6 +245,16 @@ fn sqlite_recognise() -> Vec<(&'static str, TypeCategory)> {
         ("char", Text),
         ("clob", Text),
     ]
+}
+
+/// What kind of value a column holds, from its native type, as the interface classifies it.
+pub fn category(kind: DbKind, data_type: &str) -> TypeCategory {
+    let t = data_type.trim().to_ascii_lowercase();
+    drivers()
+        .into_iter()
+        .find(|d| d.kind == Some(kind))
+        .and_then(|d| d.recognise.into_iter().find(|(prefix, _)| t.starts_with(prefix)).map(|(_, c)| c))
+        .unwrap_or(TypeCategory::Other)
 }
 
 pub fn drivers() -> Vec<DriverInfo> {

@@ -15,6 +15,7 @@ pub mod drivers;
 pub mod error;
 pub mod explain;
 pub mod graph;
+pub mod migrate;
 pub mod objects;
 pub mod sample;
 pub mod secrets;

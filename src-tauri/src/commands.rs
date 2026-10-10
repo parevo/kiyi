@@ -148,6 +148,50 @@ pub fn open_issue(title: String, body: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
+pub async fn migration_suggest(ws: Ws<'_>, source: String, target: String) -> CmdResult<kiyi_core::migrate::MigrationPlan> {
+    Ok(ws.migration_suggest(&source, &target).await?)
+}
+
+#[tauri::command]
+pub async fn migration_ai(ws: Ws<'_>, plan: kiyi_core::migrate::MigrationPlan, examples: bool) -> CmdResult<kiyi_core::workspace::MigrationSuggestion> {
+    Ok(ws.migration_ai(&plan, examples).await?)
+}
+
+#[tauri::command]
+pub async fn migration_check(ws: Ws<'_>, plan: kiyi_core::migrate::MigrationPlan) -> CmdResult<kiyi_core::migrate::MigrationCheck> {
+    Ok(ws.migration_check(&plan).await?)
+}
+
+#[tauri::command]
+pub async fn migration_run(
+    ws: Ws<'_>,
+    plan: kiyi_core::migrate::MigrationPlan,
+    test_run: bool,
+    run_id: String,
+    on_progress: Channel<kiyi_core::migrate::Progress>,
+) -> CmdResult<kiyi_core::migrate::MigrationReport> {
+    let progress = Arc::new(move |p: kiyi_core::migrate::Progress| {
+        let _ = on_progress.send(p);
+    });
+    Ok(ws.migration_run(&plan, test_run, &run_id, progress).await?)
+}
+
+#[tauri::command]
+pub fn migration_cancel(ws: Ws<'_>, run_id: String) {
+    ws.migration_cancel(&run_id);
+}
+
+#[tauri::command]
+pub fn migration_save(plan: kiyi_core::migrate::MigrationPlan, path: String) -> CmdResult<()> {
+    Ok(kiyi_core::migrate::save(&plan, std::path::Path::new(&path))?)
+}
+
+#[tauri::command]
+pub fn migration_open(path: String) -> CmdResult<kiyi_core::migrate::MigrationPlan> {
+    Ok(kiyi_core::migrate::open(std::path::Path::new(&path))?)
+}
+
+#[tauri::command]
 pub async fn explain(ws: Ws<'_>, id: String, sql: String) -> CmdResult<kiyi_core::explain::PlanNode> {
     Ok(ws.explain(&id, &sql).await?)
 }

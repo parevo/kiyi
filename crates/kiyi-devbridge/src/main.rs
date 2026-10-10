@@ -115,6 +115,20 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         "backup" => ws.backup(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), arg(a, "preferKiyi")?).await.map(ok).unwrap_or_else(fail),
         "restore" => ws.restore(&id()?, std::path::Path::new(&arg::<String>(a, "path")?)).await.map(ok).unwrap_or_else(fail),
         "schema_graph" => ws.schema_graph(&id()?).await.map(ok).unwrap_or_else(fail),
+        "migration_suggest" => ws.migration_suggest(&arg::<String>(a, "source")?, &arg::<String>(a, "target")?).await.map(ok).unwrap_or_else(fail),
+        "migration_ai" => ws.migration_ai(&arg(a, "plan")?, arg(a, "examples")?).await.map(ok).unwrap_or_else(fail),
+        "migration_check" => ws.migration_check(&arg(a, "plan")?).await.map(ok).unwrap_or_else(fail),
+        "migration_run" => {
+            // Progress isn't streamed over the bridge; the result comes back at the end.
+            let progress = Arc::new(|_: kiyi_core::migrate::Progress| {});
+            ws.migration_run(&arg(a, "plan")?, arg(a, "testRun")?, &arg::<String>(a, "runId")?, progress).await.map(ok).unwrap_or_else(fail)
+        }
+        "migration_cancel" => {
+            ws.migration_cancel(&arg::<String>(a, "runId")?);
+            ok(())
+        }
+        "migration_save" => kiyi_core::migrate::save(&arg(a, "plan")?, std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
+        "migration_open" => kiyi_core::migrate::open(std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
         "list_objects" => ws.objects(&id()?).await.map(ok).unwrap_or_else(fail),
         "object_source" => ws.object_source(&id()?, &arg(a, "object")?).await.map(ok).unwrap_or_else(fail),
         "object_template" => {

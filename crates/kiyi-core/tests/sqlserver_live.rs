@@ -281,3 +281,60 @@ async fn objects_definitions_and_drops() {
     run(&tpl).await;
     run("DROP FUNCTION [dbo].[add_numbers]").await;
 }
+
+/// PostgreSQL into SQL Server: explicit keys go through IDENTITY_INSERT, time zones are kept in
+/// datetimeoffset, and "update existing" runs as a MERGE.
+#[tokio::test]
+async fn moves_data_in_from_postgres() {
+    use kiyi_core::migrate::{self, IdMode, ValueSource, WriteMode};
+    if !live() {
+        return;
+    }
+    let pg_cfg = ConnectionConfig { kind: DbKind::Postgres, port: 55432, user: "kiyi".into(), ssl_mode: SslMode::Disable, ..config("kiyi_test") };
+    let pg = drivers::open(&pg_cfg, Some("kiyi")).await.expect("PostgreSQL from dev/docker-compose.yml");
+    let ms = open("kiyi_test").await;
+    let pg_exec = |sql: &'static str| {
+        let pg = pg.clone();
+        async move { pg.execute_script(&[sql.to_string()], false, false).await.unwrap_or_else(|e| panic!("{sql}: {e}")) }
+    };
+    pg_exec("DROP TABLE IF EXISTS move_events").await;
+    pg_exec("CREATE TABLE move_events (id int PRIMARY KEY, title text NOT NULL, at timestamptz NOT NULL, done boolean NOT NULL, note text)").await;
+    pg_exec("INSERT INTO move_events VALUES (10, 'Kick-off', '2026-03-01 09:00:00+03', true, 'Café ☕'), (11, 'Review', '2026-03-02 14:30:15.25+00', false, NULL)").await;
+    ms.execute(
+        "IF OBJECT_ID('dbo.move_events') IS NOT NULL DROP TABLE dbo.move_events; CREATE TABLE dbo.move_events (id int IDENTITY PRIMARY KEY, title nvarchar(50) NOT NULL, at datetimeoffset NOT NULL, done bit NOT NULL, note nvarchar(100))",
+        &|_| {},
+        &|_| {},
+    )
+    .await
+    .unwrap();
+
+    let mut plan = migrate::suggest(pg.as_ref(), ms.as_ref(), "pg", "ms").await.unwrap();
+    plan.tables.retain(|t| t.target_table == "move_events");
+    assert_eq!(plan.tables[0].ids, IdMode::Keep);
+    assert_eq!(plan.tables[0].columns[0].source, ValueSource::Column { column: "id".into() });
+    let check = migrate::check(pg.as_ref(), ms.as_ref(), &plan).await.unwrap();
+    assert!(check.ready, "{:?}", check.issues);
+    let progress = |_| {};
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    migrate::run(pg.as_ref(), ms.as_ref(), &plan, false, &std::env::temp_dir(), &progress, &stop).await.unwrap();
+    let (_, rows) = ms.fetch("SELECT id, title, CONVERT(varchar(40), at, 127), CAST(done AS int), note FROM dbo.move_events ORDER BY id").await.unwrap();
+    assert_eq!(rows[0], vec![Some("10".into()), Some("Kick-off".into()), Some("2026-03-01T06:00:00Z".into()), Some("1".into()), Some("Café ☕".into())]);
+    assert_eq!(rows[1][2].as_deref(), Some("2026-03-02T14:30:15.2500000Z"));
+
+    // (Postgres keeps the moment, not the +03 it was written with; the same moment arrives.)
+    // Update existing rows by key: a MERGE.
+    pg_exec("UPDATE move_events SET title = 'Kick-off (moved)' WHERE id = 10").await;
+    pg_exec("INSERT INTO move_events VALUES (12, 'Retro', now(), false, NULL)").await;
+    plan.tables[0].write = WriteMode::Update;
+    plan.tables[0].match_on = vec!["id".into()];
+    migrate::run(pg.as_ref(), ms.as_ref(), &plan, false, &std::env::temp_dir(), &progress, &stop).await.unwrap();
+    let (_, rows) = ms.fetch("SELECT COUNT(*), MAX(CASE WHEN id = 10 THEN title END) FROM dbo.move_events").await.unwrap();
+    assert_eq!(rows[0], vec![Some("3".into()), Some("Kick-off (moved)".into())]);
+    // The identity continues after the moved keys.
+    ms.execute("INSERT INTO dbo.move_events (title, at, done) VALUES (N'New', SYSDATETIMEOFFSET(), 0)", &|_| {}, &|_| {}).await.unwrap();
+    let (_, rows) = ms.fetch("SELECT MAX(id) FROM dbo.move_events").await.unwrap();
+    assert_eq!(rows[0][0].as_deref(), Some("13"));
+    pg_exec("DROP TABLE move_events").await;
+    // Other tests count the rows of the whole database.
+    ms.execute("DROP TABLE dbo.move_events", &|_| {}, &|_| {}).await.unwrap();
+}

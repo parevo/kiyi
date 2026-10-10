@@ -2,6 +2,18 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
+## Unreleased
+
+### New
+- **Move data between databases.** Bring another system's data into yours, even when the tables look nothing alike: PostgreSQL, MySQL, MariaDB, SQL Server and SQLite, in any direction. From the Overview, choose **Move data**.
+  - Kiyi suggests a plan from table and column names (including common synonyms in English and Turkish), types and foreign keys, and splits or joins names where one side has first and last names and the other a full name. **Improve with AI** refines it; it sees only table and column names unless you allow three example rows.
+  - Each column gets its value from a source column, several joined, a fixed value, or the new ID of a moved row, cleaned up by readable steps: trim, change case, replace, take part of the text, change values ("A" → "active"), or fill in when empty.
+  - IDs can be kept or renumbered after the highest one already there; links between moved tables follow automatically, including links to rows that already existed.
+  - When a row already exists: stop, skip it, or update it, matched on its key or any unique column.
+  - **Check** reads a sample and shows the rows as they'll be stored, and every problem by column. **Test run** writes everything in a transaction and rolls it back, so the database itself confirms every row. **Move data** runs in one transaction with progress and a Stop button: it all lands, or nothing does.
+  - Values are converted between databases: time zones to UTC where the target has none, fractions of a second cut to the column's precision, yes/no in each database's form, Postgres arrays to JSON, binary, numbers written with commas, lengths and allowed values checked.
+  - Plans can be saved to a file and opened again, on another computer too.
+
 ## 0.3.0 (2026-10-10)
 
 ### New
