@@ -16,7 +16,7 @@ Security fixes go into the latest release. Kiyi updates itself, so staying curre
 
 - **Passwords, SSH passphrases and API keys** are stored in the system keychain (macOS Keychain, Windows Credential Manager), never in Kiyi's files, logs or exported connection files.
 - **No telemetry and no account.** Kiyi talks only to your databases, the AI provider you choose, and GitHub to check for updates. Problem reports open in your browser and are sent only if you submit them.
-- **AI requests contain table and column names, never row data.** Anything the AI writes is checked before it runs: filters must parse as a single read-only condition, questions as a single read-only query.
+- **AI requests contain table and column names, not row data.** The only exception is planning a data move, where the person can choose to show the AI three example rows per source table; it's off by default. Anything the AI writes is checked before it runs: filters must parse as a single read-only condition, questions as a single read-only query, and migration plans may only name tables and columns that exist.
 - **SSH host keys** are remembered and checked on every connection.
 - **Production connections** are read-only by default, enforced by Kiyi itself as well as by the database session.
 - **Updates are signed**, and the macOS app is signed and notarized by Apple.

@@ -8,10 +8,13 @@
     <meta name="theme-color" content="#0e1013" />
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
     <meta property="og:title" content="Kiyi — The database app for everyone" />
-    <meta property="og:description" content="Browse, search and edit your database like a spreadsheet, and ask for data in plain words. Free and open source." />
+    <meta property="og:description" content="Browse, search and edit your database like a spreadsheet, ask for data in plain words, and move data between databases. Free and open source." />
     <meta property="og:image" content="https://parevo.github.io/kiyi/assets/og.png" />
     <meta property="og:url" content="https://parevo.github.io/kiyi/" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="tr_TR" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://parevo.github.io/kiyi/" />
     <link rel="alternate" hreflang="en" href="https://parevo.github.io/kiyi/" />
     <link rel="alternate" hreflang="tr" href="https://parevo.github.io/kiyi/tr/" />
     <link rel="alternate" hreflang="x-default" href="https://parevo.github.io/kiyi/" />
@@ -115,7 +118,7 @@
           <div class="prompt" aria-live="polite"><svg class="ic"><use href="#i-sparkles" /></svg><span data-typed>pro customers in germany who spent over 1k</span><span class="caret"></span></div>
           <p>Kiyi turns your sentence into filters you can see, tweak and remove one by one. Nothing runs that you can't inspect.</p>
           <ul class="ticks">
-            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Any provider, or none.</b> Claude, GPT, Gemini, open models on OpenRouter or Groq, or a model running on your own Mac with Ollama.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Any provider, or none.</b> Claude, GPT, Gemini, open models on OpenRouter or Groq, or a model running on your own computer with Ollama.</span></li>
             <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Your rows never leave.</b> Only the table's structure is sent, column names and types.</span></li>
             <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Checked before it runs.</b> Anything the AI writes must parse as a single read-only condition.</span></li>
           </ul>
@@ -214,7 +217,7 @@
           <article class="card reveal">
             <svg class="ic big"><use href="#i-radar" /></svg>
             <h3>Finds your databases</h3>
-            <p>Kiyi spots PostgreSQL, MySQL and MariaDB running on your Mac and connects in one click.</p>
+            <p>Kiyi spots PostgreSQL, MySQL and MariaDB running on your computer or in Docker, and connects in one click.</p>
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-columns" /></svg>
@@ -353,7 +356,7 @@
           </details>
           <details>
             <summary>Does the AI see my data?</summary>
-            <p>No. Kiyi sends the table's structure (column names, types and allowed values) and your request, never row data. You choose the provider, and you can run a model entirely on your own Mac with Ollama or LM Studio.</p>
+            <p>Kiyi sends the table's structure (column names, types and allowed values) and your request, not your rows. The one exception is planning a data move, where you can choose to show the AI three example rows per table; it's off unless you tick it. You choose the provider, and you can run a model entirely on your own computer with Ollama or LM Studio.</p>
           </details>
           <details>
             <summary>Is it safe to use on production?</summary>
@@ -374,6 +377,10 @@
           <details>
             <summary>Can I try it without a database?</summary>
             <p>Yes. Choose “Try the sample database” on the welcome screen and Kiyi opens a small store with customers, products and orders to browse, chart and edit. It lives on your computer and you can recreate it any time.</p>
+          </details>
+          <details>
+            <summary>Is Kiyi available in other languages?</summary>
+            <p>The app's interface is in English for now. You can ask questions and give AI requests in any language, Turkish included, and Excel and CSV files in Turkish and other encodings open correctly.</p>
           </details>
           <details>
             <summary>What does it cost?</summary>

@@ -8,11 +8,13 @@
     <meta name="theme-color" content="#0e1013" />
     <link rel="icon" href="../assets/icon.svg" type="image/svg+xml" />
     <meta property="og:title" content="Kiyi — Herkes için veritabanı uygulaması" />
-    <meta property="og:description" content="Veritabanını bir tablo gibi gez, ara ve düzenle; istediğin veriyi kendi cümlelerinle sor. Ücretsiz ve açık kaynak." />
+    <meta property="og:description" content="Veritabanını bir tablo gibi gez, ara ve düzenle; istediğin veriyi kendi cümlelerinle sor, verini veritabanları arasında taşı. Ücretsiz ve açık kaynak." />
     <meta property="og:image" content="https://parevo.github.io/kiyi/assets/og.png" />
     <meta property="og:url" content="https://parevo.github.io/kiyi/tr/" />
     <meta property="og:locale" content="tr_TR" />
+    <meta property="og:locale:alternate" content="en_US" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://parevo.github.io/kiyi/tr/" />
     <link rel="alternate" hreflang="en" href="https://parevo.github.io/kiyi/" />
     <link rel="alternate" hreflang="tr" href="https://parevo.github.io/kiyi/tr/" />
     <link rel="alternate" hreflang="x-default" href="https://parevo.github.io/kiyi/" />
@@ -73,7 +75,7 @@
         <div class="horizon" aria-hidden="true"><span class="moon"></span><span class="sea"></span><span class="sand"></span></div>
         <div class="hero-copy reveal">
           <a class="pill" href="https://github.com/parevo/kiyi/releases/latest" data-release-pill><span class="dot"></span><span><span data-version>v0.4.0</span> yayında · Yeni: veritabanları arası veri taşıma</span> <svg class="ic"><use href="#i-arrow" /></svg></a>
-          <h1>Veritabanın,<br /><span class="gradient">nihayet dost canlısı.</span></h1>
+          <h1>Veritabanın,<br /><span class="gradient">nihayet kolay.</span></h1>
           <p class="lede">
             Kiyi ile herkes PostgreSQL, MySQL, MariaDB, SQLite ve SQL Server veritabanlarını bir hesap tablosu gibi gezip arayabilir, düzenleyebilir; istediği veriyi kendi cümleleriyle sorabilir. SQL bilmek gerekmez. İhtiyacın olan her şey, istediğin anda elinin altında.
           </p>
@@ -116,7 +118,7 @@
           <div class="prompt" aria-live="polite"><svg class="ic"><use href="#i-sparkles" /></svg><span data-typed>almanya'daki pro müşterilerden 1000 üstü harcayanlar</span><span class="caret"></span></div>
           <p>Kiyi cümleni tek tek görebileceğin, değiştirebileceğin ve kaldırabileceğin filtrelere çevirir. Göremediğin hiçbir şey çalışmaz.</p>
           <ul class="ticks">
-            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>İstediğin sağlayıcı, ya da hiçbiri.</b> Claude, GPT, Gemini, OpenRouter veya Groq üzerindeki açık modeller ya da Ollama ile kendi Mac'inde çalışan bir model.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>İstediğin sağlayıcı, ya da hiçbiri.</b> Claude, GPT, Gemini, OpenRouter veya Groq üzerindeki açık modeller ya da Ollama ile kendi bilgisayarında çalışan bir model.</span></li>
             <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Satırların hiçbir yere gitmez.</b> Yalnızca tablonun yapısı, yani sütun adları ve tipleri gönderilir.</span></li>
             <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Çalışmadan önce denetlenir.</b> AI'ın yazdığı her şey tek bir salt okunur koşul olarak doğrulanmak zorunda.</span></li>
           </ul>
@@ -171,7 +173,7 @@
       <section id="speed" class="speed">
         <div class="section-head reveal">
           <span class="eyebrow"><svg class="ic"><use href="#i-zap" /></svg> Hız</span>
-          <h2>Hızını fark etmeyeceğin kadar hızlı.</h2>
+          <h2>Beklemeyi unutturacak kadar hızlı.</h2>
           <p class="muted">Uygulamaya gömülü bir tarayıcı yerine bir Rust çekirdeği ve sistemin kendi web görünümü. 2021 model bir MacBook Pro'da, bir milyon satırlık tabloyla ölçüldü.</p>
         </div>
         <div class="stats reveal">
@@ -215,7 +217,7 @@
           <article class="card reveal">
             <svg class="ic big"><use href="#i-radar" /></svg>
             <h3>Veritabanlarını kendisi bulur</h3>
-            <p>Kiyi, Mac'inde çalışan PostgreSQL, MySQL ve MariaDB'yi fark eder ve tek tıkla bağlanır.</p>
+            <p>Kiyi, bilgisayarında ya da Docker'da çalışan PostgreSQL, MySQL ve MariaDB'yi fark eder ve tek tıkla bağlanır.</p>
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-columns" /></svg>
@@ -240,7 +242,7 @@
           <article class="card reveal">
             <svg class="ic big"><use href="#i-code" /></svg>
             <h3>Gerçek bir SQL editörü</h3>
-            <p>Şemayı tanıyan otomatik tamamlama, biçimlendirme, okunabilir sorgu planları, geçmiş ve kayıtlı sorgular; Geliştirici modunda her işlemin arkasındaki SQL.</p>
+            <p>Şemayı tanıyan otomatik tamamlama, biçimlendirme, okunabilir sorgu planları, geçmiş ve kayıtlı sorgular; “Developer mode” açıkken her işlemin arkasındaki SQL.</p>
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-chart" /></svg>
@@ -338,7 +340,7 @@
             <svg class="ic big"><use href="#i-monitor" /></svg>
             <h3>Windows</h3>
             <p>Windows 10 veya 11, 64 bit</p>
-            <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Kurulumu indir</a>
+            <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Kurulum dosyasını indir</a>
             <a class="btn secondary" href="https://github.com/parevo/kiyi/releases">Tüm sürümler</a>
           </article>
         </div>
@@ -350,11 +352,11 @@
         <div class="faq-list reveal">
           <details>
             <summary>SQL bilmem gerekiyor mu?</summary>
-            <p>Hayır. Gezinme, arama, filtreleme, düzenleme, içe aktarma, grafik çizme ve tablo tasarlama; hepsi butonlarla ve sade bir dille çalışır, sorularını da istediğin dilde sorabilirsin. SQL biliyorsan SQL editörü bir tık uzağında; Geliştirici modu da her işlemin arkasındaki komutları gösterir.</p>
+            <p>Hayır. Gezinme, arama, filtreleme, düzenleme, içe aktarma, grafik çizme ve tablo tasarlama; hepsi butonlarla ve sade bir dille çalışır, sorularını da istediğin dilde sorabilirsin. SQL biliyorsan SQL editörü bir tık uzağında; “Developer mode” da her işlemin arkasındaki komutları gösterir.</p>
           </details>
           <details>
             <summary>AI verilerimi görüyor mu?</summary>
-            <p>Hayır. Kiyi yalnızca tablonun yapısını (sütun adları, tipler ve izin verilen değerler) ve isteğini gönderir, satır verisini asla göndermez. Sağlayıcıyı sen seçersin; istersen Ollama ya da LM Studio ile modeli tamamen kendi Mac'inde çalıştırabilirsin.</p>
+            <p>Kiyi tablonun yapısını (sütun adları, tipler ve izin verilen değerler) ve isteğini gönderir, satırlarını değil. Tek istisna veri taşıma planı: istersen AI'a her tablodan üç örnek satır gösterebilirsin; kutucuğu işaretlemedikçe kapalıdır. Sağlayıcıyı sen seçersin; istersen Ollama ya da LM Studio ile modeli tamamen kendi bilgisayarında çalıştırabilirsin.</p>
           </details>
           <details>
             <summary>Production'da kullanmak güvenli mi?</summary>
@@ -377,6 +379,10 @@
             <p>Evet. Karşılama ekranında “Try the sample database”ı seç; Kiyi müşteriler, ürünler ve siparişlerle küçük bir mağaza açar. Gezebilir, grafiğini çizebilir, düzenleyebilirsin. Bilgisayarında durur, istediğin zaman baştan oluşturabilirsin.</p>
           </details>
           <details>
+            <summary>Uygulama Türkçe mi?</summary>
+            <p>Uygulamanın arayüzü şimdilik İngilizce. Sorularını ve AI isteklerini Türkçe yazabilirsin; Türkçe karakterli Excel ve CSV dosyaları da doğru açılır.</p>
+          </details>
+          <details>
             <summary>Ücreti ne kadar?</summary>
             <p>Hiçbir şey. Kiyi, MIT lisansıyla ücretsiz ve açık kaynak. AI kullanırsan ücreti doğrudan sağlayıcına ödersin; yerel bir modelle hiç ödemezsin.</p>
           </details>
@@ -393,7 +399,7 @@
     </main>
 
     <footer class="footer">
-      <span><img src="../assets/icon.svg" alt="" width="18" height="18" /> Kiyi · MIT Lisansı · Yapan: <a href="https://github.com/parevo">Parevo</a></span>
+      <span><img src="../assets/icon.svg" alt="" width="18" height="18" /> Kiyi · MIT Lisansı · <a href="https://github.com/parevo">Parevo</a> yapımı</span>
       <span><a href="https://github.com/parevo/kiyi">GitHub</a> · <a href="https://github.com/parevo/kiyi/releases">Sürümler</a> · <a href="https://github.com/parevo/kiyi/issues">Sorun bildir</a></span>
     </footer>
 
