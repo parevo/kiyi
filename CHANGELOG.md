@@ -2,7 +2,7 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
-## Unreleased
+## 0.4.0 (2026-10-10)
 
 ### New
 - **Move data between databases.** Bring another system's data into yours, even when the tables look nothing alike: PostgreSQL, MySQL, MariaDB, SQL Server and SQLite, in any direction. From the Overview, choose **Move data**.
