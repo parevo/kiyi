@@ -2,7 +2,7 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
-## Unreleased
+## 0.6.0 (2026-10-12)
 
 ### New
 - **Data quality.** A Quality tab on every table, and Check data on the Overview for the whole database, point out what's messy: duplicate and copied rows, one value spelled several ways ("Istanbul", "istanbul ", "İstanbul"), stray spaces, empty text, invalid emails, outliers, negative amounts, dates in the future or far past, columns that are never filled. Most come with a fix you review before it runs.
