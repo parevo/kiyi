@@ -111,7 +111,7 @@ export function QualityView({
               <div className={s.examples}>
                 {f.examples.map((e, j) => (
                   <span key={j} className={s.example}>
-                    <code className="selectable">{e.value ?? "NULL"}</code>
+                    <code className="selectable">{e.value === null ? "NULL" : e.value !== e.value.trim() && !e.value.startsWith("“") ? `“${e.value}”` : e.value}</code>
                     {e.count > 1 && <span className={s.times}>×{fmt.format(e.count)}</span>}
                   </span>
                 ))}

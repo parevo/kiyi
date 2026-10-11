@@ -317,7 +317,11 @@ pub(crate) fn analyse(d: Dialect, details: &TableDetails, names: &[String], data
                         groups.entry(fold(v)).or_default().push((v, *n));
                     }
                 }
-                let mut clusters: Vec<Vec<(&str, u64)>> = groups.into_values().filter(|g| g.len() > 1).collect();
+                // Spellings that differ only by surrounding spaces are left to the spaces check.
+                let mut clusters: Vec<Vec<(&str, u64)>> = groups
+                    .into_values()
+                    .filter(|g| g.iter().map(|(v, _)| v.trim()).collect::<std::collections::HashSet<_>>().len() > 1)
+                    .collect();
                 for g in &mut clusters {
                     g.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
                 }
@@ -554,6 +558,16 @@ mod tests {
         assert_eq!(fold("ISTANBUL"), "istanbul");
         assert_eq!(fold("São  Paulo"), "sao paulo");
         assert_ne!(fold("Izmir"), fold("Ankara"));
+    }
+
+    #[test]
+    fn a_trailing_space_is_one_finding_not_two() {
+        let d = details(vec![col("id", "integer", true), col("city", "text", false)], vec![]);
+        let names: Vec<String> = ["id", "city"].iter().map(|s| s.to_string()).collect();
+        let data: Vec<_> = (0..40).map(|i| row(&[&i.to_string(), if i % 5 == 0 { "Paris " } else { "Paris" }])).collect();
+        let f = analyse(Dialect::POSTGRES, &d, &names, &data, now());
+        assert!(f.iter().any(|x| x.kind == Kind::Spaces), "{f:#?}");
+        assert!(f.iter().all(|x| x.kind != Kind::Spellings), "{f:#?}");
     }
 
     #[test]
