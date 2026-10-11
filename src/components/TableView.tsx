@@ -17,6 +17,7 @@ import { useTablePrefs } from "../state/tablePrefs";
 import { useUi } from "../state/ui";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import { CreateTable, StructureView } from "./StructureEditor";
+import { QualityView } from "./QualityView";
 import { SummaryView } from "./SummaryView";
 import { emptyQuery, TableData, type TableDataHandle, type TableDataStatus, type TableQuery } from "./TableData";
 import { Button, IconButton } from "./ui";
@@ -111,7 +112,7 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
     );
   }
 
-  const setView = (v: "data" | "structure" | "summary") => patchTab(tab.id, { view: v });
+  const setView = (v: "data" | "structure" | "summary" | "quality") => patchTab(tab.id, { view: v });
   const editable = !!details && !details.isView && !connection.readOnly;
 
   const ask = async (prompt: string) => {
@@ -174,6 +175,9 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
           </button>
           <button aria-pressed={view === "structure"} onClick={() => setView("structure")}>
             Structure
+          </button>
+          <button aria-pressed={view === "quality"} onClick={() => setView("quality")}>
+            Quality
           </button>
         </div>
 
@@ -287,6 +291,18 @@ export function TableView({ tab, active, onOpenSql }: { tab: Tab; active: boolea
         )}
         {details && view === "summary" && (
           <SummaryView connection={connection} details={details} browse={summaryBrowse(details, query)} onOpenSql={onOpenSql} />
+        )}
+        {details && view === "quality" && (
+          <QualityView
+            connection={connection}
+            details={details}
+            onReview={setReview}
+            onChanged={() => data.current?.refresh()}
+            onShowRows={(filters) => {
+              setQuery({ ...emptyQuery([]), filters });
+              setView("data");
+            }}
+          />
         )}
         {details && view === "structure" && (
           <StructureView

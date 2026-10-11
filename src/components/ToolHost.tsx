@@ -7,6 +7,7 @@ import { CompareView } from "./CompareView";
 import { DiagramView } from "./DiagramView";
 import { MigrateView } from "./MigrateView";
 import { ObjectsView } from "./ObjectsView";
+import { QualityScanView } from "./QualityScanView";
 
 /** Full-workspace tools (diagram, objects, compare, backup), drawn over the tabs; Escape closes them. */
 export function ToolHost({ tool }: { tool: Tool }) {
@@ -19,5 +20,5 @@ export function ToolHost({ tool }: { tool: Tool }) {
   }, []);
   const main = document.querySelector("main");
   if (!main) return null;
-  return createPortal(tool === "diagram" ? <DiagramView /> : tool === "objects" ? <ObjectsView /> : tool === "migrate" ? <MigrateView /> : tool === "backup" ? <BackupView /> : <CompareView />, main);
+  return createPortal(tool === "diagram" ? <DiagramView /> : tool === "objects" ? <ObjectsView /> : tool === "migrate" ? <MigrateView /> : tool === "quality" ? <QualityScanView /> : tool === "backup" ? <BackupView /> : <CompareView />, main);
 }

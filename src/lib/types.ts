@@ -536,3 +536,24 @@ export interface MigrationReport {
   testRun: boolean;
   seconds: number;
 }
+
+// ---- data quality
+
+export interface QualityFinding {
+  kind: "duplicates" | "copiedRows" | "spellings" | "spaces" | "blankText" | "invalidEmail" | "outliers" | "negative" | "futureDates" | "ancientDates" | "neverFilled";
+  severity: "warning" | "info";
+  column: string | null;
+  title: string;
+  detail: string;
+  rows: number;
+  examples: { value: Cell; count: number }[];
+  fix: { label: string; statements: string[] } | null;
+  show: Filter[];
+}
+export interface QualityReport {
+  schema: string | null;
+  table: string;
+  rows: number;
+  checked: number;
+  findings: QualityFinding[];
+}

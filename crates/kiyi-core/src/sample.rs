@@ -10,9 +10,10 @@ pub const FILE_NAME: &str = "Acme Store sample.db";
 pub fn statements() -> Vec<String> {
     include_str!("sample.sql")
         .split("\n\n")
-        .map(str::trim)
-        .filter(|s| s.lines().any(|l| !l.trim().is_empty() && !l.trim_start().starts_with("--")))
-        .map(str::to_string)
+        // Comment lines above a statement explain it; they aren't part of it.
+        .map(|chunk| chunk.lines().skip_while(|l| l.trim().is_empty() || l.trim_start().starts_with("--")).collect::<Vec<_>>().join("\n"))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
         .collect()
 }
 

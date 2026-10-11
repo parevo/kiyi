@@ -305,6 +305,26 @@ await check("in the smallest window, the table toolbar's buttons stay reachable"
   await page.setViewportSize({ width: 1440, height: 900 });
 });
 
+await check("data quality finds inconsistent spellings and fixes them", async () => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const values = Array.from({ length: 40 }, (_, i) => `('${["Istanbul", "istanbul ", "İstanbul", "İstanbul", "Ankara"][i % 5]}')`).join(", ");
+  await call("execute_script", { id: connId, statements: ["DROP TABLE IF EXISTS kiyi_flow_quality", "CREATE TABLE kiyi_flow_quality (id serial PRIMARY KEY, city text)", `INSERT INTO kiyi_flow_quality (city) VALUES ${values}`], kind: "schema" });
+  await page.locator("aside").first().getByRole("button", { name: "Reload list" }).click();
+  await page.waitForTimeout(800);
+  await page.locator("aside").getByText("kiyi_flow_quality", { exact: true }).click();
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: "Quality", exact: true }).click();
+  await page.getByText("city spells the same value differently").waitFor();
+  await shot("quality");
+  await page.getByRole("button", { name: /Use .İstanbul. everywhere/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Fix" }).click();
+  await toast("Fixed");
+  await page.getByText("city spells the same value differently").waitFor({ state: "detached" });
+  const r = await call("browse_table", { id: connId, request: { schema: "public", table: "kiyi_flow_quality", filters: [{ column: "city", op: "eq", value: "Ankara" }], rawWhere: null, sort: [], tiebreak: [], limit: 100, offset: 0 } });
+  if (r.rows.length !== 8) throw new Error(`Ankara rows: ${r.rows.length}`);
+});
+
+await call("execute_script", { id: connId, statements: ["DROP TABLE IF EXISTS kiyi_flow_quality"], kind: "schema" }).catch(() => {});
 await call("execute_script", { id: connId, statements: ["DROP TABLE IF EXISTS kiyi_flow_import"], kind: "schema" }).catch(() => {});
 
 const real = [...new Set(errors)].filter((e) => !/access control checks/.test(e));

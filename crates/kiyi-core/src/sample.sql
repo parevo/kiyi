@@ -94,3 +94,13 @@ FOR EACH ROW WHEN NEW.updated_at = OLD.updated_at
 BEGIN
   UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
+
+-- A little of the mess real data has, for Check data to find: the same city typed three ways,
+-- stray spaces, and refunds entered as negative totals.
+UPDATE customers SET city = 'istanbul' WHERE city = 'Istanbul' AND id % 7 = 0;
+
+UPDATE customers SET city = 'Istanbul ' WHERE city = 'Istanbul' AND id % 11 = 0;
+
+UPDATE customers SET city = 'Paris ' WHERE city = 'Paris' AND id % 13 = 0;
+
+UPDATE orders SET total = -total WHERE id IN (17, 4242);

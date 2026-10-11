@@ -338,3 +338,29 @@ async fn moves_data_in_from_postgres() {
     // Other tests count the rows of the whole database.
     ms.execute("DROP TABLE dbo.move_events", &|_| {}, &|_| {}).await.unwrap();
 }
+
+/// SQL Server compares 'a ' = 'a', so trimming has to measure lengths to find the rows at all.
+#[tokio::test]
+async fn quality_fixes_find_trailing_spaces() {
+    use kiyi_core::quality::{self, Kind};
+    if !live() {
+        return;
+    }
+    let ms = open("kiyi_test").await;
+    let run = |sql: String| {
+        let ms = ms.clone();
+        async move { ms.execute(&sql, &|_| {}, &|_| {}).await.unwrap_or_else(|e| panic!("{sql}: {e}")) }
+    };
+    run("IF OBJECT_ID('dbo.quality_people') IS NOT NULL DROP TABLE dbo.quality_people; CREATE TABLE dbo.quality_people (id int IDENTITY PRIMARY KEY, city nvarchar(50))".into()).await;
+    let values: Vec<String> = (0..40).map(|i| if i % 4 == 0 { "(N'Paris ')".into() } else { "(N'Paris')".into() }).collect();
+    run(format!("INSERT INTO dbo.quality_people (city) VALUES {}", values.join(", "))).await;
+    let report = quality::check_table(ms.as_ref(), Some("dbo"), "quality_people", quality::SAMPLE).await.unwrap();
+    let spaces = report.findings.iter().find(|f| f.kind == Kind::Spaces).unwrap_or_else(|| panic!("{:#?}", report.findings)).clone();
+    assert_eq!(spaces.rows, 10);
+    for sql in spaces.fix.unwrap().statements {
+        run(sql).await;
+    }
+    let (_, rows) = ms.fetch("SELECT COUNT(*) FROM dbo.quality_people WHERE DATALENGTH(city) <> DATALENGTH(N'Paris')").await.unwrap();
+    assert_eq!(rows[0][0].as_deref(), Some("0"), "every trailing space is gone");
+    run("DROP TABLE dbo.quality_people".into()).await;
+}

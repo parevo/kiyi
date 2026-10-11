@@ -1,0 +1,19 @@
+.view { height: 100%; overflow: auto; padding: var(--space-5, 20px) var(--space-6, 24px); display: flex; flex-direction: column; gap: var(--space-3); }
+.head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.head h2 { margin: 0; font-size: var(--text-lg); }
+.muted { margin: 4px 0 0; color: var(--text-muted); font-size: var(--text-sm); display: inline-flex; align-items: center; gap: 6px; }
+.error { display: flex; gap: 6px; align-items: center; margin: 0; color: var(--danger); }
+.clean { display: flex; align-items: center; gap: 8px; padding: var(--space-3) var(--space-4); border: 1px solid color-mix(in srgb, var(--success) 40%, var(--line)); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--success) 8%, transparent); }
+.clean svg { color: var(--success); }
+.list { display: flex; flex-direction: column; gap: var(--space-2); max-width: 900px; }
+.card { display: flex; flex-direction: column; gap: 6px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-left: 3px solid var(--env-staging, #d9a441); border-radius: var(--radius-lg); background: var(--bg-raised); }
+.card[data-severity="info"] { border-left-color: var(--line-strong); }
+.card p { margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
+.cardHead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.cardHead h3 { margin: 0; font-size: var(--text-md, 14px); font-weight: 600; }
+.count { padding: 0 8px; border-radius: 999px; background: var(--bg-sunken); color: var(--text-muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.example { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg); font-size: 12px; max-width: 320px; }
+.example code { font-family: var(--font-mono); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.times { color: var(--text-faint); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: 2px; }

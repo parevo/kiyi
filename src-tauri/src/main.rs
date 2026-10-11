@@ -57,6 +57,8 @@ fn main() {
             commands::explain,
             commands::schema_graph,
             commands::list_objects,
+            commands::quality_check,
+            commands::quality_scan,
             commands::migration_suggest,
             commands::migration_ai,
             commands::migration_check,

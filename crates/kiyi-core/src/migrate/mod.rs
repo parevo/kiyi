@@ -9,7 +9,7 @@
 //! nothing does. Nothing in a plan is code: every step is one of a fixed list.
 
 mod automap;
-mod convert;
+pub(crate) mod convert;
 mod engine;
 mod suggest_ai;
 

@@ -129,6 +129,11 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         }
         "migration_save" => kiyi_core::migrate::save(&arg(a, "plan")?, std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
         "migration_open" => kiyi_core::migrate::open(std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
+        "quality_check" => {
+            let schema: Option<String> = arg(a, "schema")?;
+            ws.quality_check(&id()?, schema.as_deref(), &arg::<String>(a, "table")?).await.map(ok).unwrap_or_else(fail)
+        }
+        "quality_scan" => ws.quality_scan(&id()?).await.map(ok).unwrap_or_else(fail),
         "list_objects" => ws.objects(&id()?).await.map(ok).unwrap_or_else(fail),
         "object_source" => ws.object_source(&id()?, &arg(a, "object")?).await.map(ok).unwrap_or_else(fail),
         "object_template" => {

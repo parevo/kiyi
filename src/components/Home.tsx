@@ -9,7 +9,7 @@ import { useActiveConnection, useConnections } from "../state/connections";
 import { useSettings } from "../state/settings";
 import { useTabs } from "../state/tabs";
 import { useUi } from "../state/ui";
-import { ArchiveIcon, ArrowIcon, CompareIcon, DatabaseIcon, DiagramIcon, DownloadIcon, MoveIcon, ObjectsIcon, SampleIcon, UploadIcon, LinkIcon, PlusIcon, RefreshIcon, SearchIcon, SparklesIcon, Spinner, TableIcon, ViewIcon } from "./icons";
+import { ArchiveIcon, ArrowIcon, CompareIcon, DatabaseIcon, DiagramIcon, DownloadIcon, HealthIcon, MoveIcon, ObjectsIcon, SampleIcon, UploadIcon, LinkIcon, PlusIcon, RefreshIcon, SearchIcon, SparklesIcon, Spinner, TableIcon, ViewIcon } from "./icons";
 import { Button } from "./ui";
 import s from "./Home.module.css";
 
@@ -71,6 +71,9 @@ export function Overview() {
         <div className={s.headerActions}>
           <Button variant="ghost" onPress={() => useUi.getState().openTool("diagram")}>
             <DiagramIcon size={14} /> Diagram
+          </Button>
+          <Button variant="ghost" onPress={() => useUi.getState().openTool("quality")}>
+            <HealthIcon size={14} /> Check data
           </Button>
           <Button variant="ghost" onPress={() => useUi.getState().openTool("objects")}>
             <ObjectsIcon size={14} /> Objects

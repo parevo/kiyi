@@ -430,6 +430,29 @@ impl Workspace {
         Ok(crate::graph::from_rows(kind, &rows))
     }
 
+    /// What looks wrong in one table's data, from a sample of its rows.
+    pub async fn quality_check(&self, id: &str, schema: Option<&str>, table: &str) -> Result<crate::quality::QualityReport> {
+        crate::quality::check_table(self.driver(id)?.as_ref(), schema, table, crate::quality::SAMPLE).await
+    }
+
+    /// Every table checked on a smaller sample, for an overview of the whole database.
+    pub async fn quality_scan(&self, id: &str) -> Result<Vec<crate::quality::QualityReport>> {
+        let driver = self.driver(id)?;
+        let snap = driver.schema().await?;
+        let sqlite = driver.dialect().is_sqlite();
+        let mut out = Vec::new();
+        for s in &snap.schemas {
+            for t in s.tables.iter().filter(|t| t.kind == crate::types::TableKind::Table).take(200) {
+                let schema = (!sqlite).then_some(s.name.as_str());
+                match crate::quality::check_table(driver.as_ref(), schema, &t.name, 10_000).await {
+                    Ok(r) => out.push(r),
+                    Err(e) => tracing::warn!("quality check of {} skipped: {e}", t.name),
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Functions, procedures, triggers, sequences and users of the open database.
     pub async fn objects(&self, id: &str) -> Result<crate::objects::ObjectList> {
         Ok(crate::objects::list(self.driver(id)?.as_ref()).await)

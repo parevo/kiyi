@@ -1,0 +1,18 @@
+.view { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--bg); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 48px; padding: 6px var(--space-3); border-bottom: 1px solid var(--line); }
+.toolbar b { display: flex; align-items: center; gap: 8px; }
+.spacer { flex: 1; }
+.body { flex: 1; overflow: auto; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.muted { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text-muted); font-size: var(--text-sm); max-width: 760px; }
+.error { display: flex; gap: 6px; align-items: center; margin: 0; color: var(--danger); }
+.clean { display: flex; align-items: center; gap: 8px; padding: var(--space-3) var(--space-4); border: 1px solid color-mix(in srgb, var(--success) 40%, var(--line)); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--success) 8%, transparent); max-width: 760px; }
+.clean svg, .ok { color: var(--success); flex-shrink: 0; }
+.list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; max-width: 1000px; }
+.row { display: grid; grid-template-columns: minmax(120px, 220px) 110px minmax(0, 1fr) 32px; align-items: center; gap: var(--space-3); padding: 10px var(--space-4); border: 0; border-top: 1px solid var(--line); background: var(--bg-raised); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--bg-hover, var(--bg-sunken)); }
+.row[data-clean] .titles { color: var(--text-faint); }
+.name { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.rows { color: var(--text-muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.titles { color: var(--text-muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { justify-self: end; min-width: 22px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--env-staging, #d9a441) 22%, transparent); color: var(--text); font-size: var(--text-sm); text-align: center; }

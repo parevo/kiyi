@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   Binary,
+  HeartPulse,
   FlaskConical,
   Shapes,
   Upload,
@@ -99,6 +100,7 @@ export const CommandIcon = make(Command);
 export const DiagramIcon = make(Network);
 export const ObjectsIcon = make(Shapes);
 export const MoveIcon = make(ArrowRightLeft);
+export const HealthIcon = make(HeartPulse);
 export const UploadIcon = make(Upload);
 export const SampleIcon = make(FlaskConical);
 export const BinaryIcon = make(Binary);
