@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiyi — Herkes için veritabanı uygulaması</title>
-    <meta name="description" content="PostgreSQL, MySQL, MariaDB, SQLite ve SQL Server veritabanlarını bir tablo gibi gez, ara, düzenle; istediğin veriyi kendi cümlelerinle sor, verini aralarında taşı. Ücretsiz, açık kaynak, Rust ile yazıldı." />
+    <meta name="description" content="PostgreSQL, MySQL, MariaDB, SQLite ve SQL Server veritabanlarını bir tablo gibi gez, ara, düzenle; istediğin veriyi kendi cümlelerinle sor, dağınık veriyi bulup düzelt, panolar kur, verini aralarında taşı. Ücretsiz, açık kaynak, Rust ile yazıldı." />
     <meta name="theme-color" content="#0e1013" />
     <link rel="icon" href="../assets/icon.svg" type="image/svg+xml" />
     <meta property="og:title" content="Kiyi — Herkes için veritabanı uygulaması" />
@@ -44,6 +44,12 @@
         <symbol id="i-laptop" viewBox="0 0 24 24"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16" /></symbol>
         <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></symbol>
         <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></symbol>
+        <symbol id="i-dashboard" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></symbol>
+        <symbol id="i-health" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></symbol>
+        <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8" /></symbol>
+        <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" /></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></symbol>
         <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
         <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7" /></symbol>
         <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></symbol>
@@ -56,11 +62,11 @@
       <a class="brand" href="#top" aria-label="Kiyi ana sayfa"><img src="../assets/icon.svg" alt="" width="28" height="28" /> Kiyi</a>
       <nav class="links" aria-label="Ana menü">
         <a href="#ai">AI</a>
+        <a href="#quality">Veri kalitesi</a>
+        <a href="#dashboards">Panolar</a>
         <a href="#move">Veri taşıma</a>
         <a href="#features">Özellikler</a>
-        <a href="#speed">Hız</a>
         <a href="#connect">Bağlantı</a>
-        <a href="#privacy">Gizlilik</a>
         <a href="#faq">SSS</a>
       </nav>
       <div class="nav-actions">
@@ -74,7 +80,7 @@
       <section class="hero">
         <div class="horizon" aria-hidden="true"><span class="moon"></span><span class="sea"></span><span class="sand"></span></div>
         <div class="hero-copy reveal">
-          <a class="pill" href="https://github.com/parevo/kiyi/releases/latest" data-release-pill><span class="dot"></span><span><span data-version>v0.5.0</span> yayında · Sorgu parametreleri, tek tıkla barındırılan veritabanları</span> <svg class="ic"><use href="#i-arrow" /></svg></a>
+          <a class="pill" href="https://github.com/parevo/kiyi/releases/latest" data-release-pill><span class="dot"></span><span><span data-version>v0.6.0</span> yayında · Veri kalitesi kontrolü, panolar, düzenlenebilir sorgu sonuçları</span> <svg class="ic"><use href="#i-arrow" /></svg></a>
           <h1>Veritabanın,<br /><span class="gradient">nihayet kolay.</span></h1>
           <p class="lede">
             Kiyi ile herkes PostgreSQL, MySQL, MariaDB, SQLite ve SQL Server veritabanlarını bir hesap tablosu gibi gezip arayabilir, düzenleyebilir; istediği veriyi kendi cümleleriyle sorabilir. SQL bilmek gerekmez. İhtiyacın olan her şey, istediğin anda elinin altında.
@@ -109,6 +115,33 @@
           <span class="strip-label">AI'ını sen seç</span>
           <span class="chip">Anthropic</span><span class="chip">OpenAI</span><span class="chip">Gemini</span><span class="chip">OpenRouter</span><span class="chip">xAI Grok</span><span class="chip">Groq</span><span class="chip">Mistral</span><span class="chip">Ollama</span><span class="chip">LM Studio</span>
         </div>
+      </section>
+
+      <section class="how" aria-labelledby="how-title">
+        <div class="section-head reveal">
+          <span class="eyebrow">Nasıl çalışır</span>
+          <h2 id="how-title">“O veri nerede?” sorusundan işin bitmesine, üç adımda.</h2>
+        </div>
+        <ol class="steps">
+          <li class="card reveal">
+            <span class="step-n">1</span>
+            <svg class="ic big"><use href="#i-plug" /></svg>
+            <h3>Bağlan</h3>
+            <p>Bir bağlantı adresi yapıştır, Kiyi'nin bilgisayarında bulduğu bir veritabanını seç ya da örnek mağazayı aç. Supabase, Neon ve RDS gibi barındırılan veritabanlarının SSL ayarları kendiliğinden yapılır; özel ağdakilere SSH, AWS SSM ya da Kubernetes üzerinden ulaşılır.</p>
+          </li>
+          <li class="card reveal">
+            <span class="step-n">2</span>
+            <svg class="ic big"><use href="#i-eye" /></svg>
+            <h3>Etrafa bak</h3>
+            <p>“Overview” bütün tabloları listeler. Birini aç, bir tablo gibi gez, filtrele, aklındaki satırları AI'a sor, bir özete grupla ya da grafiğini çiz.</p>
+          </li>
+          <li class="card reveal">
+            <span class="step-n">3</span>
+            <svg class="ic big"><use href="#i-shield" /></svg>
+            <h3>Güvenle değiştir</h3>
+            <p>Hücreleri düzenle, satır ekle, dağınık değerleri temizle ya da bir tabloyu yeniden tasarla. Kiyi ne olacağını sade bir dille gösterir, her kaydın yanında bir “Undo” tutar ve production'da bir şey değişmeden önce onay ister.</p>
+          </li>
+        </ol>
       </section>
 
       <section id="ai" class="split">
@@ -152,7 +185,7 @@
 
       <section class="split move" id="move">
         <div class="split-copy reveal">
-          <span class="eyebrow"><svg class="ic"><use href="#i-move" /></svg> Veri taşıma <span class="new">Yeni</span></span>
+          <span class="eyebrow"><svg class="ic"><use href="#i-move" /></svg> Veri taşıma</span>
           <h2>Başka bir sistemin verisini kendi sistemine taşı.</h2>
           <p>Başka bir uygulamadan mı geçiyorsun, devraldığın bir firmanın verisini mi birleştiriyorsun, ya da eski bir şemayı mı bırakıyorsun? Kiyi'ye onların veritabanını ve seninkini göster. Hangi tablonun hangisini dolduracağını, her sütunun nasıl dolacağını ve değerlerin yolda nasıl dönüşeceğini, isimler hiç benzemese bile kendisi çıkarır.</p>
           <ul class="ticks">
@@ -166,6 +199,46 @@
           <picture>
             <source srcset="../assets/shots/move-light.webp" media="(prefers-color-scheme: light)" />
             <img src="../assets/shots/move-dark.webp" width="2880" height="1800" loading="lazy" alt="Eski bir CRM'in müşterileri bir mağazanın müşteri tablosuna taşınıyor: ad soyad bölünüyor, kodlar duruma çevriliyor ve satırların nasıl kaydedileceği önizleniyor" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="split reverse" id="quality">
+        <div class="split-copy reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-health" /></svg> Veri kalitesi <span class="new">Yeni</span></span>
+          <h2>Dağınık veriyi raporlarından önce sen bul.</h2>
+          <p>İçe aktarmalar, formlar ve yıllarca elle yapılan düzenlemeler iz bırakır: “Istanbul”, “istanbul ” ve “İstanbul” üç ayrı şehir sayılır, aynı müşteri iki kez girilir, bir fiyat −5 olur. Bir tablonun “Quality” sekmesini aç ya da “Overview”dan “Check data” ile bütün veritabanını tara; Kiyi neyin yanlış göründüğünü, kaç satırı etkilediğini ve bir düzeltmeyi listeler.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Bilindik şüpheliler.</b> Tekrarlanan ve kopyalanmış satırlar, farklı yazılmış aynı değer, fazladan boşluklar, boş metinler, geçersiz e-postalar, uç değerler, negatif tutarlar, gelecekte ya da bir asır önce kalmış tarihler, kimsenin doldurmadığı sütunlar.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Gözden geçirdiğin düzeltmeler.</b> “Use ‘Istanbul’ everywhere” ya da “Trim the spaces” önce SQL'ini ve kaç satırı değiştireceğini gösterir, tek bir işlem (transaction) içinde çalışır. Hiçbir şey kendiliğinden değişmez.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Satırları gör.</b> “Show the rows”, tabloyu bir bulgunun arkasındaki satırlara filtrelenmiş açar; bir kural yetmediğinde elle düzeltirsin.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Büyük tablolarda da hızlı.</b> Tablo başına 50.000 satıra kadar, salt okunur, kendi bilgisayarında kontrol edilir. Hiçbir yere bir şey gönderilmez.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="../assets/shots/quality-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="../assets/shots/quality-dark.webp" width="2880" height="1800" loading="lazy" alt="Bir müşteri tablosunun Quality sekmesi: üç farklı yazılmış bir şehir ve tek tıkla düzeltmesi, fazladan boşluklu değerler" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="split" id="dashboards">
+        <div class="split-copy reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-dashboard" /></svg> Panolar <span class="new">Yeni</span></span>
+          <h2>Her sabah baktığın rakamlar, tek sayfada.</h2>
+          <p>SQL editöründe ya da bir sorudan çizdiğin her grafik “Add to dashboard” ile bir panoya eklenebilir. Ciro, durumlara göre siparişler ve yeni kayıtlar yan yana dursun; beş sorguyu yeniden çalıştırmak yerine hepsini tek tıkla aç.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Baktığında güncel.</b> Grafikler pano açılınca, “Refresh”e basınca ya da ekrandayken birkaç dakikada bir yeniden çalışır.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>İstediğin gibi diz.</b> Bir grafiği tam genişlik yap, sağa sola taşı, SQL'ini aç ya da panonun adını değiştir.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Yapısı gereği salt okunur.</b> Pano sorguları yalnızca okuyabilir; yenilemek production'da bile veriyi değiştirmez.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Kurulumu paylaş.</b> Panolar dışa aktarılan bağlantılarla birlikte taşınır; ekip arkadaşın aynı grafikleri kendi erişimiyle görür.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="../assets/shots/dashboard-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="../assets/shots/dashboard-dark.webp" width="2880" height="1800" loading="lazy" alt="Bu yılın cirosu, durumlara göre siparişler, aylara göre ciro ve plana göre müşterileri gösteren bir satış panosu" />
           </picture>
         </div>
       </section>
@@ -242,12 +315,12 @@
           <article class="card reveal">
             <svg class="ic big"><use href="#i-code" /></svg>
             <h3>Gerçek bir SQL editörü</h3>
-            <p>Şemayı tanıyan otomatik tamamlama, biçimlendirme, okunabilir sorgu planları, değerini soran <code>:parametreler</code>le geçmiş ve kayıtlı sorgular; “Developer mode” açıkken her işlemin arkasındaki SQL.</p>
+            <p>Şemayı tanıyan otomatik tamamlama, biçimlendirme, okunabilir sorgu planları, değerini soran <code>:parametreler</code>le geçmiş ve kayıtlı sorgular, tek tablodan okuyan sorguların düzenlenip kaydedilebilen sonuçları; “Developer mode” açıkken her işlemin arkasındaki SQL.</p>
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-chart" /></svg>
-            <h3>Grafikler ve özetler</h3>
-            <p>Her sonucu çubuk, çizgi, pasta ya da tek bir sayı olarak gör. Bir tabloyu SQL yazmadan istediğin sütuna göre grupla.</p>
+            <h3>Grafikler ve panolar</h3>
+            <p>Her sonucu çubuk, çizgi, pasta ya da tek bir sayı olarak gör. Bir tabloyu SQL yazmadan istediğin sütuna göre grupla, grafikleri bir “Dashboard”da yan yana tut.</p>
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-diagram" /></svg>
@@ -259,15 +332,45 @@
             <h3>Yedekle ve geri yükle</h3>
             <p>Kuruluysa pg_dump ya da mysqldump ile, değilse Kiyi'nin kendi yedeğiyle. Geri yüklemeden önce veritabanının adını sorar.</p>
           </article>
-          <article class="card wide reveal">
+          <article class="card reveal">
             <svg class="ic big"><use href="#i-command" /></svg>
             <h3>Daha hızlı çalış</h3>
             <p>⌘K ile her tabloya, sorguya ya da bağlantıya atla. Kayıtlı görünümler, gizlenen ve sabitlenen sütunlar, seçili hücrelerin toplamı; satırları CSV, Markdown, JSON ya da INSERT olarak kopyala, bir sütunda bul ve değiştir.</p>
           </article>
           <article class="card reveal">
+            <svg class="ic big"><use href="#i-check" /></svg>
+            <h3>Dağınık veriyi bulur</h3>
+            <p>Tekrarlanan satırlar, üç farklı yazılmış “İstanbul”, fazladan boşluklar, geçersiz e-postalar, uç değerler ve imkânsız tarihler; çalışmadan önce gözden geçirdiğin bir düzeltmeyle.</p>
+          </article>
+          <article class="card reveal">
             <svg class="ic big"><use href="#i-sparkles" /></svg>
             <h3>Senin dilini konuşur</h3>
             <p>Türkçe, İngilizce, Almanca ya da hangi dilde istersen sor. Türkçe ve diğer kodlamalardaki Excel ve CSV dosyaları doğru içeri gelir.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="roles-section" aria-labelledby="roles-title">
+        <div class="section-head reveal">
+          <span class="eyebrow">Kimler için</span>
+          <h2 id="roles-title">Veriye dokunan herkes için tek uygulama.</h2>
+        </div>
+        <div class="roles">
+          <article class="card reveal">
+            <h3>Operasyon ve destek</h3>
+            <p>Bir müşteriyi bul, adresini düzelt, siparişi iptal et, ödemeyi iade et. Nasıl tarif ediyorsan öyle ara, bir tablo gibi düzenle; “Undo” hep yanında.</p>
+          </article>
+          <article class="card reveal">
+            <h3>Analistler ve kurucular</h3>
+            <p>“Bu yıl aylara göre ciro” diye sor, grafiği al. Önemli olanları bir panoda tut, her şeyi Excel'e aktar.</p>
+          </article>
+          <article class="card reveal">
+            <h3>Geliştiriciler</h3>
+            <p>Otomatik tamamlama, parametreler, sorgu planları ve düzenlenebilir sonuçlarla hızlı bir SQL editörü; elle DDL yazmadan şema değişiklikleri; beş motor için tek uygulama.</p>
+          </article>
+          <article class="card reveal">
+            <h3>Veri ve taşıma işleri</h3>
+            <p>Tekrarları ve yazım farklarını temizle, iki veritabanını karşılaştır, başka bir sistemin verisini bağlantıları bozmadan kendininkine taşı.</p>
           </article>
         </div>
       </section>
@@ -312,6 +415,26 @@
         </div>
       </section>
 
+      <section class="split reverse" id="results">
+        <div class="split-copy reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-edit" /></svg> SQL editörü <span class="new">Yeni</span></span>
+          <h2>Sorguyu yaz, bulduğunu orada düzelt.</h2>
+          <p>Bir sorgu tek bir tablodan okuyor ve anahtarını gösteriyorsa, sonucu tablonun kendisi kadar düzenlenebilir. Satırları SQL ile daralt, hücreleri orada değiştir, “Save”e bas. Id'leri elle bir UPDATE'e kopyalamak yok.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Yalnızca güvenli olan.</b> JOIN'ler, toplamlar, DISTINCT ve hesaplanmış sütunlar tek bir satıra karşılık gelmediği için salt okunur kalır.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Anahtarla kaydedilir.</b> Değişen hücreler “Save”e kadar işaretli kalır; her satır birincil anahtarıyla, tek bir işlem içinde güncellenir.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Production'da gözden geçirilir.</b> Kaydetmeden önce çalışacak UPDATE'ler olduğu gibi gösterilir.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Etrafında gerçek bir editör.</b> Şemanı tanıyan otomatik tamamlama, <code>:parametreler</code>, biçimlendirme, okunabilir planlar, geçmiş ve kayıtlı sorgular.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="../assets/shots/results-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="../assets/shots/results-dark.webp" width="2880" height="1800" loading="lazy" alt="İki hücresi düzenlenmiş bir SQL sorgu sonucu; durum çubuğunda Save ve Discard" />
+          </picture>
+        </div>
+      </section>
+
       <section id="privacy" class="privacy reveal">
         <svg class="ic huge"><use href="#i-lock" /></svg>
         <h2>Verin sende kalır.</h2>
@@ -326,7 +449,7 @@
       <section id="download" class="download">
         <div class="section-head reveal">
           <span class="eyebrow"><svg class="ic"><use href="#i-download" /></svg> İndir</span>
-          <h2>Kiyi <span data-version>v0.5.0</span> sürümünü indir</h2>
+          <h2>Kiyi <span data-version>v0.6.0</span> sürümünü indir</h2>
           <p class="muted">Ücretsiz. Arka planda kendini günceller, yeniden başlatmadan önce sorar.</p>
         </div>
         <div class="downloads">
@@ -334,22 +457,40 @@
             <svg class="ic big"><use href="#i-laptop" /></svg>
             <h3>macOS</h3>
             <p>macOS 11 veya üzeri</p>
-            <a class="btn" data-asset="aarch64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Apple Silicon</a>
-            <a class="btn secondary" data-asset="x64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Intel</a>
+            <ul class="dl-facts">
+              <li>Apple tarafından imzalı ve onaylı</li>
+              <li>M1 ve sonrası ya da Intel</li>
+            </ul>
+            <div class="dl-buttons">
+              <a class="btn" data-asset="aarch64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Apple Silicon</a>
+              <a class="btn secondary" data-asset="x64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Intel</a>
+            </div>
           </article>
           <article class="dl reveal" data-os="windows">
             <svg class="ic big"><use href="#i-monitor" /></svg>
             <h3>Windows</h3>
             <p>Windows 10 veya 11, 64 bit</p>
-            <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Kurulum dosyasını indir</a>
-            <a class="btn secondary" href="https://github.com/parevo/kiyi/releases">Tüm sürümler</a>
+            <ul class="dl-facts">
+              <li>Yalnızca senin için kurulur, yönetici gerekmez</li>
+              <li>Şifreler Kimlik Bilgisi Yöneticisi'nde</li>
+            </ul>
+            <div class="dl-buttons">
+              <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Kurulum dosyası</a>
+              <a class="btn secondary" href="https://github.com/parevo/kiyi/releases">Tüm sürümler</a>
+            </div>
           </article>
           <article class="dl reveal" data-os="linux">
-            <svg class="ic big"><use href="#i-laptop" /></svg>
+            <svg class="ic big"><use href="#i-terminal" /></svg>
             <h3>Linux</h3>
             <p>64 bit, masaüstü anahtar zinciriyle</p>
-            <a class="btn" data-asset=".AppImage" href="https://github.com/parevo/kiyi/releases/latest">AppImage</a>
-            <a class="btn secondary" data-asset="_amd64.deb" href="https://github.com/parevo/kiyi/releases/latest">Debian ve Ubuntu için .deb</a>
+            <ul class="dl-facts">
+              <li>AppImage: her dağıtımda çalışır, kendini günceller</li>
+              <li>.deb: Debian, Ubuntu ve Mint</li>
+            </ul>
+            <div class="dl-buttons">
+              <a class="btn" data-asset=".AppImage" href="https://github.com/parevo/kiyi/releases/latest">AppImage</a>
+              <a class="btn secondary" data-asset="_amd64.deb" href="https://github.com/parevo/kiyi/releases/latest">.deb paketi</a>
+            </div>
           </article>
         </div>
         <p class="note reveal">macOS uygulaması Apple tarafından imzalı ve onaylı. Windows kurulumu henüz kod imzalı değil: SmartScreen sorarsa <b>Ek bilgi → Yine de çalıştır</b>'ı seç. Linux'ta Kiyi şifreleri GNOME Keyring ya da KWallet'ta saklar; AppImage kendini günceller.</p>
@@ -381,6 +522,18 @@
           <details>
             <summary>Kiyi başka bir sistemin verisini benimkine taşıyabilir mi?</summary>
             <p>Evet; PostgreSQL, MySQL, MariaDB, SQL Server ve SQLite arasında her yöne, tablolar hiç benzemese bile. Overview'da Move data'yı seç, diğer veritabanını göster; Kiyi hangi tablonun ve sütunun nereye gideceğini önerir. Planı düzenler, gerçek satırları kontrol eder, hiçbir şey bırakmayan bir deneme yapar, sonra her şeyi tek bir işlemle taşırsın. Planlar kaydedilip sonra yeniden çalıştırılabilir.</p>
+          </details>
+          <details>
+            <summary>Veri kalitesi kontrolü nasıl çalışır? Verimi değiştirir mi?</summary>
+            <p>Bir tablonun 50.000 satırına kadar okur (bütün veritabanı taranırken tablo başına 10.000) ve tekrarları, farklı yazılmış değerleri, fazladan boşlukları, geçersiz e-postaları, uç değerleri, negatif tutarları ve imkânsız tarihleri arar. Yalnızca okur. Düzeltmeler, önce SQL'i ve satır sayısını gösteren butonlar olarak sunulur; sen onaylamadan hiçbir şey çalışmaz.</p>
+          </details>
+          <details>
+            <summary>Bir SQL sorgusunun sonucunu düzenleyebilir miyim?</summary>
+            <p>Evet, sorgu tek bir tablodan okuyor ve birincil anahtarı içeriyorsa; örneğin <code>SELECT id, name, email FROM customers WHERE …</code>. Düzenlenen hücreler “Save”e basana kadar işaretli kalır, kaydedince her satır anahtarıyla güncellenir. JOIN, gruplama ve hesaplanmış sütun sonuçları salt okunur kalır.</p>
+          </details>
+          <details>
+            <summary>Panolar kendiliğinden güncellenir mi?</summary>
+            <p>Açtığında ve “Refresh”e bastığında sorgularını yeniden çalıştırır; istersen pano ekrandayken birkaç dakikada bir yenilenir. Pano sorgularının salt okunur olduğu kontrol edilir, yani yenilemek veriyi asla değiştirmez.</p>
           </details>
           <details>
             <summary>Veritabanım olmadan deneyebilir miyim?</summary>

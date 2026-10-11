@@ -638,10 +638,61 @@ h3 {
   font-size: 15px;
 }
 
+/* ---------- how it works */
+
+.how {
+  max-width: 1240px;
+  margin: 120px auto 0;
+  padding: 0 20px;
+}
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  counter-reset: none;
+}
+.steps .card h3,
+.roles .card h3 {
+  margin: 14px 0 8px;
+  font-size: 20px;
+}
+.steps .card p,
+.roles .card p {
+  color: var(--muted);
+}
+.step-n {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  font-size: 54px;
+  font-weight: 700;
+  line-height: 1;
+  color: color-mix(in srgb, var(--sea) 16%, transparent);
+}
+
+/* ---------- who it's for */
+
+.roles-section {
+  max-width: 1240px;
+  margin: 140px auto 0;
+  padding: 0 20px;
+}
+.roles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.roles .card h3 {
+  margin-top: 0;
+}
+
 /* ---------- download */
 
 .download {
-  max-width: 980px;
+  max-width: 1100px;
   margin: 160px auto 0;
   padding: 0 20px;
 }
@@ -668,8 +719,49 @@ h3 {
   margin: 0 0 10px;
   color: var(--muted);
 }
+.dl > p {
+  margin: 0;
+}
+.dl-facts {
+  list-style: none;
+  margin: 4px 0 14px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.dl-facts li {
+  position: relative;
+  padding-left: 16px;
+}
+.dl-facts li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sea);
+  opacity: 0.7;
+}
+/* Buttons sit at the bottom so the three cards line up whatever their text. */
+.dl-buttons {
+  margin-top: auto;
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
 .dl .btn {
   width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 48px;
+  padding: 10px 16px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
 }
 .dl.recommended {
   border-color: color-mix(in srgb, var(--sea) 55%, var(--line));
@@ -794,6 +886,14 @@ details p {
   }
   .downloads {
     grid-template-columns: 1fr;
+    max-width: 520px;
+    margin: 0 auto;
+  }
+  .steps {
+    grid-template-columns: 1fr;
+  }
+  .roles {
+    grid-template-columns: 1fr 1fr;
   }
   .split,
   .split.reverse {
@@ -836,7 +936,8 @@ details p {
   }
   .bento,
   .downloads,
-  .privacy-grid {
+  .privacy-grid,
+  .roles {
     grid-template-columns: 1fr;
   }
   .card.wide,

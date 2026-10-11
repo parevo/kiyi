@@ -3,6 +3,7 @@
 // (dev/seed/demo.sql) and the Move data pair (dev/seed/move-legacy.sql, move-target.sql), and cwebp.
 //
 //   node dev/marketing.mjs site/assets/shots
+//   node dev/marketing.mjs site/assets/shots dashboard results quality   (only these scenes)
 //
 // The "Ask AI" scene uses a local stand-in for the model (an OpenAI-compatible server
 // with a canned answer), so the screenshot doesn't depend on an API key.
@@ -12,6 +13,9 @@ import { mkdirSync, unlinkSync } from "node:fs";
 import { webkit } from "playwright";
 
 const out = process.argv[2] ?? "site/assets/shots";
+/** Scenes of the 0.6 features, which can be captured on their own. */
+const LATER = ["dashboard", "results", "quality"];
+const only = process.argv.slice(3);
 mkdirSync(out, { recursive: true });
 
 const AI_ANSWER = {
@@ -63,6 +67,7 @@ async function capture(theme) {
   const browser = await webkit.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: theme });
   const shot = async (name) => {
+    if (only.length && !only.includes(name)) return;
     await page.waitForTimeout(600);
     const png = `${out}/${name}-${theme}.png`;
     await page.screenshot({ path: png });
@@ -74,6 +79,14 @@ async function capture(theme) {
   await page.goto("http://localhost:1420");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
+  if (only.length && only.every((n) => LATER.includes(n))) {
+    await later(page, shot).catch(async (e) => {
+      await page.screenshot({ path: `${out}/failed-${theme}.png` });
+      throw e;
+    });
+    await browser.close();
+    return;
+  }
   await page.getByText("Found on this computer").waitFor();
   await page.waitForTimeout(1800);
   await shot("welcome");
@@ -187,7 +200,106 @@ async function capture(theme) {
   await page.waitForTimeout(800);
   await shot("move");
 
+  await later(page, shot);
   await browser.close();
+}
+
+/** Dashboards, editing a query's result, and data quality. */
+async function later(page, shot) {
+  for (const c of await call("list_connections")) await call("delete_connection", { id: c.id });
+  const demo = await call("parse_connection_url", { url: "postgres://kiyi:kiyi@localhost:55432/demo" });
+  const acme = await call("save_connection", { config: { ...demo.config, name: "Acme Store" }, password: "kiyi", tunnelSecret: null });
+  const tile = (id, title, sql, chart, wide = false) => ({ id, title, sql, chart, wide });
+  await call("save_user_data", {
+    name: "dashboards",
+    value: [
+      {
+        id: "acme-sales",
+        connectionId: acme.id,
+        name: "Sales overview",
+        refreshMinutes: 15,
+        updatedAt: Date.now(),
+        tiles: [
+          tile("t1", "Revenue this year", "SELECT sum(total) AS revenue FROM orders WHERE status <> 'refunded' AND placed_at >= date_trunc('year', now())", { kind: "number", x: null, y: ["revenue"] }),
+          tile("t2", "Orders by status", "SELECT status, count(*) AS orders FROM orders GROUP BY 1 ORDER BY 2 DESC", { kind: "pie", x: "status", y: ["orders"] }),
+          tile(
+            "t3",
+            "Revenue by month",
+            "SELECT date_trunc('month', placed_at)::date AS month, sum(total) AS revenue FROM orders WHERE status <> 'refunded' AND placed_at >= date_trunc('month', now()) - interval '12 months' AND placed_at < date_trunc('month', now()) GROUP BY 1 ORDER BY 1",
+            { kind: "line", x: "month", y: ["revenue"] },
+            true,
+          ),
+          tile("t4", "Customers by plan", "SELECT plan, count(*) AS customers FROM customers GROUP BY 1 ORDER BY 1", { kind: "bar", x: "plan", y: ["customers"] }),
+          tile("t5", "Top countries", "SELECT country, sum(lifetime_value) AS lifetime_value FROM customers GROUP BY 1 ORDER BY 2 DESC LIMIT 6", { kind: "bar", x: "country", y: ["lifetime_value"] }),
+        ],
+      },
+    ],
+  });
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForTimeout(1500);
+  await page.keyboard.press("Meta+k");
+  await page.keyboard.type("Acme Store");
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(1500);
+  await page.locator("aside").getByText("Sales overview", { exact: true }).click();
+  await page.locator("main section svg").nth(3).waitFor({ timeout: 15000 });
+  await page.waitForTimeout(1200);
+  await shot("dashboard");
+
+  // A query's result, edited in place before Save.
+  await page.keyboard.press("Meta+k");
+  await page.keyboard.type("New SQL query");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  await page.locator("main .cm-content").last().click();
+  await page.keyboard.type("SELECT id, name, email, plan, lifetime_value\nFROM customers\nWHERE country = 'Germany'\nORDER BY lifetime_value DESC\nLIMIT 50");
+  await page.locator("main").getByRole("button", { name: /^Run/ }).click();
+  await page.getByText(/^Editable · customers/).waitFor();
+  const grid = await page.locator("main [data-testid='data-grid-canvas']").last().boundingBox();
+  // The grid is a canvas: find a column's x the way ResultGrid sizes columns (header and the first
+  // 60 values, 7.3 px a character, 72 to 380 px), after the 32 px row numbers.
+  const sql = await page.locator("main .cm-content").last().innerText();
+  const events = await call("run_query", { connectionId: acme.id, queryId: "marketing-widths", sql });
+  const cols = events.find((e) => e.columns)?.columns.map((c) => c.name) ?? [];
+  const rows = events.flatMap((e) => e.rows ?? []);
+  const widths = cols.map((name, i) => {
+    let longest = name.length + 4;
+    for (const r of rows.slice(0, 60)) longest = Math.max(longest, r[i] === null ? 4 : Math.min(String(r[i]).length, 60));
+    return Math.round(Math.min(380, Math.max(72, longest * 7.3 + 28)));
+  });
+  const colX = (name) => {
+    const i = cols.indexOf(name);
+    return 32 + widths.slice(0, i).reduce((a, b) => a + b, 0) + widths[i] / 2;
+  };
+  const cell = async (row, column, value) => {
+    await page.mouse.dblclick(grid.x + colX(column), grid.y + 30 + 26 * row + 13);
+    const editor = page.locator("textarea.gdg-input");
+    await editor.fill(value);
+    await editor.press("Enter");
+    await page.waitForTimeout(200);
+  };
+  await cell(1, "plan", "enterprise");
+  await cell(5, "plan", "pro");
+  await page.mouse.click(grid.x + grid.width - 40, grid.y + 30 + 26 * 8 + 13);
+  await shot("results");
+
+  // Data quality, on the sample database every Kiyi can open.
+  const sample = await call("create_sample");
+  await page.reload();
+  await page.waitForTimeout(1500);
+  await page.keyboard.press("Meta+k");
+  await page.keyboard.type(sample.name);
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(1200);
+  await page.locator("aside").getByText("customers", { exact: true }).click();
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: "Quality", exact: true }).click();
+  await page.getByText("city spells the same value differently").waitFor({ timeout: 20000 });
+  await page.waitForTimeout(800);
+  await shot("quality");
 }
 
 try {

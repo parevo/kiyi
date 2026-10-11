@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kiyi — The database app for everyone</title>
-    <meta name="description" content="Browse, search and edit PostgreSQL, MySQL, MariaDB, SQLite and SQL Server like a spreadsheet, ask for data in plain words, and move data between them. Free, open source, built in Rust." />
+    <meta name="description" content="Browse, search and edit PostgreSQL, MySQL, MariaDB, SQLite and SQL Server like a spreadsheet, ask for data in plain words, find and fix messy data, build dashboards, and move data between them. Free, open source, built in Rust." />
     <meta name="theme-color" content="#0e1013" />
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
     <meta property="og:title" content="Kiyi — The database app for everyone" />
@@ -44,6 +44,12 @@
         <symbol id="i-laptop" viewBox="0 0 24 24"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16" /></symbol>
         <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></symbol>
         <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></symbol>
+        <symbol id="i-dashboard" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></symbol>
+        <symbol id="i-health" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></symbol>
+        <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8" /></symbol>
+        <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" /></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></symbol>
         <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
         <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7" /></symbol>
         <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></symbol>
@@ -56,11 +62,11 @@
       <a class="brand" href="#top" aria-label="Kiyi home"><img src="assets/icon.svg" alt="" width="28" height="28" /> Kiyi</a>
       <nav class="links" aria-label="Main">
         <a href="#ai">AI</a>
+        <a href="#quality">Data quality</a>
+        <a href="#dashboards">Dashboards</a>
         <a href="#move">Move data</a>
         <a href="#features">Features</a>
-        <a href="#speed">Speed</a>
         <a href="#connect">Connect</a>
-        <a href="#privacy">Privacy</a>
         <a href="#faq">FAQ</a>
       </nav>
       <div class="nav-actions">
@@ -74,7 +80,7 @@
       <section class="hero">
         <div class="horizon" aria-hidden="true"><span class="moon"></span><span class="sea"></span><span class="sand"></span></div>
         <div class="hero-copy reveal">
-          <a class="pill" href="https://github.com/parevo/kiyi/releases/latest" data-release-pill><span class="dot"></span><span><span data-version>v0.5.0</span> is out · Query parameters, hosted databases in one click</span> <svg class="ic"><use href="#i-arrow" /></svg></a>
+          <a class="pill" href="https://github.com/parevo/kiyi/releases/latest" data-release-pill><span class="dot"></span><span><span data-version>v0.6.0</span> is out · Data quality checks, dashboards, editable query results</span> <svg class="ic"><use href="#i-arrow" /></svg></a>
           <h1>Your database,<br /><span class="gradient">finally friendly.</span></h1>
           <p class="lede">
             Kiyi lets anyone browse, search and edit PostgreSQL, MySQL, MariaDB, SQLite and SQL Server like a spreadsheet, and ask for data in plain words. No SQL required. All of it there the moment you want it.
@@ -109,6 +115,33 @@
           <span class="strip-label">Bring your own AI</span>
           <span class="chip">Anthropic</span><span class="chip">OpenAI</span><span class="chip">Gemini</span><span class="chip">OpenRouter</span><span class="chip">xAI Grok</span><span class="chip">Groq</span><span class="chip">Mistral</span><span class="chip">Ollama</span><span class="chip">LM Studio</span>
         </div>
+      </section>
+
+      <section class="how" aria-labelledby="how-title">
+        <div class="section-head reveal">
+          <span class="eyebrow">How it works</span>
+          <h2 id="how-title">From “where is that data?” to done, in three steps.</h2>
+        </div>
+        <ol class="steps">
+          <li class="card reveal">
+            <span class="step-n">1</span>
+            <svg class="ic big"><use href="#i-plug" /></svg>
+            <h3>Connect</h3>
+            <p>Paste a connection URL, pick a database Kiyi found on your computer, or open the sample store. Hosted databases like Supabase, Neon and RDS get the right SSL settings on their own; private ones are reached through SSH, AWS SSM or Kubernetes.</p>
+          </li>
+          <li class="card reveal">
+            <span class="step-n">2</span>
+            <svg class="ic big"><use href="#i-eye" /></svg>
+            <h3>Look around</h3>
+            <p>The Overview lists every table. Open one to browse it like a sheet, filter it, ask AI for the rows you mean, group it into a summary or draw it as a chart.</p>
+          </li>
+          <li class="card reveal">
+            <span class="step-n">3</span>
+            <svg class="ic big"><use href="#i-shield" /></svg>
+            <h3>Change it safely</h3>
+            <p>Edit cells, insert rows, clean up messy values or redesign a table. Kiyi shows what will happen in plain words, keeps an Undo next to every save, and asks you to confirm before anything changes on production.</p>
+          </li>
+        </ol>
       </section>
 
       <section id="ai" class="split">
@@ -152,7 +185,7 @@
 
       <section class="split move" id="move">
         <div class="split-copy reveal">
-          <span class="eyebrow"><svg class="ic"><use href="#i-move" /></svg> Move data <span class="new">New</span></span>
+          <span class="eyebrow"><svg class="ic"><use href="#i-move" /></svg> Move data</span>
           <h2>Bring another system's data into yours.</h2>
           <p>Switching from another app, merging a company you took over, or leaving an old schema behind? Point Kiyi at their database and yours. It works out which table feeds which, how each column fills, and how values change on the way, even when nothing is named alike.</p>
           <ul class="ticks">
@@ -166,6 +199,46 @@
           <picture>
             <source srcset="assets/shots/move-light.webp" media="(prefers-color-scheme: light)" />
             <img src="assets/shots/move-dark.webp" width="2880" height="1800" loading="lazy" alt="Moving a legacy CRM's clients into a shop's customers: full names split, codes mapped to statuses, and a preview of the rows as they'll be stored" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="split reverse" id="quality">
+        <div class="split-copy reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-health" /></svg> Data quality <span class="new">New</span></span>
+          <h2>Find messy data before your reports do.</h2>
+          <p>Imports, forms and years of hand edits leave marks: “Istanbul”, “istanbul ” and “İstanbul” counted as three cities, the same customer entered twice, a price of −5. Open a table's Quality tab, or check the whole database from the Overview, and Kiyi lists what looks wrong, how many rows it touches, and a fix.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>The usual suspects.</b> Duplicate and copied rows, one value spelled several ways, stray spaces, empty text, invalid emails, outliers, negative amounts, dates in the future or a century ago, columns nobody fills.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Fixes you review.</b> “Use ‘Istanbul’ everywhere” or “Trim the spaces” shows its SQL and how many rows it changes first, and runs in one transaction. Nothing changes on its own.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>See the rows.</b> Show the rows opens the table filtered to the ones behind a finding, so you can fix them by hand when a rule isn't enough.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Quick on big tables.</b> Up to 50,000 rows per table are checked, read-only, on your computer. Nothing is sent anywhere.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="assets/shots/quality-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="assets/shots/quality-dark.webp" width="2880" height="1800" loading="lazy" alt="The Quality tab of a customers table: a city spelled three ways with a one-click fix, and values with extra spaces" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="split" id="dashboards">
+        <div class="split-copy reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-dashboard" /></svg> Dashboards <span class="new">New</span></span>
+          <h2>The numbers you check every morning, on one page.</h2>
+          <p>Any chart you make in the SQL editor or from a question can go on a dashboard with Add to dashboard. Keep revenue, orders by status and new sign-ups side by side, and open them all with one click instead of re-running five queries.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Fresh when you look.</b> Charts re-run when the dashboard opens, on Refresh, or every few minutes while it's on screen.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Arrange it your way.</b> Make a chart full width, move it left or right, open its SQL, or rename the dashboard.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Read-only by design.</b> Dashboard queries can only read, so a refresh never changes data, even on production.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Share the setup.</b> Dashboards travel with exported connections, so a teammate gets the same charts against their own access.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="assets/shots/dashboard-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="assets/shots/dashboard-dark.webp" width="2880" height="1800" loading="lazy" alt="A sales dashboard with revenue this year, orders by status as a pie, revenue by month as a line and customers by plan" />
           </picture>
         </div>
       </section>
@@ -242,12 +315,12 @@
           <article class="card reveal">
             <svg class="ic big"><use href="#i-code" /></svg>
             <h3>A real SQL editor</h3>
-            <p>Schema-aware autocomplete, formatting, readable query plans, history and saved queries with <code>:parameters</code> that ask for their values, and the SQL behind every action in Developer mode.</p>
+            <p>Schema-aware autocomplete, formatting, readable query plans, history and saved queries with <code>:parameters</code> that ask for their values, results of a one-table query you can edit and save, and the SQL behind every action in Developer mode.</p>
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-chart" /></svg>
-            <h3>Charts &amp; summaries</h3>
-            <p>Any result as bars, a line, a pie or a single figure. Group a table by any column without writing SQL.</p>
+            <h3>Charts &amp; dashboards</h3>
+            <p>Any result as bars, a line, a pie or a single figure. Group a table by any column without writing SQL, and keep charts side by side on a dashboard.</p>
           </article>
           <article class="card reveal">
             <svg class="ic big"><use href="#i-diagram" /></svg>
@@ -259,15 +332,45 @@
             <h3>Back up &amp; restore</h3>
             <p>With pg_dump or mysqldump when you have them, Kiyi's own backup when you don't. Restores ask for the database's name first.</p>
           </article>
-          <article class="card wide reveal">
+          <article class="card reveal">
             <svg class="ic big"><use href="#i-command" /></svg>
             <h3>Work faster</h3>
             <p>⌘K to jump to any table, query or connection. Saved views, hidden and frozen columns, totals of the selected cells, copy rows as CSV, Markdown, JSON or INSERTs, and find and replace across a column.</p>
           </article>
           <article class="card reveal">
+            <svg class="ic big"><use href="#i-check" /></svg>
+            <h3>Finds messy data</h3>
+            <p>Duplicates, “Istanbul” spelled three ways, stray spaces, invalid emails, outliers and impossible dates, with a fix you review before it runs.</p>
+          </article>
+          <article class="card reveal">
             <svg class="ic big"><use href="#i-sparkles" /></svg>
             <h3>Speaks your language</h3>
             <p>Ask in English, Turkish, German or anything else. Excel and CSV files with Turkish and other encodings come in right.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="roles-section" aria-labelledby="roles-title">
+        <div class="section-head reveal">
+          <span class="eyebrow">Who it's for</span>
+          <h2 id="roles-title">One app for everyone who touches the data.</h2>
+        </div>
+        <div class="roles">
+          <article class="card reveal">
+            <h3>Operations &amp; support</h3>
+            <p>Look up a customer, fix an address, cancel an order, refund a payment. Search the way you'd describe it and edit like a sheet, with Undo.</p>
+          </article>
+          <article class="card reveal">
+            <h3>Analysts &amp; founders</h3>
+            <p>Ask “revenue by month this year” and get a chart. Keep the ones that matter on a dashboard and export anything to Excel.</p>
+          </article>
+          <article class="card reveal">
+            <h3>Developers</h3>
+            <p>A fast SQL editor with autocomplete, parameters, plans and editable results; schema changes without hand-written DDL; one app for five engines.</p>
+          </article>
+          <article class="card reveal">
+            <h3>Data &amp; migration work</h3>
+            <p>Clean up duplicates and spellings, compare two databases, and move another system's data into yours with links intact.</p>
           </article>
         </div>
       </section>
@@ -312,6 +415,26 @@
         </div>
       </section>
 
+      <section class="split reverse" id="results">
+        <div class="split-copy reveal">
+          <span class="eyebrow"><svg class="ic"><use href="#i-edit" /></svg> SQL editor <span class="new">New</span></span>
+          <h2>Write the query, then fix what it finds.</h2>
+          <p>When a query reads one table and shows its key, its result is as editable as the table itself. Narrow down the rows with SQL, change the cells right there, and Save. No copying ids into an UPDATE by hand.</p>
+          <ul class="ticks">
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Only what's safe.</b> Joins, totals, DISTINCT and computed columns stay read-only, because they don't map to one row.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Saved by key.</b> Changed cells are highlighted until you Save; each row is updated by its primary key in one transaction.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>Reviewed on production.</b> The exact UPDATE statements are shown before anything is saved.</span></li>
+            <li><svg class="ic"><use href="#i-check" /></svg> <span><b>A real editor around it.</b> Autocomplete that knows your schema, <code>:parameters</code>, formatting, readable plans, history and saved queries.</span></li>
+          </ul>
+        </div>
+        <div class="shot reveal">
+          <picture>
+            <source srcset="assets/shots/results-light.webp" media="(prefers-color-scheme: light)" />
+            <img src="assets/shots/results-dark.webp" width="2880" height="1800" loading="lazy" alt="A SQL query's result with two edited cells highlighted and Save and Discard in the status bar" />
+          </picture>
+        </div>
+      </section>
+
       <section id="privacy" class="privacy reveal">
         <svg class="ic huge"><use href="#i-lock" /></svg>
         <h2>Your data stays yours.</h2>
@@ -326,7 +449,7 @@
       <section id="download" class="download">
         <div class="section-head reveal">
           <span class="eyebrow"><svg class="ic"><use href="#i-download" /></svg> Download</span>
-          <h2>Get Kiyi <span data-version>v0.5.0</span></h2>
+          <h2>Get Kiyi <span data-version>v0.6.0</span></h2>
           <p class="muted">Free. Updates itself in the background and asks before restarting.</p>
         </div>
         <div class="downloads">
@@ -334,22 +457,40 @@
             <svg class="ic big"><use href="#i-laptop" /></svg>
             <h3>macOS</h3>
             <p>macOS 11 or later</p>
-            <a class="btn" data-asset="aarch64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Apple Silicon</a>
-            <a class="btn secondary" data-asset="x64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Intel</a>
+            <ul class="dl-facts">
+              <li>Signed and notarized by Apple</li>
+              <li>M1 and later, or Intel</li>
+            </ul>
+            <div class="dl-buttons">
+              <a class="btn" data-asset="aarch64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Apple Silicon</a>
+              <a class="btn secondary" data-asset="x64.dmg" href="https://github.com/parevo/kiyi/releases/latest">Intel</a>
+            </div>
           </article>
           <article class="dl reveal" data-os="windows">
             <svg class="ic big"><use href="#i-monitor" /></svg>
             <h3>Windows</h3>
             <p>Windows 10 or 11, 64-bit</p>
-            <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Download installer</a>
-            <a class="btn secondary" href="https://github.com/parevo/kiyi/releases">All releases</a>
+            <ul class="dl-facts">
+              <li>Installs for you alone, no admin</li>
+              <li>Passwords in Credential Manager</li>
+            </ul>
+            <div class="dl-buttons">
+              <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Installer</a>
+              <a class="btn secondary" href="https://github.com/parevo/kiyi/releases">All releases</a>
+            </div>
           </article>
           <article class="dl reveal" data-os="linux">
-            <svg class="ic big"><use href="#i-laptop" /></svg>
+            <svg class="ic big"><use href="#i-terminal" /></svg>
             <h3>Linux</h3>
             <p>64-bit, with a desktop keyring</p>
-            <a class="btn" data-asset=".AppImage" href="https://github.com/parevo/kiyi/releases/latest">AppImage</a>
-            <a class="btn secondary" data-asset="_amd64.deb" href="https://github.com/parevo/kiyi/releases/latest">.deb for Debian &amp; Ubuntu</a>
+            <ul class="dl-facts">
+              <li>AppImage: any distribution, updates itself</li>
+              <li>.deb: Debian, Ubuntu and Mint</li>
+            </ul>
+            <div class="dl-buttons">
+              <a class="btn" data-asset=".AppImage" href="https://github.com/parevo/kiyi/releases/latest">AppImage</a>
+              <a class="btn secondary" data-asset="_amd64.deb" href="https://github.com/parevo/kiyi/releases/latest">.deb package</a>
+            </div>
           </article>
         </div>
         <p class="note reveal">The macOS app is signed and notarized by Apple. The Windows installer isn't code-signed yet: if SmartScreen asks, choose <b>More info → Run anyway</b>. On Linux, Kiyi keeps passwords in GNOME Keyring or KWallet; the AppImage updates itself.</p>
@@ -381,6 +522,18 @@
           <details>
             <summary>Can Kiyi move data from another system into mine?</summary>
             <p>Yes, between PostgreSQL, MySQL, MariaDB, SQL Server and SQLite in any direction, even when the tables look nothing alike. Choose Move data on the Overview, pick the other database, and Kiyi suggests which table and column goes where. You adjust the plan, check real rows, try a test run that keeps nothing, then move it all in one transaction. Plans can be saved and run again later.</p>
+          </details>
+          <details>
+            <summary>How does the data quality check work? Will it change my data?</summary>
+            <p>It reads up to 50,000 rows of a table (10,000 per table when checking the whole database) and looks for duplicates, values spelled several ways, stray spaces, invalid emails, outliers, negative amounts and impossible dates. It only reads. Fixes are offered as buttons that show the SQL and the number of rows first, and nothing runs until you confirm.</p>
+          </details>
+          <details>
+            <summary>Can I edit the result of a SQL query?</summary>
+            <p>Yes, when the query reads a single table and includes its primary key, like <code>SELECT id, name, email FROM customers WHERE …</code>. Edited cells are highlighted until you press Save, which updates each row by its key. Results of joins, groupings and computed columns stay read-only.</p>
+          </details>
+          <details>
+            <summary>Do dashboards update by themselves?</summary>
+            <p>They re-run their queries when you open them and when you press Refresh, and you can have a dashboard refresh every few minutes while it's on screen. Dashboard queries are checked to be read-only, so refreshing never changes data.</p>
           </details>
           <details>
             <summary>Can I try it without a database?</summary>
