@@ -103,6 +103,12 @@ struct Prepared {
     target_key: Option<TargetColumn>,
     /// Explicit values go into an identity / auto-increment key.
     explicit_identity: bool,
+    /// Columns in `writes` that link rows of this same table (a manager, a parent category).
+    /// They're written empty first and filled once every row exists, so the order of the
+    /// source rows doesn't matter.
+    deferred: Vec<usize>,
+    /// Where the target key is in `writes`, when Kiyi writes it.
+    key_index: Option<usize>,
 }
 
 impl Prepared {
@@ -270,7 +276,21 @@ async fn prepare(source: &dyn DbDriver, target: &dyn DbDriver, plan: &MigrationP
                 issues.push(Issue::warning(name, Some(&fk.columns[0]), format!("{} links to {}, which gets new numbers; choose “New ID of a moved row” so links follow.", fk.columns[0], fk.ref_table)));
             }
         }
-        out.push(Prepared { mapping: m.clone(), target: dst, writes, reads, source_key, target_key, explicit_identity });
+        let key_index = target_key.as_ref().and_then(|k| writes.iter().position(|(w, _)| w.name == k.name));
+        let mut deferred = Vec::new();
+        for (i, (w, mapping)) in writes.iter().enumerate() {
+            let fk_to_self = dst.design.foreign_keys.iter().any(|f| f.columns.len() == 1 && f.columns[0] == w.name && f.ref_table == m.target_table);
+            let ref_to_self = matches!(mapping, Some(ColumnMapping { source: ValueSource::Reference { schema, table, .. }, .. }) if table_key(schema.as_deref(), table) == m.source_key());
+            if !(fk_to_self || ref_to_self) || m.write != WriteMode::Insert {
+                continue;
+            }
+            match key_index {
+                Some(_) if w.nullable => deferred.push(i),
+                Some(_) => issues.push(Issue::warning(name, Some(&w.name), format!("{} links rows of {name} to each other and can't be empty, so each row has to come after the one it points to; if not, the move stops.", w.name))),
+                None => issues.push(Issue::warning(name, Some(&w.name), format!("{name} gets its keys from the database, so {} can only point at rows that come earlier.", w.name))),
+            }
+        }
+        out.push(Prepared { mapping: m.clone(), target: dst, writes, reads, source_key, target_key, explicit_identity, deferred, key_index });
     }
     order(&mut out, &mut issues);
     (out, issues)
@@ -714,6 +734,27 @@ struct Batch {
     rows: u64,
 }
 
+/// Fills in links between rows of the same table once they all exist:
+/// `UPDATE t SET parent = CASE id WHEN 4 THEN 9 … END WHERE id IN (4, …)`.
+fn link_updates(d: Dialect, p: &Prepared, links: &[(String, usize, String)]) -> Vec<String> {
+    let Some(k) = p.key_index else { return vec![] };
+    let key = &p.writes[k].0;
+    let table = d.table(p.mapping.target_schema.as_deref(), &p.mapping.target_table);
+    let mut out = Vec::new();
+    for &i in &p.deferred {
+        let col = &p.writes[i].0;
+        let mine: Vec<&(String, usize, String)> = links.iter().filter(|(_, c, _)| *c == i).collect();
+        for chunk in mine.chunks(500) {
+            // Postgres reads a CASE of quoted values as text; say what type it is.
+            let value = |v: &str| if d.kind == DbKind::Postgres { format!("CAST({} AS {})", literal(d, col, Some(v)), col.data_type) } else { literal(d, col, Some(v)) };
+            let cases: Vec<String> = chunk.iter().map(|(id, _, v)| format!("WHEN {} THEN {}", literal(d, key, Some(id)), value(v))).collect();
+            let ids: Vec<String> = chunk.iter().map(|(id, _, _)| literal(d, key, Some(id))).collect();
+            out.push(format!("UPDATE {table} SET {} = CASE {} {} END WHERE {} IN ({})", d.ident(&col.name), d.ident(&key.name), cases.join(" "), d.ident(&key.name), ids.join(", ")));
+        }
+    }
+    out
+}
+
 fn spool_batch(file: &mut BufWriter<std::fs::File>, batches: &mut Vec<Batch>, written: &mut [u64], table: usize, sql: String, pending: &mut Vec<Vec<Option<String>>>, row_no: u64) -> Result<()> {
     let n = pending.len() as u64;
     writeln!(file, "{}", serde_json::to_string(&sql)?)?;
@@ -773,6 +814,7 @@ pub async fn run(
             counter = counter.max(m.values().copied().max().unwrap_or(0));
         }
         let mut pager = Pager::new(source, p, &p.reads, p.source_key.as_deref());
+        let mut links: Vec<(String, usize, String)> = Vec::new();
         let mut pending: Vec<Vec<Option<String>>> = Vec::new();
         let mut pending_bytes = 0usize;
         let mut row_no = 0u64;
@@ -787,6 +829,14 @@ pub async fn run(
                     let which = p.source_key.as_deref().and_then(|k| index.get(k)).and_then(|i| row[*i].clone()).map(|k| format!("the row with key {k}")).unwrap_or_else(|| format!("row {row_no}"));
                     Error::Invalid(format!("Nothing was moved. {} → {}, {which}: {column} {message}.", p.mapping.source_table, p.name()))
                 })?;
+                let mut values = values;
+                if let Some(key) = p.key_index.and_then(|k| values[k].clone()) {
+                    for &i in &p.deferred {
+                        if let Some(v) = values[i].take() {
+                            links.push((key.clone(), i, v));
+                        }
+                    }
+                }
                 pending_bytes += values.iter().map(|v| v.as_ref().map_or(4, String::len) + 4).sum::<usize>();
                 pending.push(values);
                 if pending.len() >= ROWS_PER_STATEMENT || pending_bytes >= BYTES_PER_STATEMENT {
@@ -799,6 +849,10 @@ pub async fn run(
         }
         if !pending.is_empty() {
             spool_batch(&mut file, &mut batches, &mut written_per_table, ti, statement(d, p, &pending, overriding), &mut pending, row_no)?;
+        }
+        for sql in link_updates(d, p, &links) {
+            writeln!(file, "{}", serde_json::to_string(&sql)?)?;
+            batches.push(Batch { table: ti, first_row: 0, rows: 0 });
         }
         if identity_on {
             writeln!(file, "{}", serde_json::to_string(&format!("SET IDENTITY_INSERT {qualified} OFF"))?)?;

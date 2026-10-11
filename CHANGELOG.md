@@ -2,6 +2,14 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
+## Unreleased
+
+### New
+- **Linux.** Kiyi for 64-bit Linux, as an AppImage that updates itself and a .deb for Debian and Ubuntu. Passwords and keys are kept in the desktop's Secret Service (GNOME Keyring, KWallet).
+
+### Fixed
+- **Move data:** rows that point at other rows of the same table (a manager, a parent category) move correctly whatever their order: the links are written once every row exists. A link that can't be empty is pointed out by Check.
+
 ## 0.4.0 (2026-10-10)
 
 ### New

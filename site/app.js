@@ -27,10 +27,11 @@ document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
 
 // Point the main button at the right download for this computer.
 const ua = navigator.userAgent;
-const os = /Windows/.test(ua) ? "windows" : /Mac/.test(ua) ? "mac" : null;
+const os = /Windows/.test(ua) ? "windows" : /Mac/.test(ua) ? "mac" : /Linux/.test(ua) && !/Android/.test(ua) ? "linux" : null;
 const primary = document.querySelector("[data-primary-label]");
 if (os === "mac") primary.textContent = tr ? "macOS için indir" : "Download for macOS";
 if (os === "windows") primary.textContent = tr ? "Windows için indir" : "Download for Windows";
+if (os === "linux") primary.textContent = tr ? "Linux için indir" : "Download for Linux";
 if (os) document.querySelector(`.dl[data-os="${os}"]`)?.classList.add("recommended");
 
 // Link straight to the latest release's files.
@@ -43,9 +44,9 @@ fetch(`https://api.github.com/repos/${REPO}/releases/latest`)
       const url = find(a.dataset.asset);
       if (url) a.href = url;
     });
-    const mainAsset = os === "windows" ? find("x64-setup.exe") : os === "mac" ? find("aarch64.dmg") : null;
+    const mainAsset = os === "windows" ? find("x64-setup.exe") : os === "linux" ? find(".AppImage") : os === "mac" ? find("aarch64.dmg") : null;
     const main = document.querySelector("[data-primary-download]");
-    if (mainAsset && os === "windows") main.href = mainAsset;
+    if (mainAsset && (os === "windows" || os === "linux")) main.href = mainAsset;
     // On a Mac we can't tell Apple Silicon from Intel reliably, so send people to the choice.
   })
   .catch(() => {});

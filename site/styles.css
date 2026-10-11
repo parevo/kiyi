@@ -647,7 +647,7 @@ h3 {
 }
 .downloads {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
 .dl {
@@ -791,6 +791,9 @@ details p {
 @media (max-width: 980px) {
   .links {
     display: none;
+  }
+  .downloads {
+    grid-template-columns: 1fr;
   }
   .split,
   .split.reverse {

@@ -83,7 +83,7 @@
             <a class="btn" href="#download" data-primary-download><svg class="ic"><use href="#i-download" /></svg> <span data-primary-label>Kiyi'yi indir</span></a>
             <a class="btn secondary" href="https://github.com/parevo/kiyi"><svg class="ic"><use href="#i-github" /></svg> GitHub'da yıldızla</a>
           </div>
-          <p class="fineprint">macOS (Apple Silicon ve Intel) ve Windows · MIT lisanslı · Hesap gerekmez</p>
+          <p class="fineprint">macOS, Windows ve Linux · MIT lisanslı · Hesap gerekmez</p>
         </div>
 
         <div class="stage reveal">
@@ -343,8 +343,15 @@
             <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Kurulum dosyasını indir</a>
             <a class="btn secondary" href="https://github.com/parevo/kiyi/releases">Tüm sürümler</a>
           </article>
+          <article class="dl reveal" data-os="linux">
+            <svg class="ic big"><use href="#i-laptop" /></svg>
+            <h3>Linux</h3>
+            <p>64 bit, masaüstü anahtar zinciriyle</p>
+            <a class="btn" data-asset=".AppImage" href="https://github.com/parevo/kiyi/releases/latest">AppImage</a>
+            <a class="btn secondary" data-asset="_amd64.deb" href="https://github.com/parevo/kiyi/releases/latest">Debian ve Ubuntu için .deb</a>
+          </article>
         </div>
-        <p class="note reveal">macOS uygulaması Apple tarafından imzalı ve onaylı. Windows kurulumu henüz kod imzalı değil: SmartScreen sorarsa <b>Ek bilgi → Yine de çalıştır</b>'ı seç.</p>
+        <p class="note reveal">macOS uygulaması Apple tarafından imzalı ve onaylı. Windows kurulumu henüz kod imzalı değil: SmartScreen sorarsa <b>Ek bilgi → Yine de çalıştır</b>'ı seç. Linux'ta Kiyi şifreleri GNOME Keyring ya da KWallet'ta saklar; AppImage kendini günceller.</p>
       </section>
 
       <section id="faq" class="faq">

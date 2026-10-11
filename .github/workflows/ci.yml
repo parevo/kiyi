@@ -47,6 +47,25 @@ jobs:
       - run: pnpm vite build
       - run: cargo check -p kiyi
 
+  linux:
+    # Catches Linux-only compile problems (WebKitGTK, the Secret Service) before a release build does.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vite build
+      - run: cargo clippy -p kiyi -p kiyi-core -- -D warnings
+
   audit:
     # Known vulnerabilities in dependencies. Accepted ones are listed, with reasons, in .cargo/audit.toml.
     runs-on: ubuntu-latest

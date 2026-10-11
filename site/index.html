@@ -83,7 +83,7 @@
             <a class="btn" href="#download" data-primary-download><svg class="ic"><use href="#i-download" /></svg> <span data-primary-label>Download Kiyi</span></a>
             <a class="btn secondary" href="https://github.com/parevo/kiyi"><svg class="ic"><use href="#i-github" /></svg> Star on GitHub</a>
           </div>
-          <p class="fineprint">macOS (Apple Silicon &amp; Intel) and Windows · MIT licensed · No account needed</p>
+          <p class="fineprint">macOS, Windows and Linux · MIT licensed · No account needed</p>
         </div>
 
         <div class="stage reveal">
@@ -343,8 +343,15 @@
             <a class="btn" data-asset="x64-setup.exe" href="https://github.com/parevo/kiyi/releases/latest">Download installer</a>
             <a class="btn secondary" href="https://github.com/parevo/kiyi/releases">All releases</a>
           </article>
+          <article class="dl reveal" data-os="linux">
+            <svg class="ic big"><use href="#i-laptop" /></svg>
+            <h3>Linux</h3>
+            <p>64-bit, with a desktop keyring</p>
+            <a class="btn" data-asset=".AppImage" href="https://github.com/parevo/kiyi/releases/latest">AppImage</a>
+            <a class="btn secondary" data-asset="_amd64.deb" href="https://github.com/parevo/kiyi/releases/latest">.deb for Debian &amp; Ubuntu</a>
+          </article>
         </div>
-        <p class="note reveal">The macOS app is signed and notarized by Apple. The Windows installer isn't code-signed yet: if SmartScreen asks, choose <b>More info → Run anyway</b>.</p>
+        <p class="note reveal">The macOS app is signed and notarized by Apple. The Windows installer isn't code-signed yet: if SmartScreen asks, choose <b>More info → Run anyway</b>. On Linux, Kiyi keeps passwords in GNOME Keyring or KWallet; the AppImage updates itself.</p>
       </section>
 
       <section id="faq" class="faq">
