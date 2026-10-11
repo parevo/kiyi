@@ -2,7 +2,7 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
-## Unreleased
+## 0.4.1 (2026-10-11)
 
 ### New
 - **Linux.** Kiyi for 64-bit Linux, as an AppImage that updates itself and a .deb for Debian and Ubuntu. Passwords and keys are kept in the desktop's Secret Service (GNOME Keyring, KWallet).
