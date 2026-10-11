@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ipc } from "../lib/ipc";
 import { formatterLanguage } from "../lib/dialect";
+import { fillParams, findParams } from "../lib/params";
 import { prettySql, splitStatements } from "../lib/sql";
 import { useConnections } from "../state/connections";
 import { type Tab, useTabs } from "../state/tabs";
@@ -60,6 +61,9 @@ export function QueryPane({ tab }: { tab: Tab }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [explained, setExplained] = useState<QueryExplanation | null>(null);
+  // Values typed for :parameters, remembered while the tab is open. (Above the early return:
+  // hooks must run in the same order on every render.)
+  const paramValues = useRef<Record<string, string | null>>({});
 
   if (!connection) return null;
 
@@ -187,7 +191,23 @@ export function QueryPane({ tab }: { tab: Tab }) {
     });
   };
 
-  const run = async ({ sql, offset }: RunRequest) => {
+  const run = async (req: RunRequest) => {
+    const names = findParams(req.sql, connection.kind);
+    if (names.length === 0) return runFilled(req);
+    setPrompt({
+      title: names.length === 1 ? "Value for the parameter" : "Values for the parameters",
+      subtitle: names.map((n) => `:${n}`).join(", "),
+      fields: names.map((n) => ({ label: n, value: paramValues.current[n] ?? "", mono: true, nullable: true })),
+      help: "Numbers go in as numbers, anything else as text. The query runs with these values written in.",
+      action: "Run",
+      run: (values) => {
+        names.forEach((n, i) => (paramValues.current[n] = values[i] ?? null));
+        void runFilled({ ...req, sql: fillParams(req.sql, paramValues.current, connection.kind) });
+      },
+    });
+  };
+
+  const runFilled = async ({ sql, offset }: RunRequest) => {
     setPlan(null);
     setExplained(null);
     await ensureConnected();

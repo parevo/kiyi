@@ -39,11 +39,11 @@ Most database tools are built for people who already think in SQL. Kiyi is built
 - **Charts and summaries.** Any result as bars, a line, a pie or a single figure; group a table by any column (dates by day, month or year) without SQL.
 - **Move data between databases.** Bring another system's data into yours, even when the tables differ: Kiyi suggests which table and column goes where, cleans values up with readable steps, keeps links between tables intact, and moves everything in one transaction after a check and an optional test run.
 - **Import and export.** Excel, CSV and JSON out, from any view or query; Excel and CSV in (Turkish and other Excel encodings detected), batched, all or nothing. Move your saved connections to another computer, without their passwords.
-- **Work faster.** ⌘K to jump anywhere, query history and saved queries, saved table views, hidden/frozen/reordered columns, copy rows as CSV, Markdown, JSON or INSERTs, find and replace across a column.
+- **Work faster.** ⌘K to jump anywhere, query history and saved queries (with `:parameters` that ask for their values), saved table views, hidden/frozen/reordered columns, copy rows as CSV, Markdown, JSON or INSERTs, find and replace across a column.
 - **See and protect the whole database.** A schema diagram; functions, procedures, triggers, sequences, users and roles with the SQL behind them; readable query plans; backups and restores; and comparing two databases with the SQL that would align them.
 - **Developer mode.** The SQL behind every action, raw column types, and a SQL editor with schema-aware autocomplete.
 
-Passwords and API keys live in the system keychain. No account, no telemetry.
+Passwords and API keys live in the system keychain. Your own work (query history, saved queries, table views, open tabs, settings) is kept in Kiyi's folder, so it can be backed up and moves with exported connections; history never leaves the computer. No account, no telemetry.
 
 ## Fast
 

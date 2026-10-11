@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { keep } from "../lib/userData";
 import { ipc } from "../lib/ipc";
 import { useHistory } from "./history";
 import { useConnections } from "./connections";
@@ -260,6 +261,7 @@ function saveQueryTabs() {
     .getState()
     .tabs.filter((t) => t.kind === "query")
     .map(({ id, title, connectionId, sql }) => ({ id, title, connectionId, sql }));
+  keep("query-tabs", queries);
   try {
     localStorage.setItem(SAVED_KEY, JSON.stringify(queries));
   } catch {

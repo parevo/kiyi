@@ -127,3 +127,6 @@
 .sample > svg { color: var(--accent); flex-shrink: 0; }
 .hints { display: flex; flex-wrap: wrap; justify-content: center; column-gap: var(--space-4); }
 .sampleText { color: var(--text-muted); font-size: var(--text-sm); }
+.clouds { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-bottom: var(--space-2); }
+.cloud { padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-raised); color: var(--text-muted); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.cloud:hover { color: var(--text); border-color: var(--line-strong); }

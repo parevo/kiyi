@@ -66,6 +66,40 @@ jobs:
       - run: pnpm vite build
       - run: cargo clippy -p kiyi -p kiyi-core -- -D warnings
 
+  e2e:
+    # The real interface, clicked through in WebKit against the Docker databases (dev/flows.mjs):
+    # editing, imports, tunnels, parameters, saved data, narrow windows.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
+      - run: ./dev/setup-ssh-key.sh && docker compose -f dev/docker-compose.yml up -d --wait
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps webkit
+      - run: cargo build -p kiyi-devbridge
+      - name: Start the interface and the bridge
+        run: |
+          pnpm dev > vite.log 2>&1 &
+          target/debug/kiyi-devbridge > bridge.log 2>&1 &
+          for i in $(seq 90); do
+            curl -sf http://localhost:1420 >/dev/null && curl -sf -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:1421/invoke/list_drivers >/dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::the interface or the bridge didn't start"; cat vite.log bridge.log; exit 1
+      - run: mkdir -p flows && node dev/flows.mjs flows
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: flows-screenshots
+          path: flows
+
   audit:
     # Known vulnerabilities in dependencies. Accepted ones are listed, with reasons, in .cargo/audit.toml.
     runs-on: ubuntu-latest

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog, Heading, Input, Modal, ModalOverlay, TextField } from "react-aria-components";
+import { providerById, providerForHost } from "../lib/cloud";
 import { missingField } from "../lib/connection";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { ConnectionConfig, DriverInfo, EnvTag, SshHost, SslMode, TestReport, TunnelConfig } from "../lib/types";
@@ -51,7 +52,7 @@ export function ConnectionDialog({
   /** Existing connection to edit; `null` creates a new one. */
   editing: ConnectionConfig | null;
   /** Prefill for a new connection: a pasted address or a chosen database. */
-  init?: { url?: string; driver?: DriverInfo; host?: string; port?: number };
+  init?: { url?: string; driver?: DriverInfo; host?: string; port?: number; preset?: string };
   isOpen: boolean;
   onClose(): void;
 }) {
@@ -70,12 +71,28 @@ export function ConnectionDialog({
   const [report, setReport] = useState<TestReport | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The hosted provider picked on the welcome screen, until the host says otherwise. */
+  const [chosenProvider, setChosenProvider] = useState<string | null>(null);
+  const provider = providerForHost(config.host) ?? providerById(chosenProvider ?? undefined);
 
   useEffect(() => {
     if (!isOpen) return;
     const d = init?.driver;
     const base = d && d.kind ? { ...blank, kind: d.kind, driver: d.id, port: d.defaultPort } : blank;
-    setConfig(editing ?? { ...base, host: init?.host ?? base.host, port: init?.port ?? base.port, name: init?.host ? `${d?.name ?? "Database"} on ${init.host}:${init.port}` : base.name });
+    const preset = providerById(init?.preset);
+    setConfig(
+      editing ?? {
+        ...base,
+        // A hosted database is never on localhost.
+        host: init?.host ?? (preset ? "" : base.host),
+        port: init?.port ?? preset?.port ?? base.port,
+        sslMode: preset?.ssl ?? base.sslMode,
+        env: preset ? "production" : base.env,
+        readOnly: preset ? true : base.readOnly,
+        name: init?.host ? `${d?.name ?? "Database"} on ${init.host}:${init.port}` : (preset?.name ?? base.name),
+      },
+    );
+    setChosenProvider(preset?.id ?? null);
     setPassword(editing ? null : "");
     setTunnelSecret(editing ? null : "");
     setUrl("");
@@ -179,6 +196,24 @@ export function ConnectionDialog({
                   <div className={s.pasteHint} data-error={urlError ? true : undefined}>
                     {urlError ?? "Paste a connection URL to fill in the form, or enter the details below."}
                   </div>
+                </div>
+              )}
+
+              {provider && config.kind !== "sqlite" && (
+                <div className={s.cloudHint}>
+                  <b>{provider.name}</b>
+                  <span>
+                    Connection details: {provider.where}.
+                    {provider.ssl === "require" && config.sslMode !== "require" && config.sslMode !== "verify-full" && config.sslMode !== "verify-ca" && (
+                      <>
+                        {" "}It requires SSL.{" "}
+                        <button className={s.linkButton} onClick={() => set("sslMode", "require")}>
+                          Turn it on
+                        </button>
+                      </>
+                    )}
+                    {provider.tip && ` ${provider.tip}`}
+                  </span>
                 </div>
               )}
 

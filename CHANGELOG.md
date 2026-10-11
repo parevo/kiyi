@@ -4,6 +4,13 @@ What changed in each version of Kiyi, newest first. The [releases page](https://
 
 ## Unreleased
 
+### New
+- **Query parameters.** Write `:customer_id` in a query and Kiyi asks for its value when it runs: numbers go in as numbers, anything else as safely quoted text. Values are remembered while the tab is open, so saved queries become reusable reports.
+- **Hosted databases.** Supabase, Neon, PlanetScale, Amazon RDS, Azure SQL, Azure Database, DigitalOcean, Railway, Render and Aiven are recognised from their address: SSL is turned on where they require it, and the connection window says where to find the details in their dashboard. The welcome screen has a shortcut for each.
+- **Your work is kept safe.** Query history, saved queries, table views and column layouts, open query tabs and settings are now kept as files in Kiyi's folder, not only in the app's web storage, so clearing it loses nothing. Existing data moves over on first launch.
+- **Saved queries and views travel with connections.** Exporting connections includes their saved queries and table views, and importing maps them to the connections on the new computer. Query history stays behind.
+- **History can be turned off.** Settings → General → Query history, for queries that hold sensitive values.
+
 ### Fixed
 - In narrow windows, the table toolbar, Move data and the Overview wrap onto a second line instead of pushing buttons (Insert row, Columns, Views, Save plan) out of reach.
 - On the welcome screen, the list of databases found on this computer no longer collapses when the window is short.
@@ -11,6 +18,7 @@ What changed in each version of Kiyi, newest first. The [releases page](https://
 - SQL autocomplete suggests only words that start with what you typed, not distant matches like USER_DEFINED_TYPE_SCHEMA for "desc".
 - Objects no longer lists MySQL's own internal accounts (mysql.sys, mysql.session) among users.
 - Every field in the row panel has an accessible name for screen readers.
+- "1 rows" now says "1 row".
 
 ## 0.4.1 (2026-10-11)
 

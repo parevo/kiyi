@@ -24,6 +24,7 @@ pub mod store;
 pub mod transfer;
 pub mod tunnel;
 pub mod types;
+pub mod userdata;
 pub mod workspace;
 
 pub use error::{Error, Result};

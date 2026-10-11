@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { keep } from "../lib/userData";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -10,6 +11,8 @@ interface Settings {
   inspectorOpen: boolean;
   /** Reconnected on launch. */
   lastConnectionId: string | null;
+  /** Runs from the SQL editor are remembered in History. */
+  keepHistory: boolean;
   set(patch: Partial<Omit<Settings, "set">>): void;
 }
 
@@ -29,10 +32,12 @@ export const useSettings = create<Settings>((set, get) => ({
   updateChannel: "stable",
   inspectorOpen: true,
   lastConnectionId: null,
+  keepHistory: true,
   ...read(),
   set(patch) {
     set(patch);
     const { set: _, ...rest } = { ...get() };
+    keep("settings", rest);
     try {
       localStorage.setItem(KEY, JSON.stringify(rest));
     } catch {

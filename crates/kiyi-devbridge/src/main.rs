@@ -137,6 +137,8 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         }
         "export_connections" => ws.export_connections(&arg::<Vec<String>>(a, "ids")?, std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
         "import_connections" => ws.import_connections(std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
+        "load_user_data" => ws.load_user_data(&arg::<String>(a, "name")?).map(ok).unwrap_or_else(fail),
+        "save_user_data" => ws.save_user_data(&arg::<String>(a, "name")?, &arg::<serde_json::Value>(a, "value")?).map(ok).unwrap_or_else(fail),
         "create_sample" => ws.create_sample().await.map(ok).unwrap_or_else(fail),
         "take_crash_report" => ok(Option::<String>::None),
         "open_issue" => {
@@ -206,6 +208,9 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
 #[tokio::main]
 async fn main() {
     let dir = std::env::temp_dir().join("kiyi-devbridge");
+    // Test passwords go to a file next to the bridge's data, not the developer's keychain, and
+    // this works where there is no keychain at all (CI).
+    kiyi_core::secrets::use_file_store_for_development(dir.join("dev-secrets.json"));
     let ws: Ws = Arc::new(Workspace::new(&dir).expect("workspace"));
     // Only the Vite dev server may call in. Any other page open in the browser could otherwise run
     // SQL on every saved connection. Requests must be JSON, which forces a CORS preflight.

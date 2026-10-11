@@ -88,14 +88,14 @@ async fn connections_move_between_computers_without_secrets() {
 
     let there = Workspace::new(&dir.join("there")).unwrap();
     there.save(conn("Shop", "other.example.com"), None, None).unwrap();
-    let added = there.import_connections(&file).unwrap();
+    let added = there.import_connections(&file).unwrap().added;
     assert_eq!(added.len(), 2);
     assert!(added.iter().all(|c| c.id != a.id && !c.id.is_empty()), "fresh ids");
     assert!(added.iter().any(|c| c.name == "Shop (imported)"), "a clashing name is marked");
     assert!(added.iter().all(|c| c.env == EnvTag::Production && c.read_only), "safety settings travel along");
 
     // Importing again adds nothing: the same databases are already there.
-    assert!(there.import_connections(&file).unwrap().is_empty());
+    assert!(there.import_connections(&file).unwrap().added.is_empty());
     assert_eq!(there.list().len(), 3);
 
     std::fs::write(dir.join("junk.json"), "{\"hello\": 1}").unwrap();

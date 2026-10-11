@@ -110,6 +110,15 @@ const RDS_CA_URL: &str = "https://truststore.pki.rds.amazonaws.com/global/global
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImportReport {
+    pub added: Vec<ConnectionConfig>,
+    /// Saved queries and table views that came along.
+    pub queries: usize,
+    pub views: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MigrationSuggestion {
     pub plan: crate::migrate::MigrationPlan,
     pub explanation: String,
@@ -122,6 +131,7 @@ pub struct Workspace {
     known_hosts: crate::tunnel::KnownHosts,
     live: RwLock<HashMap<String, Live>>,
     running: Arc<Mutex<HashMap<String, Running>>>,
+    user_data: crate::userdata::UserData,
     /// Data moves in progress, by id, with the flag that stops them.
     moves: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
@@ -136,6 +146,7 @@ impl Workspace {
             live: RwLock::new(HashMap::new()),
             running: Arc::new(Mutex::new(HashMap::new())),
             moves: Mutex::new(HashMap::new()),
+            user_data: crate::userdata::UserData::new(config_dir),
         })
     }
 
@@ -432,8 +443,18 @@ impl Workspace {
         Ok(crate::objects::template(self.driver(id)?.dialect(), kind, schema))
     }
 
-    /// Writes saved connections (all of them when `ids` is empty) to a file. Returns how many.
-    /// The sample database is left out: every computer makes its own.
+    /// One of the interface's own files (history, saved views, tabs, settings), if it was saved.
+    pub fn load_user_data(&self, name: &str) -> Result<Option<serde_json::Value>> {
+        self.user_data.load(name)
+    }
+
+    pub fn save_user_data(&self, name: &str, value: &serde_json::Value) -> Result<()> {
+        self.user_data.save(name, value)
+    }
+
+    /// Writes saved connections (all of them when `ids` is empty) to a file, with their saved
+    /// queries and table views. Returns how many connections. The sample database is left out:
+    /// every computer makes its own.
     pub fn export_connections(&self, ids: &[String], path: &Path) -> Result<usize> {
         let sample = self.dir.join(crate::sample::FILE_NAME).to_string_lossy().into_owned();
         let items: Vec<ConnectionConfig> = self
@@ -441,28 +462,37 @@ impl Workspace {
             .into_iter()
             .filter(|c| (ids.is_empty() || ids.contains(&c.id)) && c.database.as_deref() != Some(sample.as_str()))
             .collect();
-        crate::store::write_export(path, &items)?;
+        let exported: std::collections::HashSet<String> = items.iter().map(|c| c.id.clone()).collect();
+        crate::store::write_export(path, &items, crate::userdata::extras_for(&self.user_data, &exported))?;
         Ok(items.len())
     }
 
-    /// Adds the connections from an exported file and returns the ones added. Connections already
-    /// saved are skipped; passwords aren't in the file, so they're asked for when connecting.
-    pub fn import_connections(&self, path: &Path) -> Result<Vec<ConnectionConfig>> {
-        let incoming = crate::store::read_export(path)?;
-        let mut store = self.store.lock().unwrap();
+    /// Adds the connections from an exported file, and their saved queries and views. Connections
+    /// already saved are skipped (their queries and views still come along); passwords aren't in
+    /// the file, so they're asked for when connecting.
+    pub fn import_connections(&self, path: &Path) -> Result<ImportReport> {
+        let (incoming, extras) = crate::store::read_export(path)?;
         let mut added = Vec::new();
-        for mut c in incoming {
-            if store.list().iter().any(|e| crate::store::same_target(e, &c)) {
-                continue;
+        let mut ids = HashMap::new();
+        {
+            let mut store = self.store.lock().unwrap();
+            for mut c in incoming {
+                let old = c.id.clone();
+                if let Some(existing) = store.list().iter().find(|e| crate::store::same_target(e, &c)) {
+                    ids.insert(old, existing.id.clone());
+                    continue;
+                }
+                c.id = uuid::Uuid::new_v4().to_string();
+                if store.list().iter().any(|e| e.name == c.name) {
+                    c.name = format!("{} (imported)", c.name);
+                }
+                store.upsert(c.clone())?;
+                ids.insert(old, c.id.clone());
+                added.push(c);
             }
-            c.id = uuid::Uuid::new_v4().to_string();
-            if store.list().iter().any(|e| e.name == c.name) {
-                c.name = format!("{} (imported)", c.name);
-            }
-            store.upsert(c.clone())?;
-            added.push(c);
         }
-        Ok(added)
+        let (queries, views) = crate::userdata::merge_extras(&self.user_data, &extras, &ids)?;
+        Ok(ImportReport { added, queries, views })
     }
 
     /// Creates the sample database in Kiyi's own folder, from scratch every time, and saves a

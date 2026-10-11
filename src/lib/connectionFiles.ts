@@ -1,5 +1,8 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useConnections } from "../state/connections";
+import { useHistory } from "../state/history";
+import { useTablePrefs } from "../state/tablePrefs";
+import { reload } from "./userData";
 import { toast } from "../state/toasts";
 import { errorMessage, ipc } from "./ipc";
 
@@ -21,10 +24,16 @@ export async function importConnections() {
   const path = await openDialog({ multiple: false, filters: [{ name: "Kiyi connections", extensions: ["json"] }] });
   if (typeof path !== "string") return;
   try {
-    const added = await ipc.importConnections(path);
-    if (added.length === 0) return toast.info("Nothing new: those connections are already here.");
-    useConnections.setState((st) => ({ connections: [...st.connections, ...added] }));
-    toast.success(`Added ${plural(added.length)}. You'll be asked for passwords when you connect.`);
+    const { added, queries, views } = await ipc.importConnections(path);
+    if (added.length) useConnections.setState((st) => ({ connections: [...st.connections, ...added] }));
+    // Saved queries and views came along into the files; show them.
+    const history = (await reload("history")) as { saved?: unknown[] } | null;
+    if (history?.saved) useHistory.setState({ saved: history.saved as never });
+    const prefs = (await reload("table-prefs")) as { layouts?: object; views?: object } | null;
+    if (prefs) useTablePrefs.setState({ layouts: (prefs.layouts ?? {}) as never, views: (prefs.views ?? {}) as never });
+    const extra = [queries && `${queries} saved ${queries === 1 ? "query" : "queries"}`, views && `${views} ${views === 1 ? "view" : "views"}`].filter(Boolean).join(" and ");
+    if (!added.length && !extra) return toast.info("Nothing new: those connections are already here.");
+    toast.success(`Added ${plural(added.length)}${extra ? `, with ${extra}` : ""}.${added.length ? " You'll be asked for passwords when you connect." : ""}`);
   } catch (e) {
     toast.error(errorMessage(e));
   }

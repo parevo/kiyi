@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { askQuestion } from "../lib/askAi";
+import { CLOUD } from "../lib/cloud";
 import { exportConnections, importConnections, openSample } from "../lib/connectionFiles";
 import { ipc } from "../lib/ipc";
 import type { DriverInfo, LocalDatabase } from "../lib/types";
@@ -192,7 +193,7 @@ export function ConnectionsHome({ onNew }: { onNew(): void }) {
   );
 }
 
-export type ConnectInit = { url?: string; driver?: DriverInfo; host?: string; port?: number };
+export type ConnectInit = { url?: string; driver?: DriverInfo; host?: string; port?: number; preset?: string };
 
 /** First run: databases found on this Mac, a URL box, or set one up by hand. */
 export function Welcome({ onConnect }: { onConnect(init: ConnectInit): void }) {
@@ -277,6 +278,15 @@ export function Welcome({ onConnect }: { onConnect(init: ConnectInit): void }) {
               <DatabaseIcon size={20} />
               {d.name}
               {!d.kind && <span className={s.soon}>Coming soon</span>}
+            </button>
+          ))}
+        </div>
+
+        <p className={s.or}>Hosted somewhere?</p>
+        <div className={s.clouds}>
+          {CLOUD.filter((p) => p.id !== "azuredb").map((p) => (
+            <button key={p.id} className={s.cloud} onClick={() => onConnect({ preset: p.id, driver: drivers.find((d) => d.id === p.driver) })}>
+              {p.name}
             </button>
           ))}
         </div>

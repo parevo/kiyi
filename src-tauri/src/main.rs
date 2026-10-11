@@ -69,6 +69,8 @@ fn main() {
             commands::export_connections,
             commands::import_connections,
             commands::create_sample,
+            commands::load_user_data,
+            commands::save_user_data,
             commands::take_crash_report,
             commands::open_issue,
             commands::backup,

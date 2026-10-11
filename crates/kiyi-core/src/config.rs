@@ -169,6 +169,27 @@ pub fn guess_env(host: &str) -> EnvTag {
     }
 }
 
+/// Hosted databases that refuse connections without SSL. A URL pasted from their dashboards
+/// often doesn't say so, and "Prefer" would still work but leaves the door open to a downgrade.
+const SSL_REQUIRED_HOSTS: &[&str] = &[
+    ".supabase.co",
+    ".supabase.com",
+    ".neon.tech",
+    ".psdb.cloud",
+    ".rds.amazonaws.com",
+    ".database.windows.net",
+    ".postgres.database.azure.com",
+    ".mysql.database.azure.com",
+    ".db.ondigitalocean.com",
+    ".aivencloud.com",
+    ".render.com",
+];
+
+pub fn requires_ssl(host: &str) -> bool {
+    let h = host.trim().to_ascii_lowercase();
+    SSL_REQUIRED_HOSTS.iter().any(|s| h.ends_with(s))
+}
+
 /// Parses `postgres://user:pass@host:5432/db?sslmode=require` style URLs.
 pub fn parse_url(input: &str) -> Result<ParsedUrl> {
     let input = input.trim();
@@ -214,7 +235,13 @@ pub fn parse_url(input: &str) -> Result<ParsedUrl> {
     });
     let database = Some(decode(url.path().trim_start_matches('/'))).filter(|d| !d.is_empty());
 
-    let mut ssl_mode = if guess_env(&host) == EnvTag::Local { SslMode::Disable } else { SslMode::Prefer };
+    let mut ssl_mode = if guess_env(&host) == EnvTag::Local {
+        SslMode::Disable
+    } else if requires_ssl(&host) {
+        SslMode::Require
+    } else {
+        SslMode::Prefer
+    };
     for (key, value) in url.query_pairs() {
         if key == "sslmode" || key == "ssl-mode" || key == "ssl_mode" {
             ssl_mode = match value.to_ascii_lowercase().as_str() {
@@ -263,6 +290,13 @@ mod tests {
         assert_eq!(p.config.host, "/var/run/postgresql");
         assert_eq!(p.config.socket_path(), Some("/var/run/postgresql"));
         assert_eq!(p.config.env, EnvTag::Local);
+        // Hosted databases that insist on SSL get it even when the URL doesn't ask.
+        let p = parse_url("postgresql://postgres:pw@db.abcdefgh.supabase.co:5432/postgres").unwrap();
+        assert_eq!(p.config.ssl_mode, SslMode::Require);
+        let p = parse_url("mysql://u:p@aws.connect.psdb.cloud/shop").unwrap();
+        assert_eq!(p.config.ssl_mode, SslMode::Require);
+        let p = parse_url("postgres://u@ep-cool-1234.eu-central-1.aws.neon.tech/neondb?sslmode=verify-full").unwrap();
+        assert_eq!(p.config.ssl_mode, SslMode::VerifyFull, "an explicit mode still wins");
         let p = parse_url("postgres://u@db.prod.example.com/shop?sslmode=verify-ca&sslrootcert=/certs/ca.pem").unwrap();
         assert_eq!(p.config.ssl_mode, SslMode::VerifyCa);
         assert_eq!(p.config.ssl_root_cert.as_deref(), Some("/certs/ca.pem"));

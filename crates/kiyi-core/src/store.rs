@@ -61,25 +61,30 @@ struct ExportFile {
     kiyi: String,
     version: u32,
     connections: Vec<ConnectionConfig>,
+    /// Saved queries and table views for these connections (version 2 on).
+    #[serde(default, skip_serializing_if = "crate::userdata::Extras::is_empty")]
+    extras: crate::userdata::Extras,
 }
 
 const EXPORT_KIND: &str = "connections";
 
-pub fn write_export(path: &Path, items: &[ConnectionConfig]) -> Result<()> {
-    let file = ExportFile { kiyi: EXPORT_KIND.into(), version: 1, connections: items.to_vec() };
+pub fn write_export(path: &Path, items: &[ConnectionConfig], extras: crate::userdata::Extras) -> Result<()> {
+    let file = ExportFile { kiyi: EXPORT_KIND.into(), version: 2, connections: items.to_vec(), extras };
     std::fs::write(path, serde_json::to_vec_pretty(&file)?)?;
     Ok(())
 }
 
 /// Reads an export, or a plain list of connections like Kiyi's own `connections.json`.
-pub fn read_export(path: &Path) -> Result<Vec<ConnectionConfig>> {
+pub fn read_export(path: &Path) -> Result<(Vec<ConnectionConfig>, crate::userdata::Extras)> {
     let bytes = std::fs::read(path)?;
     if let Ok(file) = serde_json::from_slice::<ExportFile>(&bytes) {
         if file.kiyi == EXPORT_KIND {
-            return Ok(file.connections);
+            return Ok((file.connections, file.extras));
         }
     }
-    serde_json::from_slice::<Vec<ConnectionConfig>>(&bytes).map_err(|_| Error::Invalid("This file doesn't contain Kiyi connections.".into()))
+    serde_json::from_slice::<Vec<ConnectionConfig>>(&bytes)
+        .map(|c| (c, Default::default()))
+        .map_err(|_| Error::Invalid("This file doesn't contain Kiyi connections.".into()))
 }
 
 /// The same database reached the same way, whatever it's called.

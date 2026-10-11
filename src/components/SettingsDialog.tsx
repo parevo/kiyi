@@ -89,6 +89,15 @@ function General() {
             <span className={s.srOnly}>Details panel</span>
           </Switch>
         </div>
+        <div className={s.row}>
+          <div>
+            <div className={f.label}>Query history</div>
+            <p className={f.help}>Remember the queries you run, for History. Kept only on this computer, never in exported connections; turn it off if queries hold sensitive values.</p>
+          </div>
+          <Switch isSelected={settings.keepHistory} onChange={(keepHistory) => settings.set({ keepHistory })}>
+            <span className={s.srOnly}>Query history</span>
+          </Switch>
+        </div>
       </div>
     </section>
   );

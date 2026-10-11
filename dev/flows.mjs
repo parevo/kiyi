@@ -171,7 +171,7 @@ await check("import a CSV through the sheet", async () => {
   await page.waitForTimeout(800);
   await setDialogPath(path);
   await page.getByRole("button", { name: "More", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Import from CSV…" }).click();
+  await page.getByRole("menuitem", { name: "Import from Excel or CSV…" }).click();
   await page.getByRole("button", { name: "Import 3 rows" }).waitFor();
   await shot("import-sheet");
   await page.getByRole("button", { name: "Import 3 rows" }).click();
@@ -187,14 +187,14 @@ await check("test a connection through an SSH tunnel", async () => {
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Connection URL").fill("postgres://kiyi:kiyi@postgres:5432/shop");
   await page.waitForTimeout(400);
-  await dialog.getByRole("radio", { name: "SSH tunnel" }).click();
+  await dialog.getByRole("radio", { name: "SSH", exact: true }).click();
   await dialog.getByLabel("SSH host").fill("127.0.0.1");
   await dialog.getByLabel("SSH port").fill("52222");
   await dialog.getByLabel("SSH user").fill("kiyi");
-  await dialog.getByRole("radio", { name: "Password" }).last().click();
+  await dialog.getByRole("radio", { name: "Password" }).first().click();
   await dialog.getByLabel("SSH password").fill("kiyi");
   await dialog.getByRole("button", { name: "Test connection" }).click();
-  await dialog.getByText("Signed in as kiyi").waitFor({ timeout: 20000 });
+  await dialog.getByText("Signed in to 127.0.0.1 as kiyi").waitFor({ timeout: 20000 });
   await dialog.getByText(/PostgreSQL 17/).waitFor();
   await shot("ssh-tunnel-test");
   await dialog.getByRole("button", { name: "Close" }).click();
@@ -221,7 +221,86 @@ await check("open a new SQLite database and create a table", async () => {
   if (!existsSync(path)) throw new Error("database file not created");
 });
 
-await page.evaluate(() => 0);
+const shop = async () => {
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("shop @ localhost");
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(1200);
+};
+
+await check("a query with :parameters asks for their values", async () => {
+  await shop();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("New SQL query");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  await page.keyboard.type("SELECT :amount * 2 AS doubled, :who AS who");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("amount").fill("21");
+  await dialog.getByLabel("who").fill("O'Brien");
+  await shot("params");
+  await dialog.getByRole("button", { name: "Run" }).click();
+  // The result grid is drawn on a canvas; read what ran from the history instead.
+  await page.getByText(/^1 row/).waitFor();
+  const ran = await page.evaluate(() => JSON.parse(localStorage.getItem("kiyi.queryHistory") ?? "{}").entries?.[0]?.sql);
+  if (ran !== "SELECT 21 * 2 AS doubled, 'O''Brien' AS who") throw new Error(`ran: ${ran}`);
+});
+
+await check("saved queries survive a cleared web view cache", async () => {
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("New SQL query");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  await page.keyboard.type("SELECT 1 AS kept");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill("Flow kept query");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await toast("Saved");
+  await page.waitForTimeout(700);
+  // Only the files in Kiyi's folder are left.
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForTimeout(1500);
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("Flow kept query");
+  await page.getByRole("option", { name: /Flow kept query/ }).or(page.getByText("Flow kept query")).first().waitFor({ timeout: 5000 });
+  await shot("kept-query");
+  await page.keyboard.press("Escape");
+});
+
+await check("a hosted database's address is recognised and gets SSL", async () => {
+  await page.locator("aside").first().getByRole("button", { name: "Choose connection" }).click();
+  await btn("New connection").click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Connection URL").fill("postgresql://postgres:pw@db.abcdefghij.supabase.co:5432/postgres");
+  await dialog.getByText("Supabase", { exact: true }).waitFor();
+  await dialog.getByText("Project → Connect", { exact: false }).waitFor();
+  const ssl = await dialog.getByRole("radio", { name: "Require" }).getAttribute("aria-checked");
+  if (ssl !== "true") throw new Error(`SSL is ${ssl}`);
+  await shot("cloud-hint");
+  await dialog.getByRole("button", { name: "Close" }).click();
+});
+
+await check("in the smallest window, the table toolbar's buttons stay reachable", async () => {
+  await shop();
+  await page.setViewportSize({ width: 920, height: 560 });
+  await page.locator("main").getByRole("button", { name: /^orders/ }).first().click().catch(() => page.locator("aside").getByText("orders", { exact: true }).click());
+  await page.waitForTimeout(1200);
+  for (const name of ["Insert row", "Columns", "Views", "Filter", "Sort"]) {
+    const b = page.locator("main").getByRole("button", { name: new RegExp(name, "i") }).first();
+    const box = await b.boundingBox();
+    if (!box || box.x + box.width > 920 || box.y + box.height > 560) throw new Error(`${name} is out of reach: ${JSON.stringify(box)}`);
+  }
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth);
+  if (wide > 920) throw new Error(`the window scrolls sideways (${wide}px)`);
+  await shot("narrow-toolbar");
+  await page.setViewportSize({ width: 1440, height: 900 });
+});
+
 await call("execute_script", { id: connId, statements: ["DROP TABLE IF EXISTS kiyi_flow_import"], kind: "schema" }).catch(() => {});
 
 const real = [...new Set(errors)].filter((e) => !/access control checks/.test(e));

@@ -31,7 +31,8 @@ Before opening a pull request, run what CI runs:
 pnpm typecheck && pnpm test && pnpm vite build
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-KIYI_LIVE=1 cargo test -p kiyi-core --test live --test objects   # with the Docker databases up
+KIYI_LIVE=1 cargo test -p kiyi-core --test live --test objects --test migrate   # with the Docker databases up
+node dev/flows.mjs /tmp/flows    # the interface, clicked through: needs `pnpm dev` and `cargo run -p kiyi-devbridge`
 ```
 
 ### How the code is shaped

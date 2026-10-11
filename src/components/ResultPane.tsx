@@ -28,6 +28,8 @@ function useElapsed(run: RunState | null) {
   return run.elapsedMs ?? now - run.startedAt;
 }
 
+const rows = (n: number) => `${fmt.format(n)} ${n === 1 ? "row" : "rows"}`;
+
 export function ResultPane({
   run,
   kind,
@@ -123,7 +125,7 @@ export function ResultPane({
             <span className={s.message}>
               <CheckIcon />
               {run.statements > 1 ? `Ran ${run.statements} statements` : "Query finished"}
-              {shown.rowsAffected !== null && ` · ${fmt.format(shown.rowsAffected)} rows affected`}
+              {shown.rowsAffected !== null && ` · ${rows(shown.rowsAffected)} affected`}
             </span>
           </div>
         )}
@@ -141,7 +143,7 @@ export function ResultPane({
             <span className={s.running}>
               <Spinner size={12} /> Running
             </span>
-            {run.rowCount > 0 && <span>{fmt.format(run.rowCount)} rows</span>}
+            {run.rowCount > 0 && <span>{rows(run.rowCount)}</span>}
             <span className={s.spacer} />
             <span>{duration(elapsed)}</span>
             <AriaButton className={s.cancel} onPress={onCancel}>
@@ -153,7 +155,7 @@ export function ResultPane({
             {run.cancelled ? (
               <span>Cancelled</span>
             ) : shown && shown.columns.length > 0 ? (
-              <span>{fmt.format(shownRows)} rows</span>
+              <span>{rows(shownRows)}</span>
             ) : (
               <span>{run.error ? "Error" : "Done"}</span>
             )}

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { keep } from "../lib/userData";
 import { type ColumnLayout, defaultLayout } from "../lib/columnLayout";
 import type { Filter, Sort } from "../lib/types";
 
@@ -42,6 +43,7 @@ interface TablePrefs extends Prefs {
 export const useTablePrefs = create<TablePrefs>((set, get) => {
   const persist = () => {
     const { layouts, views } = get();
+    keep("table-prefs", { layouts, views });
     try {
       localStorage.setItem(KEY, JSON.stringify({ layouts, views }));
     } catch {

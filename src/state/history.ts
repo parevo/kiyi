@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { keep } from "../lib/userData";
+import { useSettings } from "./settings";
 
 /** One run from the SQL editor. */
 export interface HistoryEntry {
@@ -50,6 +52,7 @@ interface QueryHistory {
 export const useHistory = create<QueryHistory>((set, get) => {
   const persist = () => {
     const { entries, saved } = get();
+    keep("history", { entries, saved });
     try {
       localStorage.setItem(KEY, JSON.stringify({ entries, saved }));
     } catch {
@@ -66,7 +69,7 @@ export const useHistory = create<QueryHistory>((set, get) => {
     ...read(),
     record(e) {
       const sql = e.sql.trim();
-      if (!sql) return;
+      if (!sql || !useSettings.getState().keepHistory) return;
       const entry: HistoryEntry = { ...e, sql: sql.length > MAX_SQL ? sql.slice(0, MAX_SQL) : sql, id: newId(), at: Date.now() };
       // Running the same thing again moves it to the top instead of repeating it.
       set((s) => ({ entries: [entry, ...s.entries.filter((x) => !(x.connectionId === e.connectionId && x.sql === entry.sql))].slice(0, MAX_ENTRIES) }));

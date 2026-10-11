@@ -125,8 +125,18 @@ pub fn export_connections(ws: Ws<'_>, ids: Vec<String>, path: String) -> CmdResu
 }
 
 #[tauri::command]
-pub fn import_connections(ws: Ws<'_>, path: String) -> CmdResult<Vec<ConnectionConfig>> {
+pub fn import_connections(ws: Ws<'_>, path: String) -> CmdResult<kiyi_core::workspace::ImportReport> {
     Ok(ws.import_connections(std::path::Path::new(&path))?)
+}
+
+#[tauri::command]
+pub fn load_user_data(ws: Ws<'_>, name: String) -> CmdResult<Option<serde_json::Value>> {
+    Ok(ws.load_user_data(&name)?)
+}
+
+#[tauri::command]
+pub fn save_user_data(ws: Ws<'_>, name: String, value: serde_json::Value) -> CmdResult<()> {
+    Ok(ws.save_user_data(&name, &value)?)
 }
 
 #[tauri::command]
