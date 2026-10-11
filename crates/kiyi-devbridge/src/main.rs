@@ -129,6 +129,7 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         }
         "migration_save" => kiyi_core::migrate::save(&arg(a, "plan")?, std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
         "migration_open" => kiyi_core::migrate::open(std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),
+        "editable_result" => ws.editable_result(&id()?, &arg::<String>(a, "sql")?, &arg::<Vec<String>>(a, "columns")?).await.map(ok).unwrap_or_else(fail),
         "quality_check" => {
             let schema: Option<String> = arg(a, "schema")?;
             ws.quality_check(&id()?, schema.as_deref(), &arg::<String>(a, "table")?).await.map(ok).unwrap_or_else(fail)

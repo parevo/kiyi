@@ -537,6 +537,14 @@ export interface MigrationReport {
   seconds: number;
 }
 
+export interface EditableResult {
+  schema: string | null;
+  table: string;
+  key: string[];
+  /** For each result column, the table column it shows; null for computed ones. */
+  columns: (string | null)[];
+}
+
 // ---- data quality
 
 export interface QualityFinding {

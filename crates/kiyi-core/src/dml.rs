@@ -64,6 +64,10 @@ pub struct BrowseRequest {
 }
 
 /// The parser dialect for a database, for checking and splitting its SQL.
+pub(crate) fn parser_dialect(d: Dialect) -> &'static dyn sqlparser::dialect::Dialect {
+    sql_dialect(d)
+}
+
 fn sql_dialect(d: Dialect) -> &'static dyn sqlparser::dialect::Dialect {
     use sqlparser::dialect::{MsSqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
     match d.kind {

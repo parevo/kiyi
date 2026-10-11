@@ -2,6 +2,16 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
+## Unreleased
+
+### New
+- **Data quality.** A Quality tab on every table, and Check data on the Overview for the whole database, point out what's messy: duplicate and copied rows, one value spelled several ways ("Istanbul", "istanbul ", "İstanbul"), stray spaces, empty text, invalid emails, outliers, negative amounts, dates in the future or far past, columns that are never filled. Most come with a fix you review before it runs.
+- **Dashboards.** Add any chart from the SQL editor to a dashboard and keep several side by side. Each chart re-runs its query when the dashboard opens or on Refresh (or every few minutes, if you choose). Dashboards travel with exported connections.
+- **Edit query results.** When a query reads one table and shows its key (`SELECT id, name, email FROM customers WHERE …`), its results can be edited like the table itself: change cells, then Save. Joins, groups and computed columns stay read-only, and production saves are reviewed first.
+
+### Fixed
+- A change made just before the window closed or reloaded is no longer lost: it reaches Kiyi's folder the next time Kiyi opens.
+
 ## 0.5.0 (2026-10-11)
 
 ### New

@@ -105,6 +105,11 @@ pub async fn schema_graph(ws: Ws<'_>, id: String) -> CmdResult<kiyi_core::graph:
 }
 
 #[tauri::command]
+pub async fn editable_result(ws: Ws<'_>, id: String, sql: String, columns: Vec<String>) -> CmdResult<Option<kiyi_core::editable::EditableResult>> {
+    Ok(ws.editable_result(&id, &sql, &columns).await?)
+}
+
+#[tauri::command]
 pub async fn quality_check(ws: Ws<'_>, id: String, schema: Option<String>, table: String) -> CmdResult<kiyi_core::quality::QualityReport> {
     Ok(ws.quality_check(&id, schema.as_deref(), &table).await?)
 }

@@ -11,6 +11,7 @@ pub mod design;
 pub mod discover;
 pub mod dialect;
 pub mod dml;
+pub mod editable;
 pub mod drivers;
 pub mod error;
 pub mod explain;

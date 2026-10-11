@@ -370,7 +370,14 @@ export function QueryPane({ tab }: { tab: Tab }) {
         ) : explained ? (
           <AiExplainView explanation={explained} onClose={() => setExplained(null)} />
         ) : (
-          <ResultPane run={tab.run} kind={connection.kind} hint={tab.ai?.chart} onCancel={() => cancel(tab.id)} onFix={tab.run?.error ? fixWithAi : undefined} onPin={pin} />
+          <ResultPane run={tab.run} kind={connection.kind} hint={tab.ai?.chart} onCancel={() => cancel(tab.id)} onFix={tab.run?.error ? fixWithAi : undefined}
+            onPin={pin}
+            connection={connection}
+            onReview={setReview}
+            onDirty={(dirty) => {
+              if (!!tab.dirty !== dirty) useTabs.getState().patch(tab.id, { dirty });
+            }}
+          />
         )}
       </div>
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} />

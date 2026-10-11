@@ -331,6 +331,7 @@ await check("a chart goes on a dashboard and stays there", async () => {
   await page.keyboard.type("New SQL query");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(500);
+  await page.locator("main .cm-content").last().click();
   await page.keyboard.type("SELECT status, count(*) AS orders FROM orders GROUP BY status ORDER BY 1");
   await page.locator("main").getByRole("button", { name: /^Run/ }).click();
   await page.getByText(/^\d+ rows?$/).first().waitFor();
@@ -351,6 +352,30 @@ await check("a chart goes on a dashboard and stays there", async () => {
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
   await page.locator("aside").getByText("Flow board", { exact: true }).waitFor({ state: "detached" });
 });
+await check("a query's result is edited in place and saved", async () => {
+  await call("execute_script", { id: connId, statements: ["INSERT INTO kiyi_flow_import (name, city) VALUES ('Edit me', 'Izmir')"], kind: "data" });
+  await page.keyboard.press(`${mod}+k`);
+  await page.keyboard.type("New SQL query");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  await page.locator("main .cm-content").last().click();
+  await page.keyboard.type("SELECT city, name, id FROM kiyi_flow_import WHERE name = 'Edit me'");
+  await page.locator("main").getByRole("button", { name: /^Run/ }).click();
+  await page.getByText("Editable · kiyi_flow_import").waitFor();
+  // First column of the first row, on the canvas.
+  const grid = await page.locator("main [data-testid='data-grid-canvas']").last().boundingBox();
+  await page.mouse.dblclick(grid.x + 70, grid.y + 30 + 13);
+  const editor = page.locator("textarea.gdg-input");
+  await editor.fill("Ankara");
+  await editor.press("Enter");
+  await page.getByText("1 unsaved row").waitFor();
+  await shot("result-edit");
+  await page.getByRole("button", { name: "Save", exact: true }).last().click();
+  await toast("Saved 1 row");
+  const events = await call("run_query", { connectionId: connId, queryId: "flow-check", sql: "SELECT city FROM kiyi_flow_import WHERE name = 'Edit me'" });
+  if (!JSON.stringify(events).includes("Ankara")) throw new Error("the change wasn't saved");
+});
+
 await call("execute_script", { id: connId, statements: ["DROP TABLE IF EXISTS kiyi_flow_import"], kind: "schema" }).catch(() => {});
 
 const real = [...new Set(errors)].filter((e) => !/access control checks/.test(e));

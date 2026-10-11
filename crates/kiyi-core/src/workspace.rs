@@ -430,6 +430,23 @@ impl Workspace {
         Ok(crate::graph::from_rows(kind, &rows))
     }
 
+    /// Whether a query's result can be edited in place, and how its columns map onto the table.
+    pub async fn editable_result(&self, id: &str, sql: &str, result_columns: &[String]) -> Result<Option<crate::editable::EditableResult>> {
+        if self.is_read_only(id) {
+            return Ok(None);
+        }
+        let driver = self.driver(id)?;
+        let Some(src) = crate::editable::source(driver.dialect(), sql) else { return Ok(None) };
+        let Ok(details) = driver.table_details(src.schema.as_deref(), &src.table).await else { return Ok(None) };
+        if details.is_view {
+            return Ok(None);
+        }
+        let table_columns: Vec<String> = details.design.columns.iter().filter(|c| !c.generated).map(|c| c.name.clone()).collect();
+        let key = details.design.primary_key();
+        Ok(crate::editable::map_result(&src, &table_columns, &key, result_columns)
+            .map(|columns| crate::editable::EditableResult { schema: details.schema.clone(), table: details.design.name.clone(), key, columns }))
+    }
+
     /// What looks wrong in one table's data, from a sample of its rows.
     pub async fn quality_check(&self, id: &str, schema: Option<&str>, table: &str) -> Result<crate::quality::QualityReport> {
         crate::quality::check_table(self.driver(id)?.as_ref(), schema, table, crate::quality::SAMPLE).await

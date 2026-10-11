@@ -111,6 +111,9 @@
   font-size: var(--text-xs);
 }
 .cancel[data-hovered] { background: var(--bg-hover); }
+.save { height: 20px; padding: 0 8px; border: 1px solid; border-radius: var(--radius-sm); font-size: var(--text-xs); display: inline-flex; align-items: center; gap: 5px; border-color: var(--accent); background: var(--accent); color: var(--text-on-accent); }
+.save[data-hovered] { background: var(--accent); filter: brightness(1.08); }
+.unsaved { color: var(--env-staging); }
 
 .truncated { color: var(--env-staging); }
 

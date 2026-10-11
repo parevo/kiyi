@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button as AriaButton } from "react-aria-components";
 import { type ChartConfig, configFromHint } from "../lib/chartData";
-import type { ChartHint, ColumnMeta, DbKind } from "../lib/types";
+import { errorMessage, ipc } from "../lib/ipc";
+import type { Cell, ChartHint, ColumnMeta, ConnectionConfig, DbKind, EditableResult, RowChange } from "../lib/types";
+import { toast } from "../state/toasts";
+import type { ReviewRequest } from "./ReviewDialog";
 import { ChartPanel } from "./ChartPanel";
 import type { RunState } from "../state/tabs";
 import { AlertIcon, BarChartIcon, CheckIcon, Spinner, TableIcon, WandIcon } from "./icons";
@@ -37,9 +40,18 @@ export function ResultPane({
   onCancel,
   onFix,
   onPin,
+  connection,
+  onReview,
+  onDirty,
 }: {
   run: RunState | null;
   kind: DbKind;
+  /** Where the query ran; a result of one table's rows can then be edited and saved back. */
+  connection?: ConnectionConfig;
+  /** Production saves are reviewed first. */
+  onReview?(request: ReviewRequest): void;
+  /** Unsaved edits exist (closing the tab asks first). */
+  onDirty?(dirty: boolean): void;
   /** The AI's idea of how to chart this result. */
   hint?: ChartHint | null;
   onCancel(): void;
@@ -58,12 +70,107 @@ export function ResultPane({
     setView(hint ? "chart" : "table");
   }, [run?.queryId, hint]);
 
+  // Editing in place: known once the run is done, and only for a single result of one table.
+  const [editInfo, setEditInfo] = useState<EditableResult | null>(null);
+  const changes = useRef(new Map<number, Map<number, Cell>>());
+  const [version, setVersion] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const pending = changes.current.size;
+  const resetEdits = () => {
+    changes.current = new Map();
+    setVersion((v) => v + 1);
+  };
+  useEffect(() => {
+    setEditInfo(null);
+    resetEdits();
+    if (!connection || !run || run.status !== "done" || run.error || run.cancelled || run.statements !== 1) return;
+    const withColumns = run.sets.filter((x) => x.columns.length > 0);
+    if (withColumns.length !== 1 || withColumns[0].rows.length === 0) return;
+    let stale = false;
+    ipc.editableResult(connection.id, run.sql, withColumns[0].columns.map((c) => c.name)).then(
+      (r) => !stale && setEditInfo(r),
+      () => {},
+    );
+    return () => {
+      stale = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.queryId, run?.status, connection?.id]);
+  useEffect(() => {
+    onDirty?.(pending > 0);
+  }, [pending > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const sets = run?.sets ?? [];
   const withRows = sets.map((set, i) => ({ set, i })).filter(({ set }) => set.columns.length > 0);
   // Default to the last result that has columns; a trailing UPDATE shouldn't hide a SELECT.
   const shownIndex = picked ?? withRows[withRows.length - 1]?.i ?? sets.length - 1;
   const shown = sets[shownIndex];
   const shownRows = shown ? shown.rows.length : 0;
+
+  const editing = !!editInfo && !!shown && shown.columns.length > 0;
+  const edit = editing
+    ? {
+        // Binary values are shown as text and can't be typed back.
+        writable: editInfo!.columns.map((c, i) => c !== null && shown!.columns[i]?.kind !== "binary"),
+        changes: changes.current,
+        version,
+        onChange(row: number, col: number, value: Cell) {
+          const original = shown!.rows[row]?.[col] ?? null;
+          const m = new Map(changes.current);
+          const cols = new Map(m.get(row) ?? []);
+          if (value === original) cols.delete(col);
+          else cols.set(col, value);
+          if (cols.size) m.set(row, cols);
+          else m.delete(row);
+          changes.current = m;
+          setVersion((v) => v + 1);
+        },
+      }
+    : undefined;
+
+  const save = async () => {
+    if (!connection || !editInfo || !shown || !pending) return;
+    const info = editInfo;
+    const set = shown;
+    const at = (name: string) => info.columns.indexOf(name);
+    const list: RowChange[] = [...changes.current].map(([row, cols]) => ({
+      type: "update",
+      key: info.key.map((k) => ({ column: k, value: set.rows[row][at(k)] })),
+      values: [...cols].map(([c, value]) => ({ column: info.columns[c]!, value })),
+    }));
+    const of = (k: string) => set.columns.flatMap((c, i) => (c.kind === k && info.columns[i] ? [info.columns[i]!] : []));
+    const applied = new Map(changes.current);
+    const finish = () => {
+      for (const [row, cols] of applied) for (const [c, v] of cols) set.rows[row][c] = v;
+      resetEdits();
+      toast.success(list.length === 1 ? "Saved 1 row" : `Saved ${list.length} rows`);
+    };
+    setSaving(true);
+    try {
+      const statements = await ipc.planRowChanges(connection.id, { schema: info.schema, table: info.table, binaryColumns: of("binary"), boolColumns: of("bool"), changes: list });
+      if (connection.env === "production" && onReview) {
+        onReview({
+          title: "Save changes",
+          subtitle: `${info.table} · production`,
+          summary: [{ text: `${list.length} ${list.length === 1 ? "row" : "rows"} will be updated` }],
+          statements,
+          action: "Save",
+          confirmWord: info.table,
+          run: async () => {
+            await ipc.executeScript(connection.id, statements, "data");
+            finish();
+          },
+        });
+      } else {
+        await ipc.executeScript(connection.id, statements, "data");
+        finish();
+      }
+    } catch (e) {
+      toast.error(`Not saved: ${errorMessage(e)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const chartable = !run?.error && run?.status !== "running" && !!shown && shown.columns.length > 0 && shownRows > 0;
   return (
@@ -126,7 +233,7 @@ export function ResultPane({
             onPin={onPin && run && run.sets.filter((x) => x.columns.length > 0).length === 1 ? (config) => onPin(config, shown.columns) : undefined}
           />
         ) : (
-          <ResultGrid key={`${run!.queryId}:${shownIndex}`} set={shown} rowCount={shownRows} kind={kind} onSummary={setSummary} />
+          <ResultGrid key={`${run!.queryId}:${shownIndex}`} set={shown} rowCount={shownRows} kind={kind} onSummary={setSummary} edit={edit} />
         ))}
 
         {!run?.error && run?.status === "done" && shown && shown.columns.length === 0 && (
@@ -176,6 +283,21 @@ export function ResultPane({
             {run.statements > 1 && <span className={s.faint}>{run.statements} statements</span>}
             {summary && <span className="selectable">{summary}</span>}
             <span className={s.spacer} />
+            {editing && pending > 0 ? (
+              <>
+                <span className={s.unsaved}>{pending === 1 ? "1 unsaved row" : `${fmt.format(pending)} unsaved rows`}</span>
+                <AriaButton className={s.cancel} onPress={resetEdits} isDisabled={saving}>
+                  Discard
+                </AriaButton>
+                <AriaButton className={s.save} onPress={save} isDisabled={saving}>
+                  {saving ? <Spinner size={12} /> : null} Save
+                </AriaButton>
+              </>
+            ) : editing ? (
+              <span className={s.faint} title={`Each row is one row of ${editInfo!.table}. Changes are saved by its key.`}>
+                Editable · {editInfo!.table}
+              </span>
+            ) : null}
             <span className={s.faint}>{duration(elapsed)}</span>
           </>
         ) : (

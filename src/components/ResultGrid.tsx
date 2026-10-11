@@ -4,6 +4,7 @@ import {
   DataEditor,
   type GridCell,
   GridCellKind,
+  type EditableGridCell,
   type GridColumn,
   GridColumnIcon,
   type GridSelection,
@@ -55,14 +56,24 @@ export function ResultGrid({
   rowCount,
   kind,
   onSummary,
+  edit,
 }: {
   set: ResultSet;
   rowCount: number;
   kind: DbKind;
   /** Status-bar figures for the selected cells, or "". */
   onSummary?(summary: string): void;
+  /** When the result is one table's rows: which columns can be changed, and the changes so far. */
+  edit?: {
+    writable: boolean[];
+    /** row → column → new value. */
+    changes: Map<number, Map<number, Cell>>;
+    version: number;
+    onChange(row: number, col: number, value: Cell): void;
+  };
 }) {
   const theme = useGridTheme();
+  const editBg = useMemo(() => getComputedStyle(document.documentElement).getPropertyValue("--edit-bg").trim(), [theme]);
   const [widths, setWidths] = useState<Record<number, number>>({});
   const [selection, setSelection] = useState<GridSelection>({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -97,8 +108,9 @@ export function ResultGrid({
       x,
       y,
       items: [
-        { label: "Copy value", onSelect: () => navigator.clipboard.writeText(set.rows[row]?.[col] ?? "") },
+        { label: "Copy value", onSelect: () => navigator.clipboard.writeText(valueAt(col, row) ?? "") },
         ...COPY_FORMATS.map((f) => ({ label: `Copy ${rows.length > 1 ? `${rows.length} rows` : "row"} ${f.format === "tsv" ? "for Excel / Sheets" : `as ${f.label}`}`, onSelect: () => copyAs(f.format, rows) })),
+        ...(edit?.writable[col] ? [{ label: "Set to NULL", onSelect: () => edit.onChange(row, col, null), disabled: valueAt(col, row) === null }] : []),
       ],
     });
   };
@@ -122,28 +134,48 @@ export function ResultGrid({
     [set.columns, widths, sampled],
   );
 
+  const valueAt = (col: number, row: number): Cell => {
+    const changed = edit?.changes.get(row);
+    return changed?.has(col) ? changed.get(col)! : (set.rows[row]?.[col] ?? null);
+  };
+
   const getCellContent = useCallback(
     ([col, row]: Item): GridCell => {
-      const value = set.rows[row]?.[col] ?? null;
+      const value = valueAt(col, row);
       const kind = set.columns[col]?.kind;
-      if (value === null) {
-        return { kind: GridCellKind.Text, data: "", displayData: "NULL", allowOverlay: false, readonly: true, copyData: "NULL", themeOverride: nullTheme };
-      }
+      const writable = !!edit?.writable[col];
+      const over: Partial<Theme> | undefined = edit?.changes.get(row)?.has(col) ? { bgCell: editBg } : undefined;
       if (kind === "bool") {
-        return { kind: GridCellKind.Boolean, data: value === "true", allowOverlay: false, readonly: true, copyData: value };
+        return { kind: GridCellKind.Boolean, data: value === null ? null : value === "true", allowOverlay: false, readonly: !writable, copyData: value ?? "NULL", themeOverride: over };
+      }
+      if (value === null) {
+        return { kind: GridCellKind.Text, data: "", displayData: "NULL", allowOverlay: writable, readonly: !writable, copyData: "NULL", themeOverride: { ...nullTheme, ...over } };
       }
       return {
         kind: GridCellKind.Text,
         data: value,
         displayData: preview(value),
         allowOverlay: true,
-        readonly: true,
+        readonly: !writable,
         copyData: value,
         contentAlign: kind === "number" ? "right" : undefined,
+        themeOverride: over,
       };
     },
-    [set, nullTheme],
+    // `edit.version` captures changes; the map is read at draw time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [set, nullTheme, edit?.version, edit?.writable, editBg],
   );
+
+  const onCellEdited = ([col, row]: Item, cell: EditableGridCell) => {
+    if (!edit?.writable[col]) return;
+    if (cell.kind === GridCellKind.Boolean) edit.onChange(row, col, cell.data === null || cell.data === undefined ? null : String(cell.data));
+    else if (cell.kind === GridCellKind.Text) {
+      // Opening a NULL cell and closing it without typing isn't an edit.
+      if (cell.data === "" && valueAt(col, row) === null) return;
+      edit.onChange(row, col, cell.data);
+    }
+  };
 
   return (
     <>
@@ -154,6 +186,7 @@ export function ResultGrid({
       onCellContextMenu={onCellContextMenu}
       rows={rowCount}
       getCellContent={getCellContent}
+      onCellEdited={edit ? onCellEdited : undefined}
       getCellsForSelection
       rowMarkers="number"
       smoothScrollX
