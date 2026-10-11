@@ -85,6 +85,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The keychain talks to the Secret Service over D-Bus on Linux.
+      - run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
       - run: ./dev/setup-ssh-key.sh && docker compose -f dev/docker-compose.yml up -d --wait
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

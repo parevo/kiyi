@@ -63,7 +63,7 @@ Download the latest version for **macOS** (Apple Silicon or Intel), **Windows** 
 
 No database handy? Choose **Try the sample database** on the welcome screen to explore a small store with customers, products and orders.
 
-> The macOS app is signed with a Developer ID and notarized by Apple. The Windows installer isn't code-signed yet: if SmartScreen asks, choose **More info → Run anyway**. On Linux, passwords are kept in the desktop's Secret Service (GNOME Keyring or KWallet), and the AppImage updates itself; the .deb is updated by installing the new one.
+> The macOS app is signed with a Developer ID and notarized by Apple. The Windows installer isn't code-signed yet: if SmartScreen asks, choose **More info → Run anyway**. On Linux, passwords are kept in the desktop's Secret Service (GNOME Keyring or KWallet), and both the AppImage and the .deb update themselves.
 
 ## Supported databases
 
@@ -92,7 +92,7 @@ site/                   The website, deployed to GitHub Pages.
 
 ### Prerequisites
 
-Rust (stable), Node.js 24, pnpm, and Docker for the test databases.
+Rust (stable), Node.js 24, pnpm, and Docker for the test databases. On Linux, also the [Tauri system libraries](https://v2.tauri.app/start/prerequisites/#linux) and `libdbus-1-dev` (for the keyring).
 
 ### Run the app
 
