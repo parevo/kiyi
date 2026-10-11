@@ -11,6 +11,7 @@ const STORES = [
   ["table-prefs", "kiyi.tablePrefs"],
   ["query-tabs", "kiyi.queryTabs"],
   ["settings", "kiyi.settings"],
+  ["dashboards", "kiyi.dashboards"],
 ] as const;
 
 export type UserDataName = (typeof STORES)[number][0];

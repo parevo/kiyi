@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button as AriaButton } from "react-aria-components";
-import { configFromHint } from "../lib/chartData";
-import type { ChartHint, DbKind } from "../lib/types";
+import { type ChartConfig, configFromHint } from "../lib/chartData";
+import type { ChartHint, ColumnMeta, DbKind } from "../lib/types";
 import { ChartPanel } from "./ChartPanel";
 import type { RunState } from "../state/tabs";
 import { AlertIcon, BarChartIcon, CheckIcon, Spinner, TableIcon, WandIcon } from "./icons";
@@ -36,6 +36,7 @@ export function ResultPane({
   hint,
   onCancel,
   onFix,
+  onPin,
 }: {
   run: RunState | null;
   kind: DbKind;
@@ -44,6 +45,8 @@ export function ResultPane({
   onCancel(): void;
   /** Offered when a run fails: let AI correct the SQL. */
   onFix?(): void;
+  /** Keep this result's chart on a dashboard. */
+  onPin?(config: ChartConfig, columns: ColumnMeta[]): void;
 }) {
   const elapsed = useElapsed(run);
   const [summary, setSummary] = useState("");
@@ -115,7 +118,13 @@ export function ResultPane({
         )}
 
         {!run?.error && shown && shown.columns.length > 0 && (view === "chart" && chartable ? (
-          <ChartPanel key={`${run!.queryId}:${shownIndex}`} columns={shown.columns} rows={shown.rows} initial={configFromHint(shown.columns, hint)} />
+          <ChartPanel
+            key={`${run!.queryId}:${shownIndex}`}
+            columns={shown.columns}
+            rows={shown.rows}
+            initial={configFromHint(shown.columns, hint)}
+            onPin={onPin && run && run.sets.filter((x) => x.columns.length > 0).length === 1 ? (config) => onPin(config, shown.columns) : undefined}
+          />
         ) : (
           <ResultGrid key={`${run!.queryId}:${shownIndex}`} set={shown} rowCount={shownRows} kind={kind} onSummary={setSummary} />
         ))}

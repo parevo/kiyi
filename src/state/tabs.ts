@@ -30,7 +30,7 @@ export interface RunState {
   error: ErrorInfo | null;
 }
 
-export type TabKind = "query" | "table" | "create";
+export type TabKind = "query" | "table" | "create" | "dashboard";
 export type TableView = "data" | "structure" | "summary" | "quality";
 
 export interface Tab {
@@ -47,6 +47,8 @@ export interface Tab {
   view?: TableView;
   /** Filters to apply when a table tab first loads (e.g. following a foreign key). */
   initialFilters?: Filter[];
+  /** Dashboard tabs: which dashboard. */
+  dashboardId?: string;
   /** Unsaved grid or structure edits; closing asks first. */
   dirty?: boolean;
   /** A query written by AI for a question: what was asked, what the result shows, how to chart it. */
@@ -62,6 +64,7 @@ interface TabsState {
   open(init: Partial<Tab> & { connectionId: string | null }): string;
   openTable(connectionId: string, schema: string | null, table: string, view?: TableView, filters?: Filter[]): string;
   openCreate(connectionId: string, schema: string | null): string;
+  openDashboard(connectionId: string, dashboardId: string, name: string): string;
   patch(id: string, patch: Partial<Tab>): void;
   /** Closes without asking; returns false when the user cancelled because of unsaved edits. */
   close(id: string, force?: boolean): boolean;
@@ -128,6 +131,15 @@ export const useTabs = create<TabsState>((set, get) => {
 
     openCreate(connectionId, schema) {
       return get().open({ kind: "create", connectionId, schema, title: "New table" });
+    },
+
+    openDashboard(connectionId, dashboardId, name) {
+      const existing = get().tabs.find((t) => t.kind === "dashboard" && t.dashboardId === dashboardId);
+      if (existing) {
+        set({ activeId: existing.id });
+        return existing.id;
+      }
+      return get().open({ kind: "dashboard", connectionId, dashboardId, title: name });
     },
 
     patch: (id, p) => update(id, () => p),

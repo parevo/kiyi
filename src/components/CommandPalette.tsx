@@ -12,6 +12,7 @@ import { BookmarkIcon, CodeIcon, CommandIcon, DatabaseIcon, SettingsIcon, Sparkl
 import s from "./CommandPalette.module.css";
 import { exportConnections, importConnections, openSample } from "../lib/connectionFiles";
 import { reportProblem } from "../lib/report";
+import { useDashboards } from "../state/dashboards";
 
 interface Command {
   id: string;
@@ -82,6 +83,8 @@ export function CommandPalette({ onNewConnection, onOpenSql }: { onNewConnection
       { id: "theme", title: "Switch light / dark theme", group: "Commands", icon: <SettingsIcon size={15} />, run: () => settings.set({ theme: document.documentElement.dataset.theme === "light" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: light)").matches) ? "dark" : "light" }) },
       { id: "panel", title: "Show or hide the details panel", hint: kbd("I"), group: "Commands", icon: <SettingsIcon size={15} />, run: () => settings.set({ inspectorOpen: !settings.inspectorOpen }) },
     );
+    for (const b of useDashboards.getState().boards.filter((b) => b.connectionId === activeId))
+      out.push({ id: `board:${b.id}`, title: b.name, hint: "dashboard", group: "Dashboards", icon: <CommandIcon size={15} />, run: () => useTabs.getState().openDashboard(b.connectionId, b.id, b.name) });
     for (const c of connections)
       out.push({
         id: `conn:${c.id}`,

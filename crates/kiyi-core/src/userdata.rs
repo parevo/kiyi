@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 use crate::error::{Error, Result};
 
 /// Everything the interface may store. Anything else is refused.
-pub const NAMES: &[&str] = &["history", "table-prefs", "query-tabs", "settings"];
+pub const NAMES: &[&str] = &["history", "table-prefs", "query-tabs", "settings", "dashboards"];
 
 pub struct UserData {
     dir: PathBuf,
@@ -63,11 +63,13 @@ pub struct Extras {
     pub layouts: Map<String, Value>,
     #[serde(default)]
     pub views: Map<String, Value>,
+    #[serde(default)]
+    pub dashboards: Vec<Value>,
 }
 
 impl Extras {
     pub fn is_empty(&self) -> bool {
-        self.saved_queries.is_empty() && self.layouts.is_empty() && self.views.is_empty()
+        self.saved_queries.is_empty() && self.layouts.is_empty() && self.views.is_empty() && self.dashboards.is_empty()
     }
 }
 
@@ -92,6 +94,9 @@ pub fn extras_for(data: &UserData, ids: &HashSet<String>) -> Extras {
             .as_array()
             .map(|a| a.iter().filter(|q| q["connectionId"].as_str().is_none_or(|c| ids.contains(c))).cloned().collect())
             .unwrap_or_default();
+    }
+    if let Ok(Some(Value::Array(boards))) = data.load("dashboards") {
+        out.dashboards = boards.into_iter().filter(|b| b["connectionId"].as_str().is_some_and(|c| ids.contains(c))).collect();
     }
     if let Ok(Some(prefs)) = data.load("table-prefs") {
         for (field, target) in [("layouts", &mut out.layouts), ("views", &mut out.views)] {
@@ -174,6 +179,26 @@ pub fn merge_extras(data: &UserData, extras: &Extras, id_map: &HashMap<String, S
     if changed {
         data.save("table-prefs", &prefs)?;
     }
+
+    // Dashboards: one per connection and name.
+    let mut boards: Vec<Value> = match data.load("dashboards")? {
+        Some(Value::Array(a)) => a,
+        _ => vec![],
+    };
+    let before = boards.len();
+    for b in &extras.dashboards {
+        let Some(new) = b["connectionId"].as_str().and_then(mapped) else { continue };
+        if boards.iter().any(|x| x["connectionId"] == new.as_str() && x["name"] == b["name"]) {
+            continue;
+        }
+        let mut b = b.clone();
+        b["connectionId"] = Value::String(new);
+        b["id"] = Value::String(uuid::Uuid::new_v4().simple().to_string());
+        boards.push(b);
+    }
+    if boards.len() != before {
+        data.save("dashboards", &Value::Array(boards))?;
+    }
     Ok((queries, views))
 }
 
@@ -232,5 +257,21 @@ mod tests {
         assert_eq!(p["layouts"]["new-a:public.orders"]["hidden"][0], "x");
         // Importing again changes nothing.
         assert_eq!(merge_extras(&there, &extras, &map).unwrap(), (0, 0));
+    }
+
+    #[test]
+    fn dashboards_travel_too() {
+        let here = scratch("boards-from");
+        here.save("dashboards", &json!([{ "id": "d1", "name": "Sales", "connectionId": "old-a", "tiles": [{ "sql": "SELECT 1" }] }, { "id": "d2", "name": "Other", "connectionId": "old-b", "tiles": [] }])).unwrap();
+        let extras = extras_for(&here, &HashSet::from(["old-a".to_string()]));
+        assert_eq!(extras.dashboards.len(), 1);
+        let there = scratch("boards-to");
+        let map = HashMap::from([("old-a".to_string(), "new-a".to_string())]);
+        merge_extras(&there, &extras, &map).unwrap();
+        merge_extras(&there, &extras, &map).unwrap();
+        let boards = there.load("dashboards").unwrap().unwrap();
+        assert_eq!(boards.as_array().unwrap().len(), 1, "imported once");
+        assert_eq!(boards[0]["connectionId"], "new-a");
+        assert_eq!(boards[0]["tiles"][0]["sql"], "SELECT 1");
     }
 }

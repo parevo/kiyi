@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
+import { DashboardView } from "./components/DashboardView";
 import { ToolHost } from "./components/ToolHost";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { type ConnectInit, ConnectionsHome, Overview, Welcome } from "./components/Home";
@@ -128,7 +129,13 @@ export function App() {
         {/* Every tab stays mounted so editor history and unsaved edits survive switching. */}
         {tabs.map((t) => (
           <div key={t.id} className={s.pane} hidden={t.id !== activeTabId}>
-            {t.kind === "query" ? <QueryPane tab={t} /> : <TableView tab={t} active={t.id === activeTabId} onOpenSql={openSql} />}
+            {t.kind === "query" ? (
+              <QueryPane tab={t} />
+            ) : t.kind === "dashboard" ? (
+              <DashboardView tab={t} active={t.id === activeTabId} />
+            ) : (
+              <TableView tab={t} active={t.id === activeTabId} onOpenSql={openSql} />
+            )}
           </div>
         ))}
 

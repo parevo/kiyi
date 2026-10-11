@@ -4,6 +4,8 @@ import {
   ArrowRightLeft,
   Binary,
   HeartPulse,
+  LayoutDashboard,
+  Pin,
   FlaskConical,
   Shapes,
   Upload,
@@ -101,6 +103,8 @@ export const DiagramIcon = make(Network);
 export const ObjectsIcon = make(Shapes);
 export const MoveIcon = make(ArrowRightLeft);
 export const HealthIcon = make(HeartPulse);
+export const PinIcon = make(Pin);
+export const DashboardIcon = make(LayoutDashboard);
 export const UploadIcon = make(Upload);
 export const SampleIcon = make(FlaskConical);
 export const BinaryIcon = make(Binary);

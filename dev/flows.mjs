@@ -325,6 +325,32 @@ await check("data quality finds inconsistent spellings and fixes them", async ()
 });
 
 await call("execute_script", { id: connId, statements: ["DROP TABLE IF EXISTS kiyi_flow_quality"], kind: "schema" }).catch(() => {});
+
+await check("a chart goes on a dashboard and stays there", async () => {
+  await page.keyboard.press(`${mod}+k`);
+  await page.keyboard.type("New SQL query");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  await page.keyboard.type("SELECT status, count(*) AS orders FROM orders GROUP BY status ORDER BY 1");
+  await page.locator("main").getByRole("button", { name: /^Run/ }).click();
+  await page.getByText(/^\d+ rows?$/).first().waitFor();
+  await page.getByRole("radio", { name: "Chart" }).click();
+  await page.getByRole("button", { name: "Add to dashboard" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Dashboard").fill("Flow board");
+  await dialog.getByLabel("Title").fill("Orders by status");
+  await dialog.getByRole("button", { name: "Add" }).click();
+  await toast("Added to Flow board");
+  await page.reload();
+  await page.waitForTimeout(1500);
+  await page.locator("aside").getByText("Flow board", { exact: true }).click();
+  await page.getByText("Orders by status").waitFor();
+  await page.locator("main section svg").first().waitFor({ timeout: 10000 });
+  await shot("dashboard");
+  await page.getByRole("button", { name: "Delete dashboard" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await page.locator("aside").getByText("Flow board", { exact: true }).waitFor({ state: "detached" });
+});
 await call("execute_script", { id: connId, statements: ["DROP TABLE IF EXISTS kiyi_flow_import"], kind: "schema" }).catch(() => {});
 
 const real = [...new Set(errors)].filter((e) => !/access control checks/.test(e));

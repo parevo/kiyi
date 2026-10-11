@@ -9,11 +9,12 @@ import { useSettings } from "../state/settings";
 import { tableKey, useTabs } from "../state/tabs";
 import { useUi } from "../state/ui";
 import { ContextMenu, type MenuState } from "./ContextMenu";
-import { ChevronIcon, CodeIcon, HomeIcon, LockIcon, MoreIcon, PlusIcon, RefreshIcon, SearchIcon, SettingsIcon, Spinner, TableIcon, ViewIcon } from "./icons";
+import { ChevronIcon, CodeIcon, DashboardIcon, HomeIcon, LockIcon, MoreIcon, PlusIcon, RefreshIcon, SearchIcon, SettingsIcon, Spinner, TableIcon, ViewIcon } from "./icons";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import { Button, Field, IconButton } from "./ui";
 import d from "./dialog.module.css";
 import s from "./Sidebar.module.css";
+import { useDashboards } from "../state/dashboards";
 
 export function Sidebar({
   onNewConnection,
@@ -230,6 +231,9 @@ function TableList({
   onRefresh(): void;
   onOpenSql(sql: string): void;
 }) {
+  const allBoards = useDashboards((st) => st.boards);
+  const boards = allBoards.filter((b) => b.connectionId === connectionId);
+  const activeDashboard = useTabs((st) => st.tabs.find((t) => t.id === st.activeId)?.dashboardId);
   const snapshot = useConnections((st) => st.live[connectionId]?.schema);
   const connection = useConnections((st) => st.connections.find((c) => c.id === connectionId))!;
   const developerMode = useSettings((st) => st.developerMode);
@@ -378,6 +382,25 @@ function TableList({
           <>
             <div className={s.section}>Views</div>
             {views.map(row)}
+          </>
+        )}
+        {boards.length > 0 && (
+          <>
+            <div className={s.section}>Dashboards</div>
+            {boards.map((b) => (
+              <div
+                key={b.id}
+                className={s.tableRow}
+                role="button"
+                tabIndex={0}
+                data-active={activeDashboard === b.id || undefined}
+                onClick={() => useTabs.getState().openDashboard(connectionId, b.id, b.name)}
+                onKeyDown={(e) => e.key === "Enter" && useTabs.getState().openDashboard(connectionId, b.id, b.name)}
+              >
+                <DashboardIcon size={14} />
+                <span className={s.tableName}>{b.name}</span>
+              </div>
+            ))}
           </>
         )}
       </div>

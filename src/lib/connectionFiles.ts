@@ -1,5 +1,6 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useConnections } from "../state/connections";
+import { useDashboards } from "../state/dashboards";
 import { useHistory } from "../state/history";
 import { useTablePrefs } from "../state/tablePrefs";
 import { reload } from "./userData";
@@ -29,6 +30,8 @@ export async function importConnections() {
     // Saved queries and views came along into the files; show them.
     const history = (await reload("history")) as { saved?: unknown[] } | null;
     if (history?.saved) useHistory.setState({ saved: history.saved as never });
+    const boards = await reload("dashboards");
+    if (Array.isArray(boards)) useDashboards.getState().replaceAll(boards as never);
     const prefs = (await reload("table-prefs")) as { layouts?: object; views?: object } | null;
     if (prefs) useTablePrefs.setState({ layouts: (prefs.layouts ?? {}) as never, views: (prefs.views ?? {}) as never });
     const extra = [queries && `${queries} saved ${queries === 1 ? "query" : "queries"}`, views && `${views} ${views === 1 ? "view" : "views"}`].filter(Boolean).join(" and ");

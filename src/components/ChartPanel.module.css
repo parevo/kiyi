@@ -11,3 +11,5 @@
 .faint { color: var(--text-faint); }
 .chart { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .empty { margin: 0; padding: var(--space-4); color: var(--text-faint); }
+.pin { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.pin:hover { border-color: var(--accent); }

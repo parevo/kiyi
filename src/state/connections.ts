@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { errorMessage, ipc } from "../lib/ipc";
 import type { ConnectionConfig, SchemaSnapshot } from "../lib/types";
 import { useSettings } from "./settings";
+import { useDashboards } from "./dashboards";
 import { useHistory } from "./history";
 import { useTablePrefs } from "./tablePrefs";
 import { useTabs } from "./tabs";
@@ -67,6 +68,7 @@ export const useConnections = create<ConnectionsState>((set, get) => {
       await ipc.deleteConnection(id);
       useTablePrefs.getState().forgetConnection(id);
       useHistory.getState().forgetConnection(id);
+      useDashboards.getState().forgetConnection(id);
       // Its tabs (and their saved SQL) go with it.
       useTabs.setState((t) => {
         const tabs = t.tabs.filter((tab) => tab.connectionId !== id);

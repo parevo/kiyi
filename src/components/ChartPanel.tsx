@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { buildChart, type ChartConfig, type ChartKind, isNumeric, MAX_SERIES, suggestChart } from "../lib/chartData";
 import type { Cell, ColumnMeta } from "../lib/types";
 import { Chart } from "./Chart";
-import { BarChartIcon, LineChartIcon, PieChartIcon, SigmaIcon } from "./icons";
+import { BarChartIcon, LineChartIcon, PieChartIcon, PinIcon, SigmaIcon } from "./icons";
 import s from "./ChartPanel.module.css";
 
 const KINDS: { kind: ChartKind; label: string; icon: React.ReactNode }[] = [
@@ -13,7 +13,18 @@ const KINDS: { kind: ChartKind; label: string; icon: React.ReactNode }[] = [
 ];
 
 /** A chart of a result with simple controls: what kind, which column across, which numbers up. */
-export function ChartPanel({ columns, rows, initial }: { columns: ColumnMeta[]; rows: Cell[][]; initial?: ChartConfig | null }) {
+export function ChartPanel({
+  columns,
+  rows,
+  initial,
+  onPin,
+}: {
+  columns: ColumnMeta[];
+  rows: Cell[][];
+  initial?: ChartConfig | null;
+  /** Offered when the chart can be kept on a dashboard. */
+  onPin?(config: ChartConfig): void;
+}) {
   const suggested = useMemo(() => initial ?? suggestChart(columns, rows), [columns, rows, initial]);
   const [config, setConfig] = useState<ChartConfig | null>(suggested);
   useEffect(() => setConfig(suggested), [suggested]);
@@ -76,6 +87,11 @@ export function ChartPanel({ columns, rows, initial }: { columns: ColumnMeta[]; 
             </div>
           )}
         </div>
+        {onPin && (
+          <button className={s.pin} onClick={() => onPin(config)}>
+            <PinIcon size={14} /> Add to dashboard
+          </button>
+        )}
       </div>
       <div className={s.chart}>
         <Chart data={data} />

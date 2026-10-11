@@ -25,6 +25,9 @@ import t from "./QueryPane.module.css";
 import { ResultPane } from "./ResultPane";
 import { ReviewDialog, type ReviewRequest } from "./ReviewDialog";
 import s from "../App.module.css";
+import type { ChartConfig } from "../lib/chartData";
+import type { ColumnMeta } from "../lib/types";
+import { type SavedChart, useDashboards } from "../state/dashboards";
 
 function useSplit(key: string, initial: number) {
   const [ratio, setRatio] = useState(() => {
@@ -207,6 +210,30 @@ export function QueryPane({ tab }: { tab: Tab }) {
     });
   };
 
+  /** Keeps the shown chart on a dashboard of this connection. */
+  const pin = (config: ChartConfig, columns: ColumnMeta[]) => {
+    const sql = tab.run?.sql;
+    if (!sql) return;
+    const boards = useDashboards.getState().boards.filter((b) => b.connectionId === connection.id);
+    const chart: SavedChart = { kind: config.kind, x: config.x === null ? null : (columns[config.x]?.name ?? null), y: config.y.map((i) => columns[i]?.name).filter((n): n is string => !!n) };
+    setPrompt({
+      title: "Add to dashboard",
+      subtitle: boards.length ? `Your dashboards: ${boards.map((b) => b.name).join(", ")}` : "A new dashboard is made if none has this name.",
+      fields: [
+        { label: "Dashboard", value: boards[boards.length - 1]?.name ?? `${connection.name} overview` },
+        { label: "Title", value: tab.ai?.question ?? (tab.title.startsWith("Query ") ? sql.trim().split("\n")[0].slice(0, 60) : tab.title) },
+      ],
+      help: "The tile runs this query whenever the dashboard is opened or refreshed. Only queries that read data can be kept.",
+      action: "Add",
+      run: async ([board, title]) => {
+        const check = await ipc.checkSql(connection.id, sql);
+        if (check.writes) throw new Error("This query changes data, so it can't go on a dashboard.");
+        const d = useDashboards.getState().pin(connection.id, board ?? "", { title: (title ?? "").trim() || "Chart", sql, chart });
+        toast.success(`Added to ${d.name}`, { label: "Open", run: () => useTabs.getState().openDashboard(connection.id, d.id, d.name) });
+      },
+    });
+  };
+
   const runFilled = async ({ sql, offset }: RunRequest) => {
     setPlan(null);
     setExplained(null);
@@ -343,7 +370,7 @@ export function QueryPane({ tab }: { tab: Tab }) {
         ) : explained ? (
           <AiExplainView explanation={explained} onClose={() => setExplained(null)} />
         ) : (
-          <ResultPane run={tab.run} kind={connection.kind} hint={tab.ai?.chart} onCancel={() => cancel(tab.id)} onFix={tab.run?.error ? fixWithAi : undefined} />
+          <ResultPane run={tab.run} kind={connection.kind} hint={tab.ai?.chart} onCancel={() => cancel(tab.id)} onFix={tab.run?.error ? fixWithAi : undefined} onPin={pin} />
         )}
       </div>
       <ReviewDialog request={review} kind={connection.kind} env={connection.env} onClose={() => setReview(null)} />
