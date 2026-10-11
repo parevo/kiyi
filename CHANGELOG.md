@@ -2,7 +2,7 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
-## Unreleased
+## 0.5.0 (2026-10-11)
 
 ### New
 - **Query parameters.** Write `:customer_id` in a query and Kiyi asks for its value when it runs: numbers go in as numbers, anything else as safely quoted text. Values are remembered while the tab is open, so saved queries become reusable reports.
