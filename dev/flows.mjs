@@ -240,7 +240,8 @@ await check("a query with :parameters asks for their values", async () => {
   await page.keyboard.press("Enter");
   await page.waitForTimeout(500);
   await page.keyboard.type("SELECT :amount * 2 AS doubled, :who AS who");
-  await page.keyboard.press(`${mod}+Enter`);
+  // The Run button rather than the shortcut: the editor reads the OS, not the browser, for its modifier.
+  await page.locator("main").getByRole("button", { name: /^Run/ }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("amount").fill("21");
   await dialog.getByLabel("who").fill("O'Brien");
