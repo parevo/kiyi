@@ -43,6 +43,9 @@ const setDialogPath = (path) => page.evaluate((p) => (window.__kiyiDialogPath = 
 await page.goto("http://localhost:1420");
 await page.evaluate(() => localStorage.clear());
 await page.reload();
+// The app picks ⌘ or Ctrl from what the browser says it runs on (WebKit claims macOS even on
+// Linux), so press whichever the app expects.
+const mod = (await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.userAgent))) ? "Meta" : "Control";
 await page.getByLabel("Connection URL").fill("postgres://kiyi:kiyi@localhost:55432/shop");
 await page.keyboard.press("Enter");
 await btn("Save & connect").click();
@@ -223,7 +226,7 @@ await check("open a new SQLite database and create a table", async () => {
 
 const shop = async () => {
   await page.keyboard.press("Escape");
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press(`${mod}+k`);
   await page.keyboard.type("shop @ localhost");
   await page.waitForTimeout(300);
   await page.keyboard.press("Enter");
@@ -232,12 +235,12 @@ const shop = async () => {
 
 await check("a query with :parameters asks for their values", async () => {
   await shop();
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press(`${mod}+k`);
   await page.keyboard.type("New SQL query");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(500);
   await page.keyboard.type("SELECT :amount * 2 AS doubled, :who AS who");
-  await page.keyboard.press("ControlOrMeta+Enter");
+  await page.keyboard.press(`${mod}+Enter`);
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("amount").fill("21");
   await dialog.getByLabel("who").fill("O'Brien");
@@ -250,7 +253,7 @@ await check("a query with :parameters asks for their values", async () => {
 });
 
 await check("saved queries survive a cleared web view cache", async () => {
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press(`${mod}+k`);
   await page.keyboard.type("New SQL query");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(500);
@@ -265,7 +268,7 @@ await check("saved queries survive a cleared web view cache", async () => {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForTimeout(1500);
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press(`${mod}+k`);
   await page.keyboard.type("Flow kept query");
   await page.getByRole("option", { name: /Flow kept query/ }).or(page.getByText("Flow kept query")).first().waitFor({ timeout: 5000 });
   await shot("kept-query");
