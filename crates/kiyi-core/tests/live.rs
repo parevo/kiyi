@@ -712,6 +712,12 @@ async fn schema_graphs_from_real_servers() {
     }
 }
 
+/// Drops a scratch database even if a connection that was just closed hasn't gone away yet
+/// (Postgres refuses otherwise, and pool connections close in the background).
+fn drop_database(kind: DbKind, name: &str) -> String {
+    if kind == DbKind::Postgres { format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)") } else { format!("DROP DATABASE IF EXISTS {name}") }
+}
+
 #[tokio::test]
 async fn kiyi_backups_restore_into_an_empty_database() {
     use kiyi_core::backup::{self, Target};
@@ -732,7 +738,7 @@ async fn kiyi_backups_restore_into_an_empty_database() {
             .await
             .unwrap();
         let fresh = "kiyi_restore_test";
-        let _ = admin.execute_script(&[format!("DROP DATABASE IF EXISTS {fresh}")], false, false).await;
+        let _ = admin.execute_script(&[drop_database(kind, fresh)], false, false).await;
         admin.execute_script(&[format!("CREATE DATABASE {fresh}")], false, false).await.unwrap();
         if kind == DbKind::Mysql {
             admin.execute_script(&[format!("GRANT ALL ON {fresh}.* TO 'kiyi'@'%'")], false, false).await.unwrap();
@@ -764,7 +770,7 @@ async fn kiyi_backups_restore_into_an_empty_database() {
         assert!(next[0][0].as_deref().unwrap().parse::<i64>().unwrap() > max[0][0].as_deref().unwrap().parse::<i64>().unwrap());
 
         dst.close().await;
-        admin.execute_script(&[format!("DROP DATABASE {fresh}")], false, false).await.unwrap();
+        admin.execute_script(&[drop_database(kind, fresh)], false, false).await.unwrap();
         let _ = std::fs::remove_file(&path);
     }
 }
@@ -777,7 +783,7 @@ async fn comparing_databases_and_applying_the_proposed_sql() {
     }
     let left = open(DbKind::Postgres).await;
     let admin = drivers::open(&ConnectionConfig { database: Some("postgres".into()), ..config(DbKind::Postgres) }, Some("kiyi")).await.unwrap();
-    let _ = admin.execute_script(&["DROP DATABASE IF EXISTS kiyi_compare_test".into()], false, false).await;
+    let _ = admin.execute_script(&[drop_database(DbKind::Postgres, "kiyi_compare_test")], false, false).await;
     admin.execute_script(&["CREATE DATABASE kiyi_compare_test".into()], false, false).await.unwrap();
     let right = drivers::open(&ConnectionConfig { database: Some("kiyi_compare_test".into()), ..config(DbKind::Postgres) }, Some("kiyi")).await.unwrap();
     // An older version of the schema: customers lacks most columns, orders doesn't exist, and an extra table.
@@ -799,5 +805,5 @@ async fn comparing_databases_and_applying_the_proposed_sql() {
     assert!(left_over.is_empty(), "still different after applying: {left_over:#?}");
 
     right.close().await;
-    admin.execute_script(&["DROP DATABASE kiyi_compare_test".into()], false, false).await.unwrap();
+    admin.execute_script(&[drop_database(DbKind::Postgres, "kiyi_compare_test")], false, false).await.unwrap();
 }
