@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
 import { useHistory } from "./history";
+import { useConnections } from "./connections";
 import type { Cell, ColumnMeta, ErrorInfo, Filter } from "../lib/types";
 
 export interface ResultSet {
@@ -226,6 +227,8 @@ export const useTabs = create<TabsState>((set, get) => {
                   });
                 }
               }
+              // New, renamed or dropped tables show up in the sidebar without a manual reload.
+              if (!event.cancelled && /\b(CREATE|ALTER|DROP|RENAME)\s/i.test(sql)) void useConnections.getState().refreshSchema(tab.connectionId!);
               updateRun(id, queryId, (r) => ({
                 status: r.error ? "error" : "done",
                 elapsedMs: event.elapsedMs,

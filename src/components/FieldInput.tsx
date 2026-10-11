@@ -64,6 +64,7 @@ export function FieldInput({
   if (column.enumValues.length > 0) {
     return (
       <select
+        aria-label={column.name}
         className={f.control}
         value={value ?? ""}
         disabled={readOnly}
@@ -99,6 +100,7 @@ export function FieldInput({
     return (
       <>
         <textarea
+        aria-label={column.name}
           className={`${f.control} ${isJson ? f.mono : ""}`}
           data-invalid={invalid || undefined}
           rows={Math.min(12, Math.max(isJson ? 4 : 2, draft.split("\n").length))}
@@ -118,6 +120,7 @@ export function FieldInput({
   const numeric = category === "number" || category === "decimal";
   return (
     <input
+        aria-label={column.name}
       className={`${f.control} ${numeric || category === "identifier" ? f.mono : ""}`}
       value={draft}
       inputMode={numeric ? "decimal" : undefined}

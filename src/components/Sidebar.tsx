@@ -337,7 +337,7 @@ function TableList({
     <>
       <label className={s.filter}>
         <SearchIcon size={14} />
-        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a table" spellCheck={false} />
+        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a table" spellCheck={false} aria-label="Find a table" />
       </label>
       {schemas.length > 1 && (
         <select className={s.schemaSelect} value={current?.name} onChange={(e) => setSchemaName(e.target.value)} aria-label="Schema">

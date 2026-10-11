@@ -173,7 +173,10 @@ fn list_queries(kind: DbKind) -> Vec<(ObjectKind, String)> {
                    CAST(IF(SUM(PRIVILEGE_TYPE <> 'USAGE') = 0, 'no server-wide privileges',
                      CONCAT(SUM(PRIVILEGE_TYPE <> 'USAGE'), ' server-wide privileges')) AS CHAR),
                    CAST(GRANTEE AS CHAR)
-                 FROM information_schema.USER_PRIVILEGES GROUP BY GRANTEE ORDER BY 3"
+                 FROM information_schema.USER_PRIVILEGES
+                 -- MySQL's own accounts (mysql.sys, mysql.session, mysql.infoschema) aren't people to manage.
+                 WHERE GRANTEE NOT LIKE '''mysql.%'
+                 GROUP BY GRANTEE ORDER BY 3"
                     .into(),
             ),
         ],

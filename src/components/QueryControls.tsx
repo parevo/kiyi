@@ -70,7 +70,7 @@ export function SearchBar({
             onQuery({ ...query, search: null });
           }
         }}
-        placeholder="Search, or ask AI in plain words…"
+        placeholder="Search…"
         aria-label="Search rows or ask AI"
         spellCheck={false}
       />

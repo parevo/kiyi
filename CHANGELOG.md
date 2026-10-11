@@ -2,6 +2,16 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
+## Unreleased
+
+### Fixed
+- In narrow windows, the table toolbar, Move data and the Overview wrap onto a second line instead of pushing buttons (Insert row, Columns, Views, Save plan) out of reach.
+- On the welcome screen, the list of databases found on this computer no longer collapses when the window is short.
+- Tables created, renamed or dropped in the SQL editor appear in the sidebar right away.
+- SQL autocomplete suggests only words that start with what you typed, not distant matches like USER_DEFINED_TYPE_SCHEMA for "desc".
+- Objects no longer lists MySQL's own internal accounts (mysql.sys, mysql.session) among users.
+- Every field in the row panel has an accessible name for screen readers.
+
 ## 0.4.1 (2026-10-11)
 
 ### New

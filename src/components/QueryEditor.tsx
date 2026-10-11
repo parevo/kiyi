@@ -169,7 +169,8 @@ export const QueryEditor = forwardRef<EditorHandle, Props>(function QueryEditor(
           indentOnInput(),
           bracketMatching(),
           closeBrackets(),
-          autocompletion({ activateOnTyping: true, icons: false }),
+          // Prefix matches only: fuzzy matching offered USER_DEFINED_TYPE_SCHEMA for "desc".
+          autocompletion({ activateOnTyping: true, icons: false, filterStrict: true }),
           highlightActiveLine(),
           highlightSelectionMatches(),
           placeholder(`SELECT …   ${kbd("↵")} runs the statement under the cursor`),
