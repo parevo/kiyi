@@ -9,6 +9,7 @@ import {
   MenuTrigger,
   Popover,
   Switch as AriaSwitch,
+  Text,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -53,13 +54,23 @@ interface FieldProps {
   mono?: boolean;
   autoFocus?: boolean;
   className?: string;
+  /** Shown under the input: what goes here and where to find it. */
+  help?: ReactNode;
+  /** Shown instead of the help when the value looks wrong. */
+  warning?: string | null;
+  onFocusChange?(focused: boolean): void;
 }
 
-export function Field({ label, mono, className, placeholder, type, autoFocus, ...props }: FieldProps) {
+export function Field({ label, mono, className, placeholder, type, autoFocus, help, warning, ...props }: FieldProps) {
   return (
     <TextField {...props} className={cx(s.field, className)} type={type} autoFocus={autoFocus}>
       <Label className={s.label}>{label}</Label>
       <Input className={cx(s.input, mono && s.mono)} placeholder={placeholder} spellCheck={false} autoCorrect="off" autoCapitalize="off" />
+      {(warning || help) && (
+        <Text slot="description" className={cx(s.fieldHelp, warning && s.fieldWarning)}>
+          {warning || help}
+        </Text>
+      )}
     </TextField>
   );
 }

@@ -162,3 +162,7 @@
   font-size: var(--text-sm);
   box-shadow: var(--shadow-pop);
 }
+
+.fieldHelp { font-size: var(--text-xs); line-height: 1.45; color: var(--text-faint); }
+.fieldHelp b { font-weight: 600; color: var(--text-muted); }
+.fieldWarning { color: var(--env-staging); }
