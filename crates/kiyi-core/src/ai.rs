@@ -86,11 +86,13 @@ pub struct ProviderPreset {
     pub key_url: Option<&'static str>,
     pub env_var: Option<&'static str>,
     pub description: &'static str,
+    /// How this provider's API keys start, to notice a key pasted under the wrong provider.
+    pub key_prefixes: &'static [&'static str],
 }
 
 pub fn presets() -> Vec<ProviderPreset> {
     use ProviderKind::*;
-    let p = |id, name, kind, base_url, default_model, needs_key, local, key_url, env_var, description| ProviderPreset {
+    let p = |id, name, kind, base_url, default_model, needs_key, local, key_url, env_var, description, key_prefixes| ProviderPreset {
         id,
         name,
         kind,
@@ -101,23 +103,72 @@ pub fn presets() -> Vec<ProviderPreset> {
         key_url,
         env_var,
         description,
+        key_prefixes,
     };
     vec![
-        p("anthropic", "Anthropic", Anthropic, "https://api.anthropic.com", "claude-opus-5-5", true, false, Some("https://console.anthropic.com/settings/keys"), Some("ANTHROPIC_API_KEY"), "Claude models"),
-        p("openai", "OpenAI", OpenAi, "https://api.openai.com/v1", "", true, false, Some("https://platform.openai.com/api-keys"), Some("OPENAI_API_KEY"), "GPT models"),
-        p("gemini", "Google Gemini", OpenAi, "https://generativelanguage.googleapis.com/v1beta/openai", "", true, false, Some("https://aistudio.google.com/apikey"), Some("GEMINI_API_KEY"), "Gemini models"),
-        p("openrouter", "OpenRouter", OpenAi, "https://openrouter.ai/api/v1", "", true, false, Some("https://openrouter.ai/keys"), Some("OPENROUTER_API_KEY"), "Hundreds of models with one key"),
-        p("xai", "xAI Grok", OpenAi, "https://api.x.ai/v1", "", true, false, Some("https://console.x.ai"), Some("XAI_API_KEY"), "Grok models"),
-        p("groq", "Groq", OpenAi, "https://api.groq.com/openai/v1", "", true, false, Some("https://console.groq.com/keys"), Some("GROQ_API_KEY"), "Very fast open models (not Grok)"),
-        p("mistral", "Mistral", OpenAi, "https://api.mistral.ai/v1", "", true, false, Some("https://console.mistral.ai/api-keys"), Some("MISTRAL_API_KEY"), "Mistral models"),
-        p("ollama", "Ollama", OpenAi, "http://localhost:11434/v1", "", false, true, None, None, "Models running on this Mac"),
-        p("lmstudio", "LM Studio", OpenAi, "http://localhost:1234/v1", "", false, true, None, None, "Models running on this Mac"),
-        p("custom", "Custom (OpenAI-compatible)", OpenAi, "", "", false, false, None, None, "Any server with a /chat/completions endpoint"),
+        p("anthropic", "Anthropic", Anthropic, "https://api.anthropic.com", "claude-opus-5-5", true, false, Some("https://console.anthropic.com/settings/keys"), Some("ANTHROPIC_API_KEY"), "Claude models", &["sk-ant-"]),
+        p("openai", "OpenAI", OpenAi, "https://api.openai.com/v1", "", true, false, Some("https://platform.openai.com/api-keys"), Some("OPENAI_API_KEY"), "GPT models", &["sk-"]),
+        p("gemini", "Google Gemini", OpenAi, "https://generativelanguage.googleapis.com/v1beta/openai", "", true, false, Some("https://aistudio.google.com/apikey"), Some("GEMINI_API_KEY"), "Gemini models", &["AIza"]),
+        p("openrouter", "OpenRouter", OpenAi, "https://openrouter.ai/api/v1", "", true, false, Some("https://openrouter.ai/keys"), Some("OPENROUTER_API_KEY"), "Hundreds of models with one key", &["sk-or-"]),
+        p("xai", "xAI Grok", OpenAi, "https://api.x.ai/v1", "", true, false, Some("https://console.x.ai"), Some("XAI_API_KEY"), "Grok models, from xAI. Keys start with xai-", &["xai-"]),
+        p("groq", "Groq", OpenAi, "https://api.groq.com/openai/v1", "", true, false, Some("https://console.groq.com/keys"), Some("GROQ_API_KEY"), "Fast open models such as Llama. Not xAI's Grok. Keys start with gsk_", &["gsk_"]),
+        p("mistral", "Mistral", OpenAi, "https://api.mistral.ai/v1", "", true, false, Some("https://console.mistral.ai/api-keys"), Some("MISTRAL_API_KEY"), "Mistral models", &[]),
+        p("ollama", "Ollama", OpenAi, "http://localhost:11434/v1", "", false, true, None, None, "Models running on this Mac", &[]),
+        p("lmstudio", "LM Studio", OpenAi, "http://localhost:1234/v1", "", false, true, None, None, "Models running on this Mac", &[]),
+        p("custom", "Custom (OpenAI-compatible)", OpenAi, "", "", false, false, None, None, "Any server with a /chat/completions endpoint", &[]),
     ]
 }
 
 fn preset(id: Option<&str>) -> Option<ProviderPreset> {
     id.and_then(|id| presets().into_iter().find(|p| p.id == id))
+}
+
+/// The provider a key belongs to, judged by how it starts; the longest prefix wins (sk-ant- over sk-).
+pub fn preset_for_key(key: &str) -> Option<ProviderPreset> {
+    let key = key.trim();
+    presets()
+        .into_iter()
+        .filter_map(|p| p.key_prefixes.iter().filter(|x| key.starts_with(**x)).map(|x| x.len()).max().map(|len| (len, p)))
+        .max_by_key(|(len, _)| *len)
+        .map(|(_, p)| p)
+}
+
+/// Explains a key that belongs to another provider than the one it was saved under.
+fn key_mismatch(p: &AiProvider, key: &str) -> Option<String> {
+    let own = preset(p.preset.as_deref()).filter(|pr| pr.id != "custom" && !pr.local)?;
+    let theirs = preset_for_key(key)?;
+    (theirs.id != own.id).then(|| format!("The saved key is from {}, but this is set up for {}. Add it as {} instead.", theirs.name, own.name, theirs.name))
+}
+
+/// Explains a model the provider doesn't offer, such as a Grok model set up under Groq.
+fn missing_model(p: &AiProvider, offered: &[String]) -> Option<String> {
+    (!offered.is_empty() && !offered.iter().any(|m| m == &p.model)).then(|| format!("{} doesn't offer the model {}. Edit it and choose one from the list.", p.name, p.model))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCheck {
+    pub ok: bool,
+    /// What's wrong, in words the person can act on.
+    pub problem: Option<String>,
+    /// The preset the saved key belongs to, when it was saved under another one.
+    pub key_belongs_to: Option<&'static str>,
+}
+
+/// Tries a saved provider the way AI features will use it: the key, the address and the model.
+pub async fn check(p: &AiProvider, key: Option<&str>) -> AiCheck {
+    let key_belongs_to = key.and_then(|k| key_mismatch(p, k).and(preset_for_key(k))).map(|pr| pr.id);
+    let problem = if let Some(m) = key.and_then(|k| key_mismatch(p, k)) {
+        Some(m)
+    } else if needs_key(p) && key.is_none() {
+        Some(format!("{} needs an API key.", p.name))
+    } else {
+        match list_models(p, key).await {
+            Ok(offered) => missing_model(p, &offered),
+            Err(e) => Some(e.to_string()),
+        }
+    };
+    AiCheck { ok: problem.is_none(), problem, key_belongs_to }
 }
 
 fn account(provider_id: &str) -> String {
@@ -249,6 +300,10 @@ impl AiStore {
             }
             None => AiStatus { configured: false, provider: None, model: None },
         }
+    }
+
+    pub fn provider(&self, id: &str) -> Result<AiProvider> {
+        self.file.providers.iter().find(|p| p.id == id).cloned().ok_or_else(|| Error::Invalid("Unknown AI provider.".into()))
     }
 
     /// Resolves the key to use: an explicit one from the form, else the stored one.
@@ -649,6 +704,32 @@ mod tests {
         for id in ["grok-4.7", "gpt-5", "claude-opus-5-5", "llama-3.3-70b-versatile", "mistral-large-latest", "gemini-2.5-pro"] {
             assert!(!is_non_chat_model(id), "{id}");
         }
+    }
+
+    #[test]
+    fn keys_are_told_apart() {
+        let id = |k: &str| preset_for_key(k).map(|p| p.id);
+        assert_eq!(id("sk-ant-api03-abc"), Some("anthropic"));
+        assert_eq!(id("sk-or-v1-abc"), Some("openrouter"));
+        assert_eq!(id("sk-proj-abc"), Some("openai"));
+        assert_eq!(id("xai-abc"), Some("xai"));
+        assert_eq!(id(" gsk_abc"), Some("groq"));
+        assert_eq!(id("AIzaSyabc"), Some("gemini"));
+        assert_eq!(id("abcdef0123"), None);
+    }
+
+    #[test]
+    fn notices_a_grok_setup_under_groq() {
+        let groq = AiProvider { id: "1".into(), name: "Groq".into(), kind: ProviderKind::OpenAi, base_url: "https://api.groq.com/openai/v1".into(), model: "grok-build-0.1".into(), preset: Some("groq".into()) };
+        assert!(key_mismatch(&groq, "xai-abc").unwrap().contains("from xAI Grok"));
+        assert!(key_mismatch(&groq, "gsk_abc").is_none());
+        assert!(key_mismatch(&groq, "unknown").is_none());
+        let custom = AiProvider { preset: Some("custom".into()), ..groq.clone() };
+        assert!(key_mismatch(&custom, "sk-proj-abc").is_none(), "a compatible server can use any key");
+        let offered = vec!["llama-3.3-70b-versatile".to_string()];
+        assert!(missing_model(&groq, &offered).unwrap().contains("grok-build-0.1"));
+        assert!(missing_model(&AiProvider { model: "llama-3.3-70b-versatile".into(), ..groq.clone() }, &offered).is_none());
+        assert!(missing_model(&groq, &[]).is_none(), "a server that lists nothing can't be judged");
     }
 
     #[test]

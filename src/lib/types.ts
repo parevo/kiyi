@@ -318,6 +318,15 @@ export interface ProviderPreset {
   keyUrl: string | null;
   envVar: string | null;
   description: string;
+  /** How this provider's API keys start. */
+  keyPrefixes: string[];
+}
+
+export interface AiCheck {
+  ok: boolean;
+  problem: string | null;
+  /** The preset the saved key belongs to, when it was saved under another one. */
+  keyBelongsTo: string | null;
 }
 
 export interface LocalDatabase {

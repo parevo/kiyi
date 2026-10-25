@@ -761,6 +761,17 @@ impl Workspace {
         crate::ai::list_models(provider, key.as_deref()).await
     }
 
+    /// Tries a saved provider with its stored key, for the status shown in Settings.
+    pub async fn ai_check(&self, id: &str) -> Result<crate::ai::AiCheck> {
+        let (provider, key) = {
+            let ai = self.ai();
+            let p = ai.provider(id)?;
+            let key = ai.key(&p, None)?;
+            (p, key)
+        };
+        Ok(crate::ai::check(&provider, key.as_deref()).await)
+    }
+
     /// The active AI provider and its key, or a message pointing to Settings.
     fn ai_provider(&self) -> Result<(crate::ai::AiProvider, Option<String>)> {
         let ai = self.ai();

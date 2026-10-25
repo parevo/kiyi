@@ -51,6 +51,8 @@ fn main() {
             commands::delete_ai_provider,
             commands::set_active_ai,
             commands::ai_models,
+            commands::ai_check,
+            commands::open_ai_key_page,
             commands::discover_local,
             commands::ssh_config_hosts,
             commands::check_sql,

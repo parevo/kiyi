@@ -314,6 +314,20 @@ pub fn set_active_ai(ws: Ws<'_>, id: String) -> CmdResult<()> {
     Ok(ws.ai().set_active(&id)?)
 }
 
+/// Opens the page where a provider hands out API keys. Takes a preset id, not a URL, so the
+/// webview can only open the pages Kiyi lists.
+#[tauri::command]
+pub fn open_ai_key_page(preset: String) -> CmdResult<()> {
+    let url = kiyi_core::ai::presets().into_iter().find(|p| p.id == preset).and_then(|p| p.key_url);
+    let url = url.ok_or_else(|| ErrorInfo::from(kiyi_core::error::Error::Invalid("This provider has no key page.".into())))?;
+    crate::logging::open_in_browser(url).map_err(|e| ErrorInfo::from(kiyi_core::error::Error::Io(e)))
+}
+
+#[tauri::command]
+pub async fn ai_check(ws: Ws<'_>, id: String) -> CmdResult<kiyi_core::ai::AiCheck> {
+    Ok(ws.ai_check(&id).await?)
+}
+
 #[tauri::command]
 pub async fn ai_models(ws: Ws<'_>, provider: kiyi_core::ai::AiProvider, key: Option<String>) -> CmdResult<Vec<String>> {
     Ok(ws.ai_models(&provider, key.as_deref()).await?)

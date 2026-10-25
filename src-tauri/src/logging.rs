@@ -94,7 +94,11 @@ fn issue_url(title: &str, body: &str) -> String {
 
 /// Only ever opens Kiyi's own issue page, so the webview can't use this to launch anything else.
 pub fn open_issue(title: &str, body: &str) -> std::io::Result<()> {
-    let url = issue_url(title, body);
+    open_in_browser(&issue_url(title, body))
+}
+
+/// Callers pass only URLs Kiyi itself knows, never one from the webview.
+pub fn open_in_browser(url: &str) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     let mut cmd = std::process::Command::new("open");
     #[cfg(target_os = "windows")]

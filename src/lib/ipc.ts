@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  AiCheck,
   AiFilterResult,
   CsvPreview,
   ExportFormat,
@@ -86,6 +87,8 @@ export const ipc = {
   deleteAiProvider: (id: string) => invoke<void>("delete_ai_provider", { id }),
   setActiveAi: (id: string) => invoke<void>("set_active_ai", { id }),
   aiModels: (provider: AiProvider, key: string | null) => invoke<string[]>("ai_models", { provider, key }),
+  aiCheck: (id: string) => invoke<AiCheck>("ai_check", { id }),
+  openAiKeyPage: (preset: string) => invoke<void>("open_ai_key_page", { preset }),
   discoverLocal: () => invoke<LocalDatabase[]>("discover_local"),
   sshConfigHosts: () => invoke<SshHost[]>("ssh_config_hosts"),
   logUiError: (message: string) => invoke<void>("log_ui_error", { message }),

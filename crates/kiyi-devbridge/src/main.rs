@@ -103,6 +103,11 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
             let key: Option<String> = arg(a, "key")?;
             ws.ai_models(&arg(a, "provider")?, key.as_deref()).await.map(ok).unwrap_or_else(fail)
         }
+        "ai_check" => ws.ai_check(&id()?).await.map(ok).unwrap_or_else(fail),
+        "open_ai_key_page" => {
+            println!("open_ai_key_page: {}", arg::<String>(a, "preset")?);
+            ok(())
+        }
         "discover_local" => ok(kiyi_core::discover::local_databases().await),
         "ssh_config_hosts" => ok(kiyi_core::ssh_config::hosts()),
         "log_ui_error" => {
