@@ -2,7 +2,7 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
-## 0.6.1 (2026-10-25)
+## 0.6.2 (2026-10-25)
 
 ### New
 - **A connection window that shows the way.** Connecting is now a few numbered steps for each way in (direct, SSH, AWS SSM, Kubernetes, Cloud SQL), and the step you're on says where to find each value, with the path in the AWS console: the EC2 address and user, the .pem key, the RDS endpoint and master user. Paste the ssh command AWS shows under Connect (ssh -i key.pem ec2-user@…) and the SSH step fills itself in. Values that look like they're in the wrong place are pointed out, such as an RDS endpoint entered as the SSH server or a .pub key. Encryption and AWS IAM sign-in fold under More options until you need them.
