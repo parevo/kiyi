@@ -68,7 +68,7 @@ pub async fn export(driver: &dyn DbDriver, sql: &str, format: ExportFormat, path
         ExportFormat::Xlsx => {
             let mut book = rust_xlsxwriter::Workbook::new();
             // Rows go to a temporary file as they arrive, so big exports don't fill memory.
-            book.add_worksheet_with_constant_memory();
+            book.add_worksheet_with_constant_memory().map_err(|e| Error::Invalid(format!("Couldn't start the Excel file: {e}")))?;
             Out::Xlsx { book: Box::new(book), row: 0 }
         }
     });
