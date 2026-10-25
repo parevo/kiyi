@@ -6,4 +6,12 @@ ignore = [
     # key (russh), and MySQL's sha2 auth encrypts with the server's public key, so there is no
     # repeated private-key operation for an attacker to time. Revisit when rsa 0.10 ships.
     "RUSTSEC-2023-0071",
+    # zip: extract() can keep SUID bits and follow or create symlinks outside the target folder.
+    # Kiyi's own Excel code is on zip 9 (fixed). What's left is zip 4 inside tauri-plugin-updater
+    # 2.14 (Windows only), which unpacks an update only after checking it against Kiyi's update
+    # signing key, so no archive from anyone else reaches extract(). Remove these once a 2.x
+    # updater on zip 9 is released.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]
