@@ -2,6 +2,15 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
+## 0.6.3 (2026-10-28)
+
+### Fixed
+- **Move data, existing rows:** "Skip" and "Update" now ask the target whether a row is already there, so its own rules for case, accents and trailing spaces decide, as its unique index will. Before, a case-sensitive database (PostgreSQL, SQLite) could pass the check and then stop the move on a clashing key.
+- **Move data, repeated rows:** source rows with the same match values (two customers with one email) are moved once, and links to the second follow the first. The check points them out and the report counts them.
+- **Move data from SQL Server:** tables without a key that have text, ntext, image or xml columns can be read, tables with a key of several columns are read fast at any size, and very large tables are counted correctly.
+- **Move data into MySQL:** BIT columns get 1 or 0 instead of failing, uniqueidentifiers go into BINARY(16) as 16 bytes, and values that don't fit (a tinyint over 127, too many digits for a DECIMAL, text over 64 KB for TEXT, a TIMESTAMP outside 1970–2038) are shown by the check instead of stopping the move.
+- **Move data:** the temporary file a move writes is readable only by you, and one left behind by a crash is removed. A plan saved by a newer Kiyi says so instead of opening wrongly.
+
 ## 0.6.2 (2026-10-25)
 
 ### New
