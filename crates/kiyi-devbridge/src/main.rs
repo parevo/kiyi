@@ -117,8 +117,13 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
         "diagnostics" => ok("Kiyi (devbridge)\nLogs go to the terminal running kiyi-devbridge."),
         "compare" => ws.compare(&arg::<String>(a, "left")?, &arg::<String>(a, "right")?).await.map(ok).unwrap_or_else(fail),
         "backup_tools" => ws.backup_tools(&id()?, &arg::<String>(a, "today")?).map(ok).unwrap_or_else(fail),
-        "backup" => ws.backup(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), arg(a, "preferKiyi")?).await.map(ok).unwrap_or_else(fail),
-        "restore" => ws.restore(&id()?, std::path::Path::new(&arg::<String>(a, "path")?)).await.map(ok).unwrap_or_else(fail),
+        // Progress isn't streamed over the bridge; the result comes back at the end.
+        "backup" => ws.backup(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), arg(a, "preferKiyi")?, &arg::<String>(a, "runId")?, &|_| {}).await.map(ok).unwrap_or_else(fail),
+        "restore" => ws.restore(&id()?, std::path::Path::new(&arg::<String>(a, "path")?), &arg::<String>(a, "runId")?, &|_| {}).await.map(ok).unwrap_or_else(fail),
+        "backup_cancel" => {
+            ws.cancel_job(&arg::<String>(a, "runId")?);
+            ok(())
+        }
         "schema_graph" => ws.schema_graph(&id()?).await.map(ok).unwrap_or_else(fail),
         "migration_suggest" => ws.migration_suggest(&arg::<String>(a, "source")?, &arg::<String>(a, "target")?).await.map(ok).unwrap_or_else(fail),
         "migration_ai" => ws.migration_ai(&arg(a, "plan")?, arg(a, "examples")?).await.map(ok).unwrap_or_else(fail),
@@ -129,7 +134,7 @@ async fn dispatch(ws: &Ws, cmd: &str, a: &Value) -> Result<Response, Response> {
             ws.migration_run(&arg(a, "plan")?, arg(a, "testRun")?, &arg::<String>(a, "runId")?, progress).await.map(ok).unwrap_or_else(fail)
         }
         "migration_cancel" => {
-            ws.migration_cancel(&arg::<String>(a, "runId")?);
+            ws.cancel_job(&arg::<String>(a, "runId")?);
             ok(())
         }
         "migration_save" => kiyi_core::migrate::save(&arg(a, "plan")?, std::path::Path::new(&arg::<String>(a, "path")?)).map(ok).unwrap_or_else(fail),

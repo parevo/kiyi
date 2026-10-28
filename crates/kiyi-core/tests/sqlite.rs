@@ -424,7 +424,8 @@ async fn sqlite_schema_graph() {
 
 #[tokio::test]
 async fn sqlite_backup_copies_the_file_and_restores_dumps() {
-    use kiyi_core::backup::{self, BackupMethod, Target};
+    use kiyi_core::backup::{self, BackupMethod, Job, Target};
+    use std::sync::atomic::AtomicBool;
     let dir = std::env::temp_dir().join(format!("kiyi-sqlite-backup-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let cfg = |file: &str| ConnectionConfig {
@@ -447,7 +448,7 @@ async fn sqlite_backup_copies_the_file_and_restores_dumps() {
     src.execute_script(&["CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)".into(), "INSERT INTO t (name) VALUES ('Ayşe'), ('it''s; fine')".into()], true, false).await.unwrap();
 
     let copy = dir.join("copy.db");
-    let report = backup::backup(&*src, &Target { config: cfg("src.db"), password: None }, &copy, false).await.unwrap();
+    let report = backup::backup(&*src, &Target { config: cfg("src.db"), password: None }, &copy, false, &Job { progress: &|_| {}, cancel: &AtomicBool::new(false) }).await.unwrap();
     assert_eq!(report.method, BackupMethod::Native);
     let copied = drivers::open(&cfg("copy.db"), None).await.unwrap();
     assert_eq!(copied.fetch("SELECT name FROM t ORDER BY id").await.unwrap().1, src.fetch("SELECT name FROM t ORDER BY id").await.unwrap().1);
@@ -456,8 +457,27 @@ async fn sqlite_backup_copies_the_file_and_restores_dumps() {
     let dump = dir.join("dump.sql");
     std::fs::write(&dump, "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT);\nINSERT INTO t VALUES(1,'Ayşe');\nINSERT INTO t VALUES(2,'it''s; fine');\nCOMMIT;\n").unwrap();
     let empty = drivers::open(&cfg("empty.db"), None).await.unwrap();
-    backup::restore(&*empty, &Target { config: cfg("empty.db"), password: None }, &dump).await.unwrap();
+    backup::restore(&*empty, &Target { config: cfg("empty.db"), password: None }, &dump, &Job { progress: &|_| {}, cancel: &AtomicBool::new(false) }).await.unwrap();
     assert_eq!(empty.fetch("SELECT name FROM t ORDER BY id").await.unwrap().1, src.fetch("SELECT name FROM t ORDER BY id").await.unwrap().1);
+
+    // Progress names the tables; a stopped backup writes nothing and leaves an earlier file as it was.
+    let seen = std::sync::Mutex::new(Vec::new());
+    let progress = |p: backup::Progress| seen.lock().unwrap().push(p);
+    let before = std::fs::read(&copy).unwrap();
+    let stopped = backup::backup(&*src, &Target { config: cfg("src.db"), password: None }, &copy, false, &Job { progress: &progress, cancel: &AtomicBool::new(true) }).await;
+    assert_eq!(stopped.unwrap_err().to_string(), "Backup stopped. No file was written.");
+    assert_eq!(seen.lock().unwrap().last().map(|p| p.tables), Some(1));
+    assert_eq!(std::fs::read(&copy).unwrap(), before);
+    assert!(!dir.join("copy.db.partial").exists());
+
+    // A stopped restore keeps nothing.
+    let fresh = drivers::open(&cfg("fresh.db"), None).await.unwrap();
+    let script = dir.join("script.sql");
+    std::fs::write(&script, "-- Kiyi backup of the database (SQLite), 1 tables.\n\nCREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT);\n-- kiyi:end\n").unwrap();
+    let stopped = backup::restore(&*fresh, &Target { config: cfg("fresh.db"), password: None }, &script, &Job { progress: &|_| {}, cancel: &AtomicBool::new(true) }).await;
+    assert_eq!(stopped.unwrap_err().to_string(), "Restore stopped. Nothing was kept.");
+    assert!(fresh.fetch("SELECT name FROM t").await.is_err());
+    fresh.close().await;
 
     for d in [src, copied, empty] {
         d.close().await;

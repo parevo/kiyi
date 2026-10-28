@@ -720,7 +720,8 @@ fn drop_database(kind: DbKind, name: &str) -> String {
 
 #[tokio::test]
 async fn kiyi_backups_restore_into_an_empty_database() {
-    use kiyi_core::backup::{self, Target};
+    use kiyi_core::backup::{self, Job, Target};
+    use std::sync::atomic::AtomicBool;
     if !live() {
         return;
     }
@@ -728,7 +729,7 @@ async fn kiyi_backups_restore_into_an_empty_database() {
         let src = open(kind).await;
         let path = std::env::temp_dir().join(format!("kiyi-backup-{kind:?}-{}.sql", std::process::id()));
         let target = Target { config: config(kind), password: Some("kiyi".into()) };
-        let report = backup::backup(&*src, &target, &path, true).await.unwrap_or_else(|e| panic!("{kind:?} backup: {e}"));
+        let report = backup::backup(&*src, &target, &path, true, &Job { progress: &|_| {}, cancel: &AtomicBool::new(false) }).await.unwrap_or_else(|e| panic!("{kind:?} backup: {e}"));
         assert!(report.rows.unwrap() > 0 && report.tables >= 2, "{kind:?} {report:?}");
 
         // A fresh, empty database to restore into.
@@ -745,7 +746,7 @@ async fn kiyi_backups_restore_into_an_empty_database() {
         }
         let dst_config = ConnectionConfig { database: Some(fresh.into()), ..config(kind) };
         let dst = drivers::open(&dst_config, Some("kiyi")).await.unwrap();
-        let restored = backup::restore(&*dst, &Target { config: dst_config.clone(), password: Some("kiyi".into()) }, &path).await.unwrap_or_else(|e| panic!("{kind:?} restore: {e}"));
+        let restored = backup::restore(&*dst, &Target { config: dst_config.clone(), password: Some("kiyi".into()) }, &path, &Job { progress: &|_| {}, cancel: &AtomicBool::new(false) }).await.unwrap_or_else(|e| panic!("{kind:?} restore: {e}"));
         assert!(restored.statements.unwrap() > 0);
 
         for table in ["customers", "orders"] {

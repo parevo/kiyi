@@ -450,6 +450,17 @@ export interface BackupReport {
   bytes: number;
   note: string | null;
 }
+/** How far a backup or restore has got. `rows` counts statements during a restore. */
+export interface BackupProgress {
+  stage: "preparing" | "copying";
+  table: string;
+  tablesDone: number;
+  tables: number;
+  rows: number;
+  expectedRows: number | null;
+  bytes: number;
+  totalBytes: number | null;
+}
 export interface RestoreReport {
   tool: string;
   statements: number | null;

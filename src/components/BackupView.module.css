@@ -12,3 +12,14 @@
 .failed { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .failed svg { color: var(--danger); }
 .note { color: var(--text-muted); }
+.stopped { background: color-mix(in srgb, var(--text-muted) 12%, transparent); }
+.stopped svg { color: var(--text-muted); }
+.progress { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); width: 100%; }
+.bar { position: relative; width: 100%; height: 8px; border-radius: 999px; background: var(--bg-sunken); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); transition: width 200ms ease; }
+.indeterminate span { position: absolute; width: 30%; animation: sweep 1.4s ease-in-out infinite; }
+@keyframes sweep { from { left: -30%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .indeterminate span { animation: none; left: 0; width: 100%; opacity: 0.4; } }
+.status { display: flex; align-items: center; gap: 8px; width: 100%; color: var(--text-muted); font-size: var(--text-sm); }
+.statusText { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.elapsed { flex-shrink: 0; font-variant-numeric: tabular-nums; color: var(--text-faint); }

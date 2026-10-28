@@ -90,13 +90,25 @@ pub fn backup_tools(ws: Ws<'_>, id: String, today: String) -> CmdResult<kiyi_cor
 }
 
 #[tauri::command]
-pub async fn backup(ws: Ws<'_>, id: String, path: String, prefer_kiyi: bool) -> CmdResult<kiyi_core::backup::BackupReport> {
-    Ok(ws.backup(&id, std::path::Path::new(&path), prefer_kiyi).await?)
+pub async fn backup(ws: Ws<'_>, id: String, path: String, prefer_kiyi: bool, run_id: String, on_progress: Channel<kiyi_core::backup::Progress>) -> CmdResult<kiyi_core::backup::BackupReport> {
+    let progress = move |p: kiyi_core::backup::Progress| {
+        let _ = on_progress.send(p);
+    };
+    Ok(ws.backup(&id, std::path::Path::new(&path), prefer_kiyi, &run_id, &progress).await?)
 }
 
 #[tauri::command]
-pub async fn restore(ws: Ws<'_>, id: String, path: String) -> CmdResult<kiyi_core::backup::RestoreReport> {
-    Ok(ws.restore(&id, std::path::Path::new(&path)).await?)
+pub async fn restore(ws: Ws<'_>, id: String, path: String, run_id: String, on_progress: Channel<kiyi_core::backup::Progress>) -> CmdResult<kiyi_core::backup::RestoreReport> {
+    let progress = move |p: kiyi_core::backup::Progress| {
+        let _ = on_progress.send(p);
+    };
+    Ok(ws.restore(&id, std::path::Path::new(&path), &run_id, &progress).await?)
+}
+
+/// Stops a backup or restore started with `run_id`.
+#[tauri::command]
+pub fn backup_cancel(ws: Ws<'_>, run_id: String) {
+    ws.cancel_job(&run_id);
 }
 
 #[tauri::command]
@@ -203,7 +215,7 @@ pub async fn migration_run(
 
 #[tauri::command]
 pub fn migration_cancel(ws: Ws<'_>, run_id: String) {
-    ws.migration_cancel(&run_id);
+    ws.cancel_job(&run_id);
 }
 
 #[tauri::command]

@@ -79,6 +79,7 @@ fn main() {
             commands::take_crash_report,
             commands::open_issue,
             commands::backup,
+            commands::backup_cancel,
             commands::backup_tools,
             commands::compare,
             commands::restore,

@@ -132,8 +132,8 @@ pub struct Workspace {
     live: RwLock<HashMap<String, Live>>,
     running: Arc<Mutex<HashMap<String, Running>>>,
     user_data: crate::userdata::UserData,
-    /// Data moves in progress, by id, with the flag that stops them.
-    moves: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
+    /// Data moves, backups and restores in progress, by id, with the flag that stops them.
+    jobs: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
 
 impl Workspace {
@@ -145,7 +145,7 @@ impl Workspace {
             known_hosts: crate::tunnel::KnownHosts::load(config_dir.join("known_hosts.json")),
             live: RwLock::new(HashMap::new()),
             running: Arc::new(Mutex::new(HashMap::new())),
-            moves: Mutex::new(HashMap::new()),
+            jobs: Mutex::new(HashMap::new()),
             user_data: crate::userdata::UserData::new(config_dir),
         })
     }
@@ -409,17 +409,38 @@ impl Workspace {
         Ok(crate::backup::tools(&self.config(id)?, today))
     }
 
-    pub async fn backup(&self, id: &str, path: &Path, prefer_kiyi: bool) -> Result<crate::backup::BackupReport> {
+    /// Backs up to `path`. Stop it with `cancel_job(run_id)`.
+    pub async fn backup(&self, id: &str, path: &Path, prefer_kiyi: bool, run_id: &str, progress: &(dyn Fn(crate::backup::Progress) + Send + Sync)) -> Result<crate::backup::BackupReport> {
         let driver = self.driver(id)?;
         let target = self.target(id).await?;
-        crate::backup::backup(driver.as_ref(), &target, path, prefer_kiyi).await
+        let cancel = self.start_job(run_id);
+        let result = crate::backup::backup(driver.as_ref(), &target, path, prefer_kiyi, &crate::backup::Job { progress, cancel: &cancel }).await;
+        self.jobs.lock().unwrap().remove(run_id);
+        result
     }
 
-    pub async fn restore(&self, id: &str, path: &Path) -> Result<crate::backup::RestoreReport> {
+    /// Restores `path` into the database. Stop it with `cancel_job(run_id)`.
+    pub async fn restore(&self, id: &str, path: &Path, run_id: &str, progress: &(dyn Fn(crate::backup::Progress) + Send + Sync)) -> Result<crate::backup::RestoreReport> {
         self.ensure_writable(id)?;
         let driver = self.driver(id)?;
         let target = self.target(id).await?;
-        crate::backup::restore(driver.as_ref(), &target, path).await
+        let cancel = self.start_job(run_id);
+        let result = crate::backup::restore(driver.as_ref(), &target, path, &crate::backup::Job { progress, cancel: &cancel }).await;
+        self.jobs.lock().unwrap().remove(run_id);
+        result
+    }
+
+    fn start_job(&self, run_id: &str) -> Arc<std::sync::atomic::AtomicBool> {
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.jobs.lock().unwrap().insert(run_id.to_string(), cancel.clone());
+        cancel
+    }
+
+    /// Stops a data move, backup or restore started with `run_id`.
+    pub fn cancel_job(&self, run_id: &str) {
+        if let Some(flag) = self.jobs.lock().unwrap().get(run_id) {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     /// Every table's primary key and foreign keys, for the schema diagram.
@@ -581,7 +602,7 @@ impl Workspace {
         crate::migrate::check(s.as_ref(), t.as_ref(), plan).await
     }
 
-    /// Moves the data (or, with `test_run`, writes it all and rolls back). Stop it with `migration_cancel(run_id)`.
+    /// Moves the data (or, with `test_run`, writes it all and rolls back). Stop it with `cancel_job(run_id)`.
     pub async fn migration_run(
         &self,
         plan: &crate::migrate::MigrationPlan,
@@ -591,17 +612,10 @@ impl Workspace {
     ) -> Result<crate::migrate::MigrationReport> {
         self.ensure_writable(&plan.target)?;
         let (s, t) = (self.driver(&plan.source)?, self.driver(&plan.target)?);
-        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        self.moves.lock().unwrap().insert(run_id.to_string(), cancel.clone());
+        let cancel = self.start_job(run_id);
         let result = crate::migrate::run(s.as_ref(), t.as_ref(), plan, test_run, &std::env::temp_dir(), progress.as_ref(), &cancel).await;
-        self.moves.lock().unwrap().remove(run_id);
+        self.jobs.lock().unwrap().remove(run_id);
         result
-    }
-
-    pub fn migration_cancel(&self, run_id: &str) {
-        if let Some(flag) = self.moves.lock().unwrap().get(run_id) {
-            flag.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
     }
 
     /// The estimated plan for one statement; nothing is executed.

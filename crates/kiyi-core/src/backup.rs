@@ -1,10 +1,14 @@
 //! Backing up and restoring a database. With the database's own tools installed (pg_dump/psql,
 //! mysqldump/mysql) Kiyi uses them for a complete copy. Without them it writes its own SQL file
 //! with the tables, their data, keys and indexes. SQLite backups are a consistent copy of the file.
+//! Both report progress as they go and stop when asked; a stopped or failed backup leaves no file.
 
+use std::future::Future;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -12,12 +16,16 @@ use crate::config::{ConnectionConfig, DbKind, SslMode};
 use crate::design::{self, TableDesign};
 use crate::drivers::DbDriver;
 use crate::error::{is_missing_table, Error, Result};
-use crate::types::{QueryEvent, ValueKind};
+use crate::types::{QueryEvent, Sink, ValueKind};
 
 const HEADER: &str = "-- Kiyi backup";
 /// Ends every statement in Kiyi's own files, so a restore can read them line by line.
 const END: &str = "-- kiyi:end";
 const INSERT_BATCH: usize = 200;
+/// How often a running backup checks for a stop and reports how far it got.
+const POLL: Duration = Duration::from_millis(200);
+/// After asking the server to stop a read, give it this long before dropping the connection.
+const CANCEL_GRACE: Duration = Duration::from_secs(3);
 
 #[cfg(test)]
 mod tests {
@@ -49,6 +57,142 @@ pub struct BackupReport {
     pub bytes: u64,
     /// What this kind of backup leaves out, if anything.
     pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Stage {
+    /// Reading the table list and each table's structure.
+    #[default]
+    Preparing,
+    /// Copying data, or an outside tool is at work.
+    Copying,
+}
+
+/// How far a backup or restore has got, for a progress bar.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    pub stage: Stage,
+    /// The table being read; empty during a restore or when an outside tool does the work.
+    pub table: String,
+    pub tables_done: usize,
+    pub tables: usize,
+    /// Rows backed up so far (statements run, for a restore), and roughly how many to expect.
+    pub rows: u64,
+    pub expected_rows: Option<u64>,
+    /// Bytes of the backup written so far, or of the backup file read during a restore.
+    pub bytes: u64,
+    pub total_bytes: Option<u64>,
+}
+
+/// Where a running backup or restore reports to, and the flag that stops it.
+pub struct Job<'a> {
+    pub progress: &'a (dyn Fn(Progress) + Send + Sync),
+    pub cancel: &'a AtomicBool,
+}
+
+impl Job<'_> {
+    fn stopped(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+
+    fn check(&self) -> Result<()> {
+        if self.stopped() {
+            return Err(Error::Cancelled);
+        }
+        Ok(())
+    }
+}
+
+/// Progress sent a few times a second rather than for every batch of rows.
+struct Reporter<'a> {
+    job: &'a Job<'a>,
+    state: Mutex<(Progress, Option<Instant>)>,
+}
+
+impl<'a> Reporter<'a> {
+    fn new(job: &'a Job<'a>) -> Self {
+        Self { job, state: Mutex::new((Progress::default(), None)) }
+    }
+
+    fn update(&self, force: bool, change: impl FnOnce(&mut Progress)) {
+        let mut state = self.state.lock().unwrap();
+        change(&mut state.0);
+        if force || state.1.is_none_or(|t| t.elapsed() >= POLL) {
+            state.1 = Some(Instant::now());
+            (self.job.progress)(state.0.clone());
+        }
+    }
+}
+
+/// A file written beside its final path and moved into place only when complete, so a stopped
+/// or failed backup neither leaves half a file behind nor spoils one that was already there.
+struct Partial {
+    tmp: PathBuf,
+    path: PathBuf,
+}
+
+impl Partial {
+    fn new(path: &Path) -> Self {
+        let mut tmp = path.as_os_str().to_owned();
+        tmp.push(".partial");
+        let tmp = PathBuf::from(tmp);
+        let _ = std::fs::remove_file(&tmp);
+        Self { tmp, path: path.to_path_buf() }
+    }
+
+    fn size(&self) -> u64 {
+        std::fs::metadata(&self.tmp).map(|m| m.len()).unwrap_or(0)
+    }
+
+    /// Moves the finished file into place and returns its size.
+    fn finish(self) -> Result<u64> {
+        std::fs::rename(&self.tmp, &self.path)?;
+        Ok(std::fs::metadata(&self.path)?.len())
+    }
+}
+
+impl Drop for Partial {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.tmp);
+    }
+}
+
+/// Awaits `work`, calling `tick` a few times a second. Once the job is stopped `work` is dropped,
+/// which ends an outside tool (they're started with `kill_on_drop`).
+async fn watched<T>(work: impl Future<Output = Result<T>>, job: &Job<'_>, tick: impl Fn()) -> Result<T> {
+    tokio::pin!(work);
+    loop {
+        tokio::select! {
+            out = &mut work => return out,
+            _ = tokio::time::sleep(POLL) => {
+                job.check()?;
+                tick();
+            }
+        }
+    }
+}
+
+/// Runs `sql`, ending it on the server as soon as the job is stopped.
+async fn execute(driver: &dyn DbDriver, sql: &str, sink: &Sink<'_>, job: &Job<'_>) -> Result<()> {
+    let session = Mutex::new(None);
+    let on_session = |id: u64| *session.lock().unwrap() = Some(id);
+    let run = driver.execute(sql, &on_session, sink);
+    tokio::pin!(run);
+    loop {
+        tokio::select! {
+            out = &mut run => return out,
+            _ = tokio::time::sleep(POLL) => if job.stopped() { break },
+        }
+    }
+    let id = *session.lock().unwrap();
+    if let Some(id) = id {
+        let _ = driver.cancel(id).await;
+    }
+    // Dropping the call closes its connection if the server is slow to stop.
+    let _ = tokio::time::timeout(CANCEL_GRACE, &mut run).await;
+    Err(Error::Cancelled)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -121,7 +265,7 @@ fn mysql_env(t: &Target) -> Vec<(String, String)> {
     t.password.iter().map(|p| ("MYSQL_PWD".to_string(), p.clone())).collect()
 }
 
-async fn run_tool(tool: &Path, args: &[String], env: &[(String, String)], stdin: Option<&Path>) -> Result<()> {
+async fn run_tool(tool: &Path, args: &[String], env: &[(String, String)], stdin: Option<&Path>, job: &Job<'_>, tick: impl Fn()) -> Result<()> {
     let name = tool.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut cmd = tokio::process::Command::new(tool);
     cmd.args(args).envs(env.iter().cloned()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
@@ -129,7 +273,8 @@ async fn run_tool(tool: &Path, args: &[String], env: &[(String, String)], stdin:
         Some(path) => std::process::Stdio::from(std::fs::File::open(path)?),
         None => std::process::Stdio::null(),
     });
-    let out = cmd.output().await.map_err(|e| Error::Invalid(format!("Couldn't start {name}: {e}")))?;
+    let child = cmd.spawn().map_err(|e| Error::Invalid(format!("Couldn't start {name}: {e}")))?;
+    let out = watched(async { Ok(child.wait_with_output().await?) }, job, tick).await?;
     if out.status.success() {
         return Ok(());
     }
@@ -139,36 +284,58 @@ async fn run_tool(tool: &Path, args: &[String], env: &[(String, String)], stdin:
 }
 
 /// Backs up with the database's own tool when it's installed, else with Kiyi's SQL writer.
-pub async fn backup(driver: &dyn DbDriver, target: &Target, path: &Path, prefer_kiyi: bool) -> Result<BackupReport> {
+pub async fn backup(driver: &dyn DbDriver, target: &Target, path: &Path, prefer_kiyi: bool, job: &Job<'_>) -> Result<BackupReport> {
+    match backup_to(driver, target, path, prefer_kiyi, job).await {
+        Err(Error::Cancelled) => Err(Error::Invalid("Backup stopped. No file was written.".into())),
+        other => other,
+    }
+}
+
+async fn backup_to(driver: &dyn DbDriver, target: &Target, path: &Path, prefer_kiyi: bool, job: &Job<'_>) -> Result<BackupReport> {
     let kind = driver.dialect().kind;
+    let report = Reporter::new(job);
+    report.update(true, |_| {});
+    let file = Partial::new(path);
+    let written = || report.update(false, |p| p.bytes = file.size());
     if kind == DbKind::Sqlite {
-        // A consistent copy of the whole file, even while it's in use.
-        let _ = std::fs::remove_file(path);
-        driver.execute_script(&[format!("VACUUM INTO {}", driver.dialect().string(&path.to_string_lossy()))], false, false).await?;
+        // A consistent copy of the whole file, even while it's in use. SQLite can't stop it
+        // halfway, so a stop takes effect once the copy is done.
         let tables = driver.schema().await?.schemas.iter().map(|s| s.tables.len()).sum();
-        return Ok(BackupReport { method: BackupMethod::Native, tool: "SQLite".into(), tables, rows: None, bytes: std::fs::metadata(path)?.len(), note: None });
+        report.update(true, |p| {
+            p.stage = Stage::Copying;
+            p.tables = tables;
+        });
+        let sql = [format!("VACUUM INTO {}", driver.dialect().string(&file.tmp.to_string_lossy()))];
+        watched(driver.execute_script(&sql, false, false), &Job { progress: job.progress, cancel: &AtomicBool::new(false) }, written).await?;
+        job.check()?;
+        return Ok(BackupReport { method: BackupMethod::Native, tool: "SQLite".into(), tables, rows: None, bytes: file.finish()?, note: None });
     }
     // SQL Server has no dump tool that writes a runnable script; Kiyi's own format is used there.
     let tool = if prefer_kiyi || kind == DbKind::Sqlserver { None } else { crate::tunnel::find_tool(if kind == DbKind::Postgres { "pg_dump" } else { "mysqldump" }) };
-    if let Some(tool) = tool {
-        let snapshot = driver.schema().await?;
-        // MySQL lists every database the user can see; count the connected one.
-        let tables = snapshot.schemas.iter().filter(|s| kind != DbKind::Mysql || Some(&s.name) == snapshot.default_schema.as_ref()).map(|s| s.tables.len()).sum();
-        if kind == DbKind::Postgres {
-            let mut args = vec!["--no-owner".into(), "--no-privileges".into(), "--format=plain".into(), format!("--file={}", path.display())];
-            args.extend(pg_args(target));
-            run_tool(&tool, &args, &pg_env(target), None).await?;
-        } else {
-            let mut args = mysql_args(target, &tool);
-            args.extend(["--single-transaction".into(), "--routines".into(), "--triggers".into(), "--no-tablespaces".into(), format!("--result-file={}", path.display()), database(target)]);
-            run_tool(&tool, &args, &mysql_env(target), None).await?;
-            // Portable dumps: without DEFINER clauses, anyone with rights on the target can restore.
-            strip_definers(path)?;
-        }
-        let name = tool.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        return Ok(BackupReport { method: BackupMethod::Native, tool: name, tables, rows: None, bytes: std::fs::metadata(path)?.len(), note: None });
+    let Some(tool) = tool else {
+        return kiyi_backup(driver, file, &report, job).await;
+    };
+    let snapshot = driver.schema().await?;
+    // MySQL lists every database the user can see; count the connected one.
+    let tables = snapshot.schemas.iter().filter(|s| kind != DbKind::Mysql || Some(&s.name) == snapshot.default_schema.as_ref()).map(|s| s.tables.len()).sum();
+    report.update(true, |p| {
+        p.stage = Stage::Copying;
+        p.tables = tables;
+    });
+    if kind == DbKind::Postgres {
+        let mut args = vec!["--no-owner".into(), "--no-privileges".into(), "--format=plain".into(), format!("--file={}", file.tmp.display())];
+        args.extend(pg_args(target));
+        run_tool(&tool, &args, &pg_env(target), None, job, written).await?;
+    } else {
+        let mut args = mysql_args(target, &tool);
+        args.extend(["--single-transaction".into(), "--routines".into(), "--triggers".into(), "--no-tablespaces".into(), format!("--result-file={}", file.tmp.display()), database(target)]);
+        run_tool(&tool, &args, &mysql_env(target), None, job, written).await?;
+        // Portable dumps: without DEFINER clauses, anyone with rights on the target can restore.
+        strip_definers(&file.tmp)?;
     }
-    kiyi_backup(driver, path).await
+    job.check()?;
+    let name = tool.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(BackupReport { method: BackupMethod::Native, tool: name, tables, rows: None, bytes: file.finish()?, note: None })
 }
 
 /// Rows waiting to be written as one INSERT, and which result columns go into it.
@@ -199,51 +366,75 @@ fn creation_order(designs: &[(Option<String>, TableDesign)]) -> Vec<usize> {
 }
 
 /// Kiyi's own backup: types, tables (without foreign keys), data, sequences, then foreign keys.
-async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport> {
+async fn kiyi_backup(driver: &dyn DbDriver, file: Partial, report: &Reporter<'_>, job: &Job<'_>) -> Result<BackupReport> {
     let d = driver.dialect();
     let snapshot = driver.schema().await?;
     let default_schema = snapshot.default_schema.clone();
     let mut designs: Vec<(Option<String>, TableDesign)> = Vec::new();
     let mut vanished: Vec<String> = Vec::new();
-    for sc in &snapshot.schemas {
-        // MySQL lists every database the user can see; back up the connected one.
-        if d.is_mysql() && Some(&sc.name) != default_schema.as_ref() {
-            continue;
-        }
-        for t in sc.tables.iter().filter(|t| matches!(t.kind, crate::types::TableKind::Table)) {
-            let schema = if d.is_sqlite() { None } else { Some(sc.name.clone()) };
-            let mut des = match driver.table_details(schema.as_deref(), &t.name).await {
-                Ok(details) => details.design,
-                // Dropped by someone else since the table list was read: nothing to back up.
-                Err(e) if is_missing_table(&e) => {
-                    vanished.push(t.name.clone());
-                    continue;
-                }
-                Err(e) => return Err(e),
-            };
-            if d.is_mysql() {
-                // In MySQL the "schema" is the database itself: name nothing after it, so the
-                // backup restores into whichever database it's loaded into.
-                for f in des.foreign_keys.iter_mut().filter(|f| f.ref_schema.as_deref() == Some(sc.name.as_str())) {
-                    f.ref_schema = None;
-                }
+    // MySQL lists every database the user can see; back up the connected one.
+    let tables: Vec<_> = snapshot
+        .schemas
+        .iter()
+        .filter(|sc| !d.is_mysql() || Some(&sc.name) == default_schema.as_ref())
+        .flat_map(|sc| sc.tables.iter().filter(|t| matches!(t.kind, crate::types::TableKind::Table)).map(move |t| (sc, t)))
+        .collect();
+    // The database's own row counts, roughly; tables it has no figure for count as empty.
+    let estimates: Vec<u64> = tables.iter().filter_map(|(_, t)| t.row_estimate).map(|n| n.max(0) as u64).collect();
+    let expected_rows = (!estimates.is_empty()).then(|| estimates.iter().sum());
+    report.update(true, |p| {
+        p.tables = tables.len();
+        p.expected_rows = expected_rows;
+    });
+    for (i, (sc, t)) in tables.iter().enumerate() {
+        job.check()?;
+        report.update(false, |p| {
+            p.table = t.name.clone();
+            p.tables_done = i;
+        });
+        let schema = if d.is_sqlite() { None } else { Some(sc.name.clone()) };
+        let mut des = match driver.table_details(schema.as_deref(), &t.name).await {
+            Ok(details) => details.design,
+            // Dropped by someone else since the table list was read: nothing to back up.
+            Err(e) if is_missing_table(&e) => {
+                vanished.push(t.name.clone());
+                continue;
             }
-            design::portable_serials(d, &mut des);
-            if d.is_sqlserver() {
-                // rowversion/timestamp values are set by the server and can't be inserted.
-                for c in des.columns.iter_mut().filter(|c| matches!(c.data_type.to_ascii_lowercase().as_str(), "timestamp" | "rowversion")) {
-                    c.generated = true;
-                }
+            Err(e) => return Err(e),
+        };
+        if d.is_mysql() {
+            // In MySQL the "schema" is the database itself: name nothing after it, so the
+            // backup restores into whichever database it's loaded into.
+            for f in des.foreign_keys.iter_mut().filter(|f| f.ref_schema.as_deref() == Some(sc.name.as_str())) {
+                f.ref_schema = None;
             }
-            designs.push((if d.is_mysql() { None } else { schema.clone() }, des));
         }
+        design::portable_serials(d, &mut des);
+        if d.is_sqlserver() {
+            // rowversion/timestamp values are set by the server and can't be inserted.
+            for c in des.columns.iter_mut().filter(|c| matches!(c.data_type.to_ascii_lowercase().as_str(), "timestamp" | "rowversion")) {
+                c.generated = true;
+            }
+        }
+        designs.push((if d.is_mysql() { None } else { schema.clone() }, des));
     }
     let order = creation_order(&designs);
-    let tmp = path.with_extension("partial");
-    let out = Mutex::new(BufWriter::new(std::fs::File::create(&tmp)?));
-    let write = |text: &str| -> std::io::Result<()> { out.lock().unwrap().write_all(text.as_bytes()) };
+    // The writer, and how many bytes went through it.
+    let out = Mutex::new((BufWriter::new(std::fs::File::create(&file.tmp)?), 0u64));
+    let write = |text: &str| -> std::io::Result<()> {
+        let mut out = out.lock().unwrap();
+        out.0.write_all(text.as_bytes())?;
+        out.1 += text.len() as u64;
+        Ok(())
+    };
+    let written = || out.lock().unwrap().1;
     let statement = |sql: &str| -> std::io::Result<()> { write(&format!("{sql};\n{END}\n")) };
-    let engine = if d.is_mysql() { "MySQL" } else if d.is_sqlite() { "SQLite" } else { "PostgreSQL" };
+    let engine = match d.kind {
+        DbKind::Postgres => "PostgreSQL",
+        DbKind::Mysql => "MySQL",
+        DbKind::Sqlite => "SQLite",
+        DbKind::Sqlserver => "SQL Server",
+    };
     write(&format!("{HEADER} of {} ({engine}), {} tables.\n-- Restore it into an empty database with Kiyi, or run it in any SQL client.\n\n", default_schema.as_deref().unwrap_or("the database"), designs.len()))?;
     if d.is_mysql() {
         // Data goes in before the foreign keys that check it.
@@ -289,9 +480,20 @@ async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport>
     }
 
     let mut total_rows = 0u64;
-    for &i in &order {
+    report.update(true, |p| {
+        p.stage = Stage::Copying;
+        p.tables = designs.len();
+        p.tables_done = 0;
+    });
+    for (n, &i) in order.iter().enumerate() {
+        job.check()?;
         let (schema, des) = &designs[i];
         let table = d.table(schema.as_deref(), &des.name);
+        report.update(true, |p| {
+            p.table = des.name.clone();
+            p.tables_done = n;
+            p.bytes = written();
+        });
         let generated: Vec<&str> = des.columns.iter().filter(|c| c.generated).map(|c| c.name.as_str()).collect();
         let identity = d.kind == DbKind::Postgres && des.columns.iter().any(|c| c.auto_increment);
         // SQL Server only takes explicit values for an identity column with IDENTITY_INSERT on.
@@ -313,6 +515,8 @@ async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport>
         };
         let rows = Mutex::new(0u64);
         let sink = |event: QueryEvent| match event {
+            // Stopping: the server is being asked to end the read, and the rest isn't needed.
+            _ if job.stopped() => {}
             QueryEvent::Columns { columns } => {
                 let mut p = pending.lock().unwrap();
                 p.columns = columns.iter().enumerate().filter(|(_, c)| !generated.contains(&c.name.as_str())).map(|(i, c)| (i, c.kind)).collect();
@@ -327,11 +531,16 @@ async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport>
                         flush(&mut p);
                     }
                 }
+                drop(p);
                 *rows.lock().unwrap() += batch.len() as u64;
+                report.update(false, |p| {
+                    p.rows += batch.len() as u64;
+                    p.bytes = written();
+                });
             }
             _ => {}
         };
-        if let Err(e) = driver.execute(&format!("SELECT * FROM {table}"), &|_| {}, &sink).await {
+        if let Err(e) = execute(driver, &format!("SELECT * FROM {table}"), &sink, job).await {
             if !is_missing_table(&e) {
                 return Err(e);
             }
@@ -364,14 +573,15 @@ async fn kiyi_backup(driver: &dyn DbDriver, path: &Path) -> Result<BackupReport>
     if d.is_mysql() {
         statement("SET FOREIGN_KEY_CHECKS = 1")?;
     }
-    out.into_inner().unwrap().flush()?;
-    std::fs::rename(&tmp, path)?;
+    job.check()?;
+    out.into_inner().unwrap().0.flush()?;
+    report.update(true, |p| p.tables_done = designs.len());
     Ok(BackupReport {
         method: BackupMethod::Kiyi,
         tool: "Kiyi".into(),
         tables: designs.len(),
         rows: Some(total_rows),
-        bytes: std::fs::metadata(path)?.len(),
+        bytes: file.finish()?,
         note: Some(format!(
             "Tables, data, keys and indexes. Views, functions, triggers and permissions need the database's own tools (pg_dump / mysqldump).{}",
             if vanished.is_empty() { String::new() } else { format!(" Skipped because they were deleted during the backup: {}.", vanished.join(", ")) }
@@ -387,15 +597,44 @@ fn is_kiyi_file(path: &Path) -> Result<bool> {
 
 /// Restores a backup into this database: Kiyi's files statement by statement in one transaction,
 /// others with psql / mysql.
-pub async fn restore(driver: &dyn DbDriver, target: &Target, path: &Path) -> Result<RestoreReport> {
+pub async fn restore(driver: &dyn DbDriver, target: &Target, path: &Path, job: &Job<'_>) -> Result<RestoreReport> {
     let kind = driver.dialect().kind;
-    if is_kiyi_file(path)? {
+    let kiyi = is_kiyi_file(path)?;
+    match restore_from(driver, target, path, kiyi, job).await {
+        Err(Error::Cancelled) => Err(Error::Invalid(
+            match (kiyi, kind) {
+                (true, DbKind::Mysql) => "Restore stopped. Nothing was kept, except structure changes, which MySQL can't roll back.",
+                (_, DbKind::Mysql | DbKind::Sqlserver) => "Restore stopped. Statements that had already run were kept.",
+                _ => "Restore stopped. Nothing was kept.",
+            }
+            .into(),
+        )),
+        other => other,
+    }
+}
+
+async fn restore_from(driver: &dyn DbDriver, target: &Target, path: &Path, kiyi: bool, job: &Job<'_>) -> Result<RestoreReport> {
+    let kind = driver.dialect().kind;
+    let report = Reporter::new(job);
+    report.update(true, |p| {
+        p.stage = Stage::Copying;
+        p.total_bytes = std::fs::metadata(path).ok().map(|m| m.len());
+    });
+    if kiyi {
         let mut lines = BufReader::new(std::fs::File::open(path)?).lines();
         let mut count = 0u64;
+        let mut read = 0u64;
         let mut next = || -> Option<Result<String>> {
+            if job.stopped() {
+                return Some(Err(Error::Cancelled));
+            }
             let mut sql = String::new();
             loop {
-                match lines.next()? {
+                let line = lines.next()?;
+                if let Ok(line) = &line {
+                    read += line.len() as u64 + 1;
+                }
+                match line {
                     Err(e) => return Some(Err(e.into())),
                     Ok(line) if line == END => break,
                     Ok(line) if sql.is_empty() && (line.is_empty() || line.starts_with("-- ")) => continue,
@@ -406,6 +645,10 @@ pub async fn restore(driver: &dyn DbDriver, target: &Target, path: &Path) -> Res
                 }
             }
             count += 1;
+            report.update(false, |p| {
+                p.rows = count;
+                p.bytes = read;
+            });
             Some(Ok(sql.trim_end().trim_end_matches(';').to_string()))
         };
         return match driver.execute_stream(&mut next).await {
@@ -421,7 +664,7 @@ pub async fn restore(driver: &dyn DbDriver, target: &Target, path: &Path) -> Res
             let psql = crate::tunnel::find_tool("psql").ok_or_else(|| Error::Invalid("Restoring this file needs psql, from the PostgreSQL client tools. Install them (e.g. `brew install libpq`), or restore a backup made by Kiyi.".into()))?;
             let mut args = vec!["--no-psqlrc".into(), "--set".into(), "ON_ERROR_STOP=1".into(), "--single-transaction".into(), format!("--file={}", path.display())];
             args.extend(pg_args(target));
-            run_tool(&psql, &args, &pg_env(target), None).await?;
+            run_tool(&psql, &args, &pg_env(target), None, job, || {}).await?;
             Ok(RestoreReport { tool: "psql".into(), statements: None })
         }
         DbKind::Mysql => {
@@ -429,7 +672,7 @@ pub async fn restore(driver: &dyn DbDriver, target: &Target, path: &Path) -> Res
             let cleaned = path.with_extension("kiyi-restore.sql");
             std::fs::copy(path, &cleaned)?;
             strip_definers(&cleaned)?;
-            let result = restore_mysql(target, &cleaned).await;
+            let result = restore_mysql(target, &cleaned, job).await;
             let _ = std::fs::remove_file(&cleaned);
             result
         }
@@ -441,7 +684,7 @@ pub async fn restore(driver: &dyn DbDriver, target: &Target, path: &Path) -> Res
                 args.push("-C".into());
             }
             let env: Vec<(String, String)> = target.password.iter().map(|p| ("SQLCMDPASSWORD".to_string(), p.clone())).collect();
-            run_tool(&sqlcmd, &args, &env, None).await?;
+            run_tool(&sqlcmd, &args, &env, None, job, || {}).await?;
             Ok(RestoreReport { tool: "sqlcmd".into(), statements: None })
         }
         DbKind::Sqlite => {
@@ -452,18 +695,28 @@ pub async fn restore(driver: &dyn DbDriver, target: &Target, path: &Path) -> Res
             }
             let statements = crate::dml::split_sql(&text);
             let n = statements.len() as u64;
-            let mut it = statements.into_iter().filter(|s| !matches!(s.to_ascii_uppercase().as_str(), "BEGIN TRANSACTION" | "BEGIN" | "COMMIT")).map(Ok);
-            driver.execute_stream(&mut || it.next()).await?;
+            let mut it = statements.into_iter().filter(|s| !matches!(s.to_ascii_uppercase().as_str(), "BEGIN TRANSACTION" | "BEGIN" | "COMMIT"));
+            let mut count = 0u64;
+            driver
+                .execute_stream(&mut || {
+                    if job.stopped() {
+                        return Some(Err(Error::Cancelled));
+                    }
+                    count += 1;
+                    report.update(false, |p| p.rows = count);
+                    it.next().map(Ok)
+                })
+                .await?;
             Ok(RestoreReport { tool: "Kiyi".into(), statements: Some(n) })
         }
     }
 }
 
-async fn restore_mysql(target: &Target, path: &Path) -> Result<RestoreReport> {
+async fn restore_mysql(target: &Target, path: &Path, job: &Job<'_>) -> Result<RestoreReport> {
     let mysql = crate::tunnel::find_tool("mysql").ok_or_else(|| Error::Invalid("Restoring this file needs the mysql command-line client. Install it (e.g. `brew install mysql-client`), or restore a backup made by Kiyi.".into()))?;
     let mut args = mysql_args(target, &mysql);
     args.push(database(target));
-    run_tool(&mysql, &args, &mysql_env(target), Some(path)).await?;
+    run_tool(&mysql, &args, &mysql_env(target), Some(path), job, || {}).await?;
     Ok(RestoreReport { tool: "mysql".into(), statements: None })
 }
 

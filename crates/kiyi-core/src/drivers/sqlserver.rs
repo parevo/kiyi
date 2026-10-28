@@ -74,6 +74,8 @@ impl SqlServerDriver {
             c.database(db);
         }
         c.application_name("Kiyi");
+        // Long queries and backups may wait minutes between results; stopping one is Kiyi's cancel (KILL), not a timer.
+        c.command_timeout(None);
         let cert = config.ssl_root_cert.as_deref().filter(|c| !c.trim().is_empty());
         match config.ssl_mode {
             // Only the login is encrypted (the server may still insist on more).

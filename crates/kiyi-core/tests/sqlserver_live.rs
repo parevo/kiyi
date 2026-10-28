@@ -192,19 +192,20 @@ async fn sql_server_cancel_stops_a_long_query() {
 
 #[tokio::test]
 async fn sql_server_backup_restores_and_compares_equal() {
-    use kiyi_core::backup::{self, Target};
+    use kiyi_core::backup::{self, Job, Target};
+    use std::sync::atomic::AtomicBool;
     if !live() {
         return;
     }
     let src = open("kiyi_test").await;
     let path = std::env::temp_dir().join(format!("kiyi-ms-{}.sql", std::process::id()));
-    let report = backup::backup(&*src, &Target { config: config("kiyi_test"), password: Some("Kiyi_pass1".into()) }, &path, false).await.unwrap();
+    let report = backup::backup(&*src, &Target { config: config("kiyi_test"), password: Some("Kiyi_pass1".into()) }, &path, false, &Job { progress: &|_| {}, cancel: &AtomicBool::new(false) }).await.unwrap();
     assert_eq!(report.rows, Some(3002));
     let master = open("master").await;
     let fresh = "kiyi_restore_test";
     master.execute_script(&[format!("IF DB_ID('{fresh}') IS NOT NULL DROP DATABASE {fresh}"), format!("CREATE DATABASE {fresh}")], false, false).await.unwrap();
     let dst = open(fresh).await;
-    backup::restore(&*dst, &Target { config: config(fresh), password: Some("Kiyi_pass1".into()) }, &path).await.unwrap_or_else(|e| panic!("restore: {e}"));
+    backup::restore(&*dst, &Target { config: config(fresh), password: Some("Kiyi_pass1".into()) }, &path, &Job { progress: &|_| {}, cancel: &AtomicBool::new(false) }).await.unwrap_or_else(|e| panic!("restore: {e}"));
     for q in ["SELECT * FROM customers ORDER BY id", "SELECT * FROM orders ORDER BY id"] {
         assert_eq!(src.fetch(q).await.unwrap().1, dst.fetch(q).await.unwrap().1, "{q}");
     }
@@ -216,6 +217,62 @@ async fn sql_server_backup_restores_and_compares_equal() {
     dst.close().await;
     master.execute_script(&[format!("ALTER DATABASE {fresh} SET SINGLE_USER WITH ROLLBACK IMMEDIATE"), format!("DROP DATABASE {fresh}")], false, false).await.unwrap();
     let _ = std::fs::remove_file(&path);
+}
+
+/// A backup whose read is held up by another session's lock: it waits past tiberius' old 30 s
+/// limit, and Stop ends it promptly without leaving a file.
+#[tokio::test]
+async fn sql_server_backup_waits_on_locks_and_stops() {
+    use kiyi_core::backup::{self, Job, Target};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+    if !live() {
+        return;
+    }
+    let master = open("master").await;
+    let name = "kiyi_block_test";
+    master.execute_script(&[format!("IF DB_ID('{name}') IS NOT NULL DROP DATABASE {name}"), format!("CREATE DATABASE {name}")], false, false).await.unwrap();
+    let db = open(name).await;
+    db.execute_script(&["CREATE TABLE t (id int PRIMARY KEY, v int)".into(), "INSERT INTO t VALUES (1, 1), (2, 2)".into()], true, false).await.unwrap();
+    let target = || Target { config: config(name), password: Some("Kiyi_pass1".into()) };
+    // Holds a write lock on every row of `t` for `secs`.
+    let hold = |secs: u32| {
+        let db = db.clone();
+        tokio::spawn(async move { db.execute(&format!("BEGIN TRAN; UPDATE t SET v = v + 1; WAITFOR DELAY '00:00:{secs:02}'; ROLLBACK"), &|_| {}, &|_| {}).await })
+    };
+
+    let path = std::env::temp_dir().join(format!("kiyi-ms-block-{}.sql", std::process::id()));
+    let locker = hold(33);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(!locker.is_finished(), "the lock ended early: {:?}", locker.await);
+    let started = Instant::now();
+    let report = backup::backup(&*db, &target(), &path, false, &Job { progress: &|_| {}, cancel: &AtomicBool::new(false) }).await.unwrap_or_else(|e| panic!("backup behind a lock: {e}"));
+    assert!(started.elapsed() > Duration::from_secs(30));
+    assert_eq!(report.rows, Some(2));
+    locker.await.unwrap().unwrap();
+    std::fs::remove_file(&path).unwrap();
+
+    let locker = hold(30);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let cancel = AtomicBool::new(false);
+    let seen = Mutex::new(Vec::new());
+    let progress = |p: backup::Progress| seen.lock().unwrap().push(p);
+    let started = Instant::now();
+    let stop = async {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        cancel.store(true, Ordering::Relaxed);
+    };
+    let (to, job) = (target(), Job { progress: &progress, cancel: &cancel });
+    let (result, ()) = tokio::join!(backup::backup(&*db, &to, &path, false, &job), stop);
+    assert_eq!(result.unwrap_err().to_string(), "Backup stopped. No file was written.");
+    assert!(started.elapsed() < Duration::from_secs(8), "stopping took {:?}", started.elapsed());
+    assert!(!path.exists());
+    assert!(seen.lock().unwrap().iter().any(|p| p.table == "t"));
+    // The pool still works afterwards.
+    assert_eq!(db.fetch("SELECT 1").await.unwrap().1[0][0].as_deref(), Some("1"));
+    locker.abort();
+    db.close().await;
+    master.execute_script(&[format!("ALTER DATABASE {name} SET SINGLE_USER WITH ROLLBACK IMMEDIATE"), format!("DROP DATABASE {name}")], false, false).await.unwrap();
 }
 
 #[tokio::test]

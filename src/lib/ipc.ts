@@ -26,6 +26,7 @@ import type {
   MigrationReport,
   BackupTools,
   Comparison,
+  BackupProgress,
   BackupReport,
   RestoreReport,
   SqlSuggestion,
@@ -99,8 +100,18 @@ export const ipc = {
   aiExplainSql: (id: string, sql: string, language: string) => invoke<QueryExplanation>("ai_explain_sql", { id, sql, language }),
   compare: (left: string, right: string) => invoke<Comparison>("compare", { left, right }),
   backupTools: (id: string, today: string) => invoke<BackupTools>("backup_tools", { id, today }),
-  backup: (id: string, path: string, preferKiyi: boolean) => invoke<BackupReport>("backup", { id, path, preferKiyi }),
-  restore: (id: string, path: string) => invoke<RestoreReport>("restore", { id, path }),
+  backup(id: string, path: string, preferKiyi: boolean, runId: string, onProgress: (p: BackupProgress) => void) {
+    const channel = new Channel<BackupProgress>();
+    channel.onmessage = onProgress;
+    return invoke<BackupReport>("backup", { id, path, preferKiyi, runId, onProgress: channel });
+  },
+  restore(id: string, path: string, runId: string, onProgress: (p: BackupProgress) => void) {
+    const channel = new Channel<BackupProgress>();
+    channel.onmessage = onProgress;
+    return invoke<RestoreReport>("restore", { id, path, runId, onProgress: channel });
+  },
+  /** Stops a backup or restore; it then fails with a "stopped" message. */
+  backupCancel: (runId: string) => invoke<void>("backup_cancel", { runId }),
   schemaGraph: (id: string) => invoke<SchemaGraph>("schema_graph", { id }),
   editableResult: (id: string, sql: string, columns: string[]) => invoke<EditableResult | null>("editable_result", { id, sql, columns }),
   qualityCheck: (id: string, schema: string | null, table: string) => invoke<QualityReport>("quality_check", { id, schema, table }),
