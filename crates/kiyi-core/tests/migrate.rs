@@ -523,3 +523,188 @@ async fn postgres_categories_link_to_parents_that_come_later() {
     assert_eq!(got[2], vec![Some("Home".into()), None]);
     exec(&pg, &["DROP TABLE move_tree_src, move_tree_dst"]).await;
 }
+
+fn col(target: &str, source: &str) -> ColumnMapping {
+    ColumnMapping { target: target.into(), source: ValueSource::Column { column: source.into() }, steps: vec![] }
+}
+
+fn mapping(source_schema: Option<&str>, source: &str, target: &str, columns: Vec<ColumnMapping>) -> TableMapping {
+    TableMapping {
+        enabled: true,
+        source_schema: source_schema.map(str::to_string),
+        source_table: source.into(),
+        target_schema: None,
+        target_table: target.into(),
+        columns,
+        ids: IdMode::Keep,
+        write: WriteMode::Insert,
+        match_on: vec![],
+    }
+}
+
+/// Whether a row already exists is the target's call: a case-sensitive unique column keeps
+/// "ada@x.com" apart from "Ada@x.com", a NOCASE one doesn't, and either way the move goes through.
+/// Rows repeating an earlier row are moved once and links to them follow; a two-column key pages.
+#[tokio::test]
+async fn existing_rows_are_matched_the_way_the_target_compares_them() {
+    let src = open(&sqlite("match-src")).await;
+    exec(
+        &src,
+        &[
+            "CREATE TABLE people (id INTEGER PRIMARY KEY, email TEXT NOT NULL)",
+            "INSERT INTO people VALUES (10, 'ada@x.com'), (11, 'bob@x.com'), (12, 'bob@x.com'), (13, 'Cem@x.com')",
+            "CREATE TABLE notes (id INTEGER PRIMARY KEY, person_id INTEGER NOT NULL, body TEXT)",
+            "INSERT INTO notes VALUES (1, 10, 'a'), (2, 12, 'b'), (3, 13, 'c')",
+            "CREATE TABLE lines (a INTEGER NOT NULL, b INTEGER NOT NULL, qty INTEGER NOT NULL, PRIMARY KEY (a, b))",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 4500) INSERT INTO lines SELECT i % 3, i, i * 2 FROM n",
+        ],
+    )
+    .await;
+    for (collate, people) in [("", 5), (" COLLATE NOCASE", 3)] {
+        let dst = open(&sqlite(if collate.is_empty() { "match-cs" } else { "match-ci" })).await;
+        exec(
+            &dst,
+            &[
+                &format!("CREATE TABLE people (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE{collate})"),
+                "INSERT INTO people VALUES (1, 'Ada@x.com'), (2, 'cem@x.com')",
+                "CREATE TABLE notes (id INTEGER PRIMARY KEY, person_id INTEGER NOT NULL REFERENCES people (id), body TEXT)",
+                "CREATE TABLE lines (a INTEGER NOT NULL, b INTEGER NOT NULL, qty INTEGER NOT NULL, PRIMARY KEY (a, b))",
+            ],
+        )
+        .await;
+        let mut people_map = mapping(None, "people", "people", vec![col("id", "id"), col("email", "email")]);
+        people_map.ids = IdMode::Renumber;
+        people_map.write = WriteMode::Skip;
+        people_map.match_on = vec!["email".into()];
+        let notes = mapping(
+            None,
+            "notes",
+            "notes",
+            vec![ColumnMapping { target: "person_id".into(), source: ValueSource::Reference { column: "person_id".into(), schema: None, table: "people".into() }, steps: vec![] }, col("body", "body")],
+        );
+        let lines = mapping(None, "lines", "lines", vec![col("a", "a"), col("b", "b"), col("qty", "qty")]);
+        let plan = MigrationPlan { source: "s".into(), target: "t".into(), source_name: String::new(), target_name: String::new(), tables: vec![notes, people_map, lines] };
+        let check = migrate::check(src.as_ref(), dst.as_ref(), &plan).await.unwrap();
+        assert!(check.ready, "{}", issues_text(&check));
+        assert!(issues_text(&check).contains("repeat the email"), "{}", issues_text(&check));
+        let report = run(&src, &dst, &plan, false).await.unwrap_or_else(|e| panic!("{collate}: {e}"));
+        assert_eq!(report.tables.iter().find(|t| t.target == "people").unwrap().repeated, 1);
+        assert_eq!(one(&dst, "SELECT COUNT(*) FROM people").await, people.to_string(), "{collate}");
+        let owner = |body: &str| format!("SELECT p.email FROM notes n JOIN people p ON p.id = n.person_id WHERE n.body = '{body}'");
+        assert_eq!(one(&dst, &owner("a")).await, if collate.is_empty() { "ada@x.com" } else { "Ada@x.com" });
+        assert_eq!(one(&dst, &owner("b")).await, "bob@x.com", "a link to the repeated row follows the first one");
+        assert_eq!(one(&dst, &owner("c")).await, if collate.is_empty() { "Cem@x.com" } else { "cem@x.com" });
+        assert_eq!(one(&dst, "SELECT COUNT(*) || ' ' || SUM(qty) FROM lines").await, one(&src, "SELECT COUNT(*) || ' ' || SUM(qty) FROM lines").await);
+    }
+}
+
+fn sqlserver_live() -> bool {
+    std::env::var("KIYI_LIVE_SQLSERVER").is_ok() && live()
+}
+
+fn sqlserver(database: &str) -> ConnectionConfig {
+    ConnectionConfig { kind: DbKind::Sqlserver, port: 51433, user: "sa".into(), ssl_mode: SslMode::Prefer, driver: Some("sqlserver".into()), ..server(DbKind::Sqlserver, database) }
+}
+
+/// A legacy SQL Server system (Turkish names, IDENTITY keys, bit, money, uniqueidentifier,
+/// datetimeoffset, ntext, a table without a key, a two-column key) into a MySQL schema that
+/// already has a customer.
+#[tokio::test]
+async fn sql_server_moves_into_mysql() {
+    if !sqlserver_live() {
+        return;
+    }
+    let master = drivers::open(&sqlserver("master"), Some("Kiyi_pass1")).await.expect("connect to SQL Server");
+    exec(
+        &master,
+        &["IF DB_ID('kiyi_move_src') IS NOT NULL ALTER DATABASE kiyi_move_src SET SINGLE_USER WITH ROLLBACK IMMEDIATE", "DROP DATABASE IF EXISTS kiyi_move_src", "CREATE DATABASE kiyi_move_src"],
+    )
+    .await;
+    let ms = drivers::open(&sqlserver("kiyi_move_src"), Some("Kiyi_pass1")).await.expect("connect to SQL Server");
+    exec(
+        &ms,
+        &[
+            "CREATE TABLE dbo.Musteriler (MusteriID int IDENTITY PRIMARY KEY, AdSoyad nvarchar(100) NOT NULL, Eposta nvarchar(120) NOT NULL, Aktif bit NOT NULL, Notlar ntext NULL, Kayit datetime2(7) NULL, Kimlik uniqueidentifier NOT NULL, Puan tinyint NULL)",
+            "INSERT INTO dbo.Musteriler (AdSoyad, Eposta, Aktif, Notlar, Kayit, Kimlik, Puan) VALUES
+               (N'Şükrü Öğün', N'sukru@x.com', 1, N'çok iyi müşteri 😀', '2024-01-02 03:04:05.1234567', '6F9619FF-8B86-D011-B42D-00C04FC964FF', 200),
+               (N'Me Again', N'ME@mine.com', 0, NULL, NULL, '11111111-2222-3333-4444-555555555555', NULL),
+               (N'Dup One', N'dup@x.com', 1, NULL, '2023-05-06', 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE', 5),
+               (N'Dup Two', N'dup@x.com', 0, NULL, NULL, 'AAAAAAAA-BBBB-CCCC-DDDD-FFFFFFFFFFFF', 6),
+               (N'Ayşe Çelik', N'ayse@x.com', 0, N'', '1999-12-31 23:59:59', '12345678-1234-1234-1234-123456789012', 0)",
+            "CREATE TABLE dbo.Siparisler (SiparisID int IDENTITY PRIMARY KEY, MusteriID int NOT NULL REFERENCES dbo.Musteriler, Tutar money NOT NULL, Tarih datetimeoffset NOT NULL, Durum char(1) NOT NULL)",
+            "INSERT INTO dbo.Siparisler (MusteriID, Tutar, Tarih, Durum) VALUES
+               (1, 1234.5678, '2026-02-01 10:00:00 +03:00', 'T'), (2, 10.00, '2026-02-02 08:15:00 +00:00', 'I'), (4, 99.99, '2026-02-03 18:45:30.5 +01:00', 'T')",
+            "CREATE TABLE dbo.SiparisKalem (SiparisID int NOT NULL REFERENCES dbo.Siparisler, Sira int NOT NULL, Adet int NOT NULL, PRIMARY KEY (SiparisID, Sira))",
+            "WITH n AS (SELECT TOP 5000 ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS i FROM sys.all_objects a CROSS JOIN sys.all_objects b)
+               INSERT INTO dbo.SiparisKalem SELECT i % 3 + 1, i, i % 7 FROM n",
+            "CREATE TABLE dbo.Kayitlar (Mesaj ntext NULL, Zaman datetime NOT NULL)",
+            "WITH n AS (SELECT TOP 4500 ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS i FROM sys.all_objects a CROSS JOIN sys.all_objects b)
+               INSERT INTO dbo.Kayitlar SELECT N'kayıt ' + CAST(i AS nvarchar(10)), DATEADD(second, i, '2025-01-01') FROM n",
+        ],
+    )
+    .await;
+
+    let root = open(&server(DbKind::Mysql, "kiyi_test")).await;
+    exec(&root, &["DROP DATABASE IF EXISTS kiyi_from_mssql", "CREATE DATABASE kiyi_from_mssql"]).await;
+    let my = open(&server(DbKind::Mysql, "kiyi_from_mssql")).await;
+    exec(
+        &my,
+        &[
+            "CREATE TABLE customers (id INT AUTO_INCREMENT PRIMARY KEY, full_name VARCHAR(100) NOT NULL, email VARCHAR(120) NOT NULL UNIQUE, active BIT(1) NOT NULL, notes TEXT, created_at DATETIME(3), uid BINARY(16) NOT NULL, score TINYINT UNSIGNED)",
+            "INSERT INTO customers (full_name, email, active, uid) VALUES ('Existing', 'me@mine.com', b'1', UUID_TO_BIN(UUID()))",
+            "CREATE TABLE orders (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT NOT NULL, amount DECIMAL(12,4) NOT NULL, placed_at DATETIME NOT NULL, status ENUM('done','cancelled') NOT NULL, FOREIGN KEY (customer_id) REFERENCES customers (id))",
+            "CREATE TABLE order_lines (order_id INT NOT NULL, line INT NOT NULL, qty INT NOT NULL, PRIMARY KEY (order_id, line), FOREIGN KEY (order_id) REFERENCES orders (id))",
+            "CREATE TABLE logs (message LONGTEXT, at DATETIME NOT NULL)",
+        ],
+    )
+    .await;
+
+    let dbo = Some("dbo");
+    let mut customers = mapping(
+        dbo,
+        "Musteriler",
+        "customers",
+        vec![col("id", "MusteriID"), col("full_name", "AdSoyad"), col("email", "Eposta"), col("active", "Aktif"), col("notes", "Notlar"), col("created_at", "Kayit"), col("uid", "Kimlik"), col("score", "Puan")],
+    );
+    customers.ids = IdMode::Renumber;
+    customers.write = WriteMode::Skip;
+    customers.match_on = vec!["email".into()];
+    let reference = |target: &str, column: &str, table: &str| ColumnMapping { target: target.into(), source: ValueSource::Reference { column: column.into(), schema: Some("dbo".into()), table: table.into() }, steps: vec![] };
+    let mut orders = mapping(dbo, "Siparisler", "orders", vec![col("id", "SiparisID"), reference("customer_id", "MusteriID", "Musteriler"), col("amount", "Tutar"), col("placed_at", "Tarih"), col("status", "Durum")]);
+    orders.ids = IdMode::Renumber;
+    orders.columns[4].steps = vec![Step::Map { pairs: vec![MapPair { from: "T".into(), to: Some("done".into()) }, MapPair { from: "I".into(), to: Some("cancelled".into()) }], otherwise: Otherwise::Keep }];
+    let lines = mapping(dbo, "SiparisKalem", "order_lines", vec![reference("order_id", "SiparisID", "Siparisler"), col("line", "Sira"), col("qty", "Adet")]);
+    let logs = mapping(dbo, "Kayitlar", "logs", vec![col("message", "Mesaj"), col("at", "Zaman")]);
+    let plan = MigrationPlan { source: "ms".into(), target: "my".into(), source_name: String::new(), target_name: String::new(), tables: vec![logs, lines, orders, customers] };
+
+    let check = migrate::check(ms.as_ref(), my.as_ref(), &plan).await.unwrap();
+    assert!(check.ready, "{}", issues_text(&check));
+    let at = |t: &str| check.order.iter().position(|o| o == t).unwrap();
+    assert!(at("customers") < at("orders") && at("orders") < at("order_lines"), "referenced tables first: {:?}", check.order);
+    let text = issues_text(&check);
+    assert!(text.contains("Kayitlar has no key"), "{text}");
+    assert!(text.contains("repeat the email"), "{text}");
+
+    let test = run(&ms, &my, &plan, true).await.unwrap();
+    assert!(test.test_run);
+    assert_eq!(one(&my, "SELECT COUNT(*) FROM customers").await, "1", "a test run keeps nothing");
+
+    let report = run(&ms, &my, &plan, false).await.unwrap();
+    assert_eq!(report.rows, 4 + 3 + 5000 + 4500, "rows sent; MySQL skips the existing customer itself");
+    assert_eq!(one(&my, "SELECT COUNT(*) FROM customers").await, "4", "ME@mine.com is the existing customer; dup@x.com moves once");
+    assert_eq!(one(&my, "SELECT CONCAT(full_name, '|', notes, '|', active + 0, '|', created_at, '|', HEX(uid), '|', score) FROM customers WHERE email = 'sukru@x.com'").await, "Şükrü Öğün|çok iyi müşteri 😀|1|2024-01-02 03:04:05.123|6F9619FF8B86D011B42D00C04FC964FF|200");
+    assert_eq!(one(&my, "SELECT CONCAT(active + 0, '|', notes = '', '|', score) FROM customers WHERE email = 'ayse@x.com'").await, "0|1|0");
+    let owner = |amount: &str| format!("SELECT c.email FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.amount = {amount}");
+    assert_eq!(one(&my, &owner("10")).await, "me@mine.com", "the order follows the customer who was already there");
+    assert_eq!(one(&my, &owner("99.99")).await, "dup@x.com");
+    assert_eq!(one(&my, "SELECT CONCAT(amount, '|', placed_at, '|', status) FROM orders WHERE amount > 1000").await, "1234.5678|2026-02-01 07:00:00|done");
+    assert_eq!(one(&my, "SELECT CONCAT(COUNT(*), '|', SUM(qty), '|', COUNT(DISTINCT order_id)) FROM order_lines").await, one(&ms, "SELECT CONCAT(COUNT(*), '|', SUM(Adet), '|', COUNT(DISTINCT SiparisID)) FROM dbo.SiparisKalem").await);
+    assert_eq!(one(&my, "SELECT CONCAT(COUNT(*), '|', COUNT(DISTINCT message), '|', MAX(at)) FROM logs").await, "4500|4500|2025-01-01 01:15:00");
+
+    // Moving the customers again finds every one of them, whatever the case of the email.
+    let mut again = plan.clone();
+    again.tables.retain(|t| t.target_table == "customers");
+    let report = run(&ms, &my, &again, false).await.unwrap();
+    assert_eq!(report.tables[0].repeated, 1);
+    assert_eq!(one(&my, "SELECT COUNT(*) FROM customers").await, "4");
+}

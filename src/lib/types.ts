@@ -540,7 +540,8 @@ export interface MigrationProgress {
   total: number;
 }
 export interface MigrationReport {
-  tables: { target: string; rows: number }[];
+  /** `repeated`: source rows left out because they repeat an earlier row's match values. */
+  tables: { target: string; rows: number; repeated: number }[];
   rows: number;
   testRun: boolean;
   seconds: number;

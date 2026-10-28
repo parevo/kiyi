@@ -187,5 +187,8 @@ pub fn open(path: &std::path::Path) -> crate::error::Result<MigrationPlan> {
     if v["kiyi"] != "migration" {
         return Err(crate::error::Error::Invalid("This file isn't a Kiyi migration plan.".into()));
     }
+    if v["version"].as_u64().unwrap_or(1) > 1 {
+        return Err(crate::error::Error::Invalid("This plan was saved by a newer version of Kiyi; update Kiyi to open it.".into()));
+    }
     Ok(serde_json::from_value(v["plan"].clone())?)
 }
