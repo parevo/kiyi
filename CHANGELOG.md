@@ -2,6 +2,16 @@
 
 What changed in each version of Kiyi, newest first. The [releases page](https://github.com/parevo/kiyi/releases) has the downloads.
 
+## 0.6.4 (2026-10-28)
+
+### New
+- **Back up and restore show how far they are, and can be stopped.** A bar with the table being read, rows and size written so far, elapsed time, and a Stop button. Stopping ends the read on the server (or the pg_dump / mysqldump / psql / mysql / sqlcmd run), and a restore made from a Kiyi backup is rolled back. The confirmation for a restore now closes right away, and progress shows in the view.
+
+### Fixed
+- **SQL Server:** a backup, or any query, that waited more than 30 seconds for the server (a table locked by someone else, a slow scan) no longer fails with "the server did not send the next part of the command result". Long queries can still be stopped as before.
+- **Backups:** a stopped or failed backup leaves no half-written file, and a file already at that path is kept as it was. The backup is moved into place only when it's complete.
+- **SQL Server backups** no longer say PostgreSQL in their first line.
+
 ## 0.6.3 (2026-10-28)
 
 ### Fixed
