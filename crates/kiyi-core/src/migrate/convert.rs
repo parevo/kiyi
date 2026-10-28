@@ -58,18 +58,52 @@ pub(crate) struct TargetColumn {
     pub fills_itself: bool,
     pub enum_values: Vec<String>,
     pub max_len: Option<usize>,
+    /// Bytes the column holds, where that's less than its text length says (MySQL TEXT, BINARY(n)).
+    pub max_bytes: Option<usize>,
+    /// Stored as bytes, written as a hex literal (also MySQL's BINARY(16) UUIDs).
+    pub binary: bool,
+    /// A number written without quotes: MySQL reads '1' into a BIT column as the byte 0x31.
+    pub bare: bool,
+    /// Smallest and largest whole number the column holds.
+    pub range: Option<(i128, i128)>,
+    /// Digits in all and after the point, for DECIMAL(p, s).
+    pub digits: Option<(u32, u32)>,
 }
 
 impl TargetColumn {
     pub fn new(kind: DbKind, c: &ColumnDesign) -> Self {
+        let t = c.data_type.trim().to_ascii_lowercase();
+        let base = super::engine::base_type(&t);
+        let size = t.split_once('(').and_then(|(_, r)| r.split([')', ',']).next()).and_then(|n| n.trim().parse::<u32>().ok());
+        let bit = kind == DbKind::Mysql && base == "bit";
+        let category = match size {
+            _ if !bit => crate::catalog::category(kind, &c.data_type),
+            None | Some(1) => TypeCategory::Boolean,
+            Some(_) => TypeCategory::Number,
+        };
+        let binary = category == TypeCategory::Binary || (kind != DbKind::Postgres && matches!(base, "binary" | "varbinary"));
+        let max_bytes = match (kind, base) {
+            (DbKind::Mysql, "tinytext" | "tinyblob") => Some(255),
+            (DbKind::Mysql, "text" | "blob") => Some(65_535),
+            (DbKind::Mysql, "mediumtext" | "mediumblob") => Some(16_777_215),
+            _ if binary => size.map(|n| n as usize),
+            _ => None,
+        };
+        let range = if bit { size.filter(|n| *n < 64).map(|n| (0, (1i128 << n) - 1)) } else { int_range(kind, &t) };
+        let digits = matches!(base, "decimal" | "numeric" | "dec").then(|| decimal_digits(&t)).flatten();
         Self {
             name: c.name.clone(),
             data_type: c.data_type.clone(),
-            category: crate::catalog::category(kind, &c.data_type),
+            category,
             nullable: c.nullable,
             fills_itself: c.default.is_some() || c.auto_increment || c.generated,
             enum_values: c.enum_values.clone(),
             max_len: text_length(&c.data_type),
+            max_bytes,
+            binary,
+            bare: bit,
+            range,
+            digits,
         }
     }
 
@@ -87,6 +121,31 @@ fn text_length(data_type: &str) -> Option<usize> {
     }
     let inside = t.split_once('(')?.1.split_once(')')?.0;
     inside.trim().parse().ok()
+}
+
+/// The whole numbers an integer type holds, so a value that doesn't fit is reported by the check
+/// instead of stopping the move (SQL Server's tinyint goes to 255, MySQL's signed one to 127).
+fn int_range(kind: DbKind, t: &str) -> Option<(i128, i128)> {
+    use DbKind::*;
+    let bits: u32 = match (kind, super::engine::base_type(t)) {
+        (Sqlserver, "tinyint") => return Some((0, 255)),
+        (Mysql, "tinyint") => 8,
+        (Mysql | Sqlserver | Postgres, "smallint") | (Postgres, "int2" | "smallserial") => 16,
+        (Mysql, "mediumint") => 24,
+        (Mysql | Sqlserver | Postgres, "int" | "integer") | (Postgres, "int4" | "serial") => 32,
+        (Mysql | Sqlserver | Postgres, "bigint") | (Postgres, "int8" | "bigserial") => 64,
+        _ => return None,
+    };
+    Some(if kind == Mysql && t.contains("unsigned") { (0, (1i128 << bits) - 1) } else { (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1) })
+}
+
+/// `decimal(10,2)` → (10, 2); `numeric` without a precision holds any number.
+fn decimal_digits(t: &str) -> Option<(u32, u32)> {
+    let inside = t.split_once('(')?.1.split_once(')')?.0;
+    let mut parts = inside.split(',').map(|n| n.trim().parse::<u32>().ok());
+    let precision = parts.next()??;
+    let scale = parts.next().flatten().unwrap_or(0);
+    Some((precision, scale))
 }
 
 pub(crate) fn bool_value(v: &str) -> Option<bool> {
@@ -251,10 +310,10 @@ pub(crate) fn convert(kind: DbKind, col: &TargetColumn, v: Option<String>, sourc
             if let Some(b) = bool_value(t).filter(|_| source_kind == Some(ValueKind::Bool)) {
                 (if b { "1" } else { "0" }).to_string()
             } else if t.strip_prefix('-').unwrap_or(t).bytes().all(|b| b.is_ascii_digit()) && !t.is_empty() && t != "-" {
-                t.to_string()
+                fits(col, t)?
             } else if let Some((whole, frac)) = t.split_once('.').filter(|(w, f)| f.bytes().all(|b| b == b'0') && w.strip_prefix('-').unwrap_or(w).bytes().all(|b| b.is_ascii_digit()) && !w.is_empty()) {
                 let _ = frac;
-                whole.to_string()
+                fits(col, whole)?
             } else {
                 return Err(format!("{} isn't a whole number", short(&v)));
             }
@@ -273,6 +332,13 @@ pub(crate) fn convert(kind: DbKind, col: &TargetColumn, v: Option<String>, sourc
             if !ok {
                 return Err(format!("{} isn't a number", short(&v)));
             }
+            if let Some((precision, scale)) = col.digits {
+                // Extra decimals are rounded by the database; extra whole digits are refused.
+                let whole = t.trim_start_matches(['-', '+']).split('.').next().unwrap_or("").trim_start_matches('0');
+                if whole.bytes().all(|b| b.is_ascii_digit()) && whole.len() as u32 > precision.saturating_sub(scale) {
+                    return Err(format!("{} is too large for {} ({})", short(&v), col.name, col.data_type));
+                }
+            }
             t
         }
         Date => {
@@ -281,6 +347,13 @@ pub(crate) fn convert(kind: DbKind, col: &TargetColumn, v: Option<String>, sourc
         }
         DateTime => {
             let (at, offset) = parse_datetime(&v).ok_or_else(|| format!("{} isn't a date and time", short(&v)))?;
+            if kind == DbKind::Mysql && col.data_type.trim().to_ascii_lowercase().starts_with("timestamp") {
+                let utc = offset.map(|o| at - chrono::TimeDelta::seconds(o as i64)).unwrap_or(at);
+                let (from, to) = (NaiveDate::from_ymd_opt(1970, 1, 1).and_then(|d| d.and_hms_opt(0, 0, 1)), NaiveDate::from_ymd_opt(2038, 1, 19).and_then(|d| d.and_hms_opt(3, 14, 7)));
+                if from.is_some_and(|f| utc < f) || to.is_some_and(|t| utc > t) {
+                    return Err(format!("{} is outside what a MySQL timestamp holds (1970 to 2038); use a datetime column", short(&v)));
+                }
+            }
             datetime_for(kind, &col.data_type, at, offset)
         }
         Json => {
@@ -293,6 +366,14 @@ pub(crate) fn convert(kind: DbKind, col: &TargetColumn, v: Option<String>, sourc
             }
         }
         Binary => format!("0x{}", hex_of(&v)),
+        // A UUID kept as 16 bytes (MySQL's BINARY(16)), in the byte order UUID_TO_BIN uses.
+        Identifier if col.binary => match uuid::Uuid::parse_str(v.trim()) {
+            Ok(u) => format!("0x{}", u.simple()),
+            Err(_) => match hex_of(&v) {
+                h if h.len() == 32 => format!("0x{h}"),
+                _ => return Err(format!("{} isn't a UUID", short(&v))),
+            },
+        },
         Identifier | Time => v.trim().to_string(),
         Text | Other | List => v,
     };
@@ -302,14 +383,29 @@ pub(crate) fn convert(kind: DbKind, col: &TargetColumn, v: Option<String>, sourc
             return Err(format!("{} is {n} characters long; {} holds {max}", short(&out), col.name));
         }
     }
+    if let Some(max) = col.max_bytes {
+        let n = if col.binary { out.len().saturating_sub(2) / 2 } else { out.len() };
+        if n > max {
+            return Err(format!("{} is {n} bytes; {} holds {max}", short(&out), col.name));
+        }
+    }
     Ok(Some(out))
 }
 
 /// The converted value as a SQL literal for the target.
+/// A whole number the column holds, or why not.
+fn fits(col: &TargetColumn, n: &str) -> Result<String, String> {
+    match col.range {
+        Some((min, max)) if n.parse::<i128>().map_or(true, |v| v < min || v > max) => Err(format!("{n} doesn't fit in {} ({min} to {max})", col.name)),
+        _ => Ok(n.to_string()),
+    }
+}
+
 pub(crate) fn literal(d: Dialect, col: &TargetColumn, v: Option<&str>) -> String {
-    match (v, col.category) {
-        (None, _) => "NULL".into(),
-        (Some(h), TypeCategory::Binary) => {
+    match v {
+        None => "NULL".into(),
+        Some(n) if col.bare && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => n.to_string(),
+        Some(h) if col.binary => {
             let hex = h.trim_start_matches("0x");
             match d.kind {
                 DbKind::Postgres => d.string(&format!("\\x{hex}")),
@@ -317,7 +413,7 @@ pub(crate) fn literal(d: Dialect, col: &TargetColumn, v: Option<&str>) -> String
                 _ => format!("X'{hex}'"),
             }
         }
-        (Some(v), _) => d.string(v),
+        Some(v) => d.string(v),
     }
 }
 
@@ -420,5 +516,33 @@ mod tests {
         e.enum_values = vec!["free".into(), "pro".into()];
         assert_eq!(convert(DbKind::Postgres, &e, Some("PRO".into()), None).unwrap().as_deref(), Some("pro"));
         assert!(convert(DbKind::Postgres, &e, Some("gold".into()), None).unwrap_err().contains("free, pro"));
+    }
+
+    #[test]
+    fn sql_server_values_fit_mysql_columns() {
+        use DbKind::Mysql;
+        // A SQL Server bit lands in BIT(1) as a bare number; '1' would be the byte 0x31.
+        let bit = col(Mysql, "bit(1)");
+        assert_eq!(convert(Mysql, &bit, Some("true".into()), Some(ValueKind::Bool)), Ok(Some("1".into())));
+        assert_eq!(literal(Dialect::MYSQL, &bit, Some("1")), "1");
+        // uniqueidentifier into BINARY(16): sixteen bytes, not the 36 characters of text.
+        let id = col(Mysql, "binary(16)");
+        let v = convert(Mysql, &id, Some("6F9619FF-8B86-D011-B42D-00C04FC964FF".into()), None).unwrap().unwrap();
+        assert_eq!(literal(Dialect::MYSQL, &id, Some(&v)), "X'6f9619ff8b86d011b42d00c04fc964ff'");
+        assert!(conv(Mysql, "binary(16)", "not a uuid").is_err());
+        // tinyint is 0–255 in SQL Server, -128–127 in MySQL.
+        assert!(conv(Mysql, "tinyint", "200").is_err());
+        assert_eq!(conv(Mysql, "tinyint unsigned", "200"), Ok(Some("200".into())));
+        assert!(conv(Mysql, "int", "3000000000").is_err());
+        assert_eq!(conv(Mysql, "bigint", "3000000000"), Ok(Some("3000000000".into())));
+        assert!(conv(Mysql, "decimal(5,2)", "12345.6").is_err());
+        assert_eq!(conv(Mysql, "decimal(5,2)", "123.456"), Ok(Some("123.456".into())));
+        // nvarchar(max) into TEXT, which holds 64 KB.
+        assert!(conv(Mysql, "text", &"é".repeat(40_000)).is_err());
+        assert!(conv(Mysql, "mediumtext", &"é".repeat(40_000)).is_ok());
+        // datetimeoffset into TIMESTAMP: UTC, and only 1970 to 2038.
+        assert_eq!(conv(Mysql, "timestamp", "2024-03-01 10:00:00+03:00"), Ok(Some("2024-03-01 07:00:00".into())));
+        assert!(conv(Mysql, "timestamp", "1965-01-01 00:00:00").is_err());
+        assert_eq!(conv(Mysql, "datetime(3)", "2024-03-01 10:00:00.1234567"), Ok(Some("2024-03-01 10:00:00.123".into())));
     }
 }

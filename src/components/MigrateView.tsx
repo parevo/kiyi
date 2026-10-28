@@ -919,7 +919,10 @@ function RunPanel({ state, targetName, onClose }: { state: { testRun: boolean; p
               {report.tables.map((t) => (
                 <li key={t.target}>
                   <span>{t.target}</span>
-                  <span>{fmt.format(t.rows)} rows</span>
+                  <span>
+                    {fmt.format(t.rows)} rows
+                    {t.repeated > 0 && `, ${fmt.format(t.repeated)} repeated left out`}
+                  </span>
                 </li>
               ))}
             </ul>
